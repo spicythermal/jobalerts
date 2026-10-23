@@ -16,3 +16,7 @@ venv/
 build/
 dist/
 .pytest_cache/
+
+# claude stop-hook state
+.claude/.plan-gate*
+.claude/STOP_AUTORUN
