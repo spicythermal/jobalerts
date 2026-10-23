@@ -1,0 +1,6 @@
+{"offset": 0, "limit": 100, "totalFound": 1, "content": [
+  {"id": "744000012345", "name": "Systems Engineer", "releasedDate": "2026-10-21T12:00:00.000Z",
+   "company": {"identifier": "Delta", "name": "Delta Corp"},
+   "location": {"city": "Detroit", "region": "MI", "country": "us", "remote": false, "fullLocation": "Detroit, MI, United States"},
+   "department": {"label": "IT"}}
+]}

@@ -1,0 +1,89 @@
+# jobalerts configuration. Secrets live in .env and are referenced as ${VAR}.
+# Restart the service after editing (docker compose restart jobalerts).
+
+contact_email: "${CONTACT_EMAIL}"   # goes in the User-Agent so site operators can reach you
+database: data/jobalerts.db         # relative to the working directory (/app in Docker)
+companies_file: companies.yaml      # relative to this file
+
+# ---------------------------------------------------------------- what to match
+# PLACEHOLDERS: replace these with your own search. Phrases are case-insensitive whole words.
+criteria:
+  title_include:            # a job must match at least one (empty = every title)
+    - network engineer
+    - infrastructure engineer
+    - site reliability
+    - sre
+    - devops
+    - platform engineer
+    - systems engineer
+  title_exclude:
+    - sales
+    - account executive
+    - recruiter
+  seniority_exclude:        # checked against the title, like title_exclude
+    - intern
+    - internship
+    - junior
+  description_exclude: []   # e.g. "active secret clearance"; only checked for keyword matches
+  locations:                # a job must match one (empty = anywhere)
+    - remote
+    - michigan
+    - detroit
+  allow_remote: true        # remote jobs pass the location check
+  max_age_days: 7           # a "new" job published longer ago than this is ignored
+
+# ---------------------------------------------------------------- how often to poll
+polling:
+  tiers:                    # seconds between polls; each company picks a tier
+    priority: 180
+    normal: 600
+    slow: 1800
+  jitter: 0.2               # +/-20% randomness so polls don't line up
+  host_min_interval:        # minimum seconds between requests to the same host
+    default: 1.0
+    boards-api.greenhouse.io: 1.0
+    myworkdayjobs.com: 5.0
+  failure_alert_threshold: 5   # push a health alert after this many failures in a row
+  max_backoff: 3600            # failing boards back off up to this many seconds
+  max_alerts_per_poll: 5       # more matches than this from one board -> digest instead
+
+# ---------------------------------------------------------------- AI fit scoring
+scoring:
+  enabled: false            # turn on after filling in profile.md and ANTHROPIC_API_KEY
+  model: claude-haiku-5-5   # ~$0.0005 per scored posting
+  effort: low
+  profile_path: profile.md
+  push_threshold: 75        # >= this: phone alert now
+  digest_threshold: 50      # >= this: evening digest; below: stored only
+  daily_max_calls: 300
+
+# ---------------------------------------------------------------- phone notifications (ntfy)
+notify:
+  server: https://ntfy.sh
+  topic: "${NTFY_TOPIC}"    # use a long random topic name; anyone who knows it can read it
+  token: "${NTFY_TOKEN}"    # optional access token (self-hosted ntfy or ntfy.sh account)
+  timezone: America/New_York
+  digest_time: "18:00"
+  digest_max_items: 20
+
+# ---------------------------------------------------------------- broad-net aggregators
+# Slower, catch-all searches for companies not on the watch list. Their matches also
+# feed "hiring for your search, not on your watch list" suggestions in the digest.
+aggregators:
+  usajobs:                  # free key: https://developer.usajobs.gov/apirequest/
+    enabled: false
+    interval: 1800
+    searches:
+      - {keyword: "network engineer"}
+      - {keyword: "IT specialist", remote: true}
+  adzuna:                   # free key: https://developer.adzuna.com/signup
+    enabled: false
+    interval: 3600
+    country: us
+    searches:
+      - {what: "network engineer", where: "Michigan"}
+  jsearch:                  # paid slot (RapidAPI). Free plan ~200 calls/month: keep interval >= 14400
+    enabled: false
+    interval: 14400
+    searches:
+      - {query: "network engineer remote"}

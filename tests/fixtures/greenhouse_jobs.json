@@ -1,0 +1,9 @@
+{"jobs": [
+  {"id": 4001, "title": "Senior Network Engineer", "updated_at": "2026-10-20T10:00:00-04:00",
+   "first_published": "2026-10-20T09:00:00-04:00", "location": {"name": "Remote - US"},
+   "absolute_url": "https://boards.greenhouse.io/acme/jobs/4001", "company_name": "Acme",
+   "departments": [{"name": "Infrastructure"}]},
+  {"id": 4002, "title": "Account Executive", "updated_at": "2026-10-19T10:00:00Z",
+   "location": {"name": "New York, NY"}, "absolute_url": "https://boards.greenhouse.io/acme/jobs/4002",
+   "company_name": "Acme", "departments": []}
+], "meta": {"total": 2}}

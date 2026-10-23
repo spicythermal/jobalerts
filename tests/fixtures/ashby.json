@@ -1,0 +1,7 @@
+{"apiVersion": "1", "jobs": [
+  {"id": "a-1", "title": "Platform Engineer", "department": "Engineering", "location": "Remote (US)",
+   "secondaryLocations": [{"location": "Chicago, IL"}], "publishedAt": "2026-10-21T15:30:00.000+00:00",
+   "isListed": true, "isRemote": true, "jobUrl": "https://jobs.ashbyhq.com/gamma/a-1",
+   "descriptionPlain": "Build the platform.", "compensation": {"compensationTierSummary": "$140K – $170K"}},
+  {"id": "a-2", "title": "Hidden Role", "location": "Remote", "isListed": false, "jobUrl": "x", "publishedAt": "2026-10-21T15:30:00Z"}
+]}

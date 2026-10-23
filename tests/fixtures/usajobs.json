@@ -1,0 +1,8 @@
+{"SearchResult": {"SearchResultCount": 1, "SearchResultItems": [
+  {"MatchedObjectId": "812345600", "MatchedObjectDescriptor": {
+    "PositionID": "IT-26-001", "PositionTitle": "IT Specialist (Network)", "PositionURI": "https://www.usajobs.gov/job/812345600",
+    "PositionLocationDisplay": "Anywhere in the U.S. (remote job)", "OrganizationName": "Department of Energy",
+    "DepartmentName": "Department of Energy", "PublicationStartDate": "2026-10-21T00:00:00.0000",
+    "PositionRemuneration": [{"MinimumRange": "99200", "MaximumRange": "128956", "RateIntervalCode": "PA"}],
+    "QualificationSummary": "Specialized experience.", "UserArea": {"Details": {"JobSummary": "Run networks.", "RemoteIndicator": true}}}}
+]}}

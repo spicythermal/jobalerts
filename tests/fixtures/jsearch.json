@@ -1,0 +1,6 @@
+{"status": "OK", "data": [
+  {"job_id": "js-1", "job_title": "DevOps Engineer", "employer_name": "Zeta Inc", "job_apply_link": "https://zeta.example/apply",
+   "job_city": null, "job_state": null, "job_country": "US", "job_is_remote": true,
+   "job_posted_at_datetime_utc": "2026-10-21T10:00:00.000Z", "job_description": "Pipelines.",
+   "job_min_salary": 120000, "job_max_salary": 150000, "job_salary_period": "YEAR"}
+]}

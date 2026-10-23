@@ -83,7 +83,9 @@ def strip_html(text: str) -> str:
     text = re.sub(r"(?is)<(script|style)\b.*?</\1>", " ", text)
     text = re.sub(r"(?i)<br\s*/?>|</p>|</div>|</h\d>", "\n", text)
     text = re.sub(r"(?i)<li[^>]*>", "\n- ", text)
-    text = re.sub(r"<[^>]+>", " ", text)
+    text = re.sub(r"(?i)</?(?:p|div|ul|ol|table|tr|section|h\d)\b[^>]*>", "\n", text)
+    text = re.sub(r"(?i)</?(?:td|th)\b[^>]*>", " ", text)
+    text = re.sub(r"<[^>]+>", "", text)  # inline tags (strong, a, span...) vanish without adding spaces
     text = html.unescape(text)
     text = re.sub(r"[ \t\r\f\v]+", " ", text)
     text = re.sub(r"\s*\n\s*", "\n", text)
