@@ -1,0 +1,16 @@
+services:
+  jobalerts:
+    build: .
+    image: jobalerts:latest
+    container_name: jobalerts
+    restart: unless-stopped
+    env_file: .env
+    user: "1000:1000"          # must be able to write ./data (and ./config for `discover --add`)
+    volumes:
+      - ./config:/app/config   # config.yaml, companies.yaml, profile.md
+      - ./data:/app/data       # SQLite database
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
