@@ -28,6 +28,7 @@ HAIKU_INPUT_PER_M, HAIKU_OUTPUT_PER_M = 0.10, 0.50
 
 def make_scorer(cfg: Config, store: Store) -> Scorer | None:
     if not cfg.scoring.enabled:
+        log.info("AI scoring off (scoring.enabled: false); alerts use keywords only")
         return None
     profile_path = cfg.resolve(cfg.scoring.profile_path)
     profile = profile_path.read_text(encoding="utf-8") if profile_path.is_file() else ""
