@@ -148,7 +148,7 @@ polling:
 
 # ---------------------------------------------------------------- AI fit scoring
 scoring:
-  enabled: false            # turn on after setting ANTHROPIC_API_KEY (and filling in profile.md)
+  enabled: true             # stays off (keywords only) until ANTHROPIC_API_KEY is set in .env
   model: claude-haiku-5-5   # ~$0.001 per scored posting with two resumes in the (cached) prompt
   effort: low
   profile_path: profile.md  # preferences and deal-breakers the resumes don't say
@@ -171,7 +171,7 @@ notify:
 # token needed). State = matches posted in the last `days`, attribute `jobs` = the best
 # `top_n` (AI score, then newest). See the README for the broker login and a dashboard card.
 homeassistant:
-  enabled: false
+  enabled: true             # idle until MQTT_HOST is set in .env
   mqtt_host: "${MQTT_HOST}"         # e.g. the Home Assistant box's IP (Mosquitto add-on)
   mqtt_port: 1883
   mqtt_username: "${MQTT_USERNAME}"
@@ -188,7 +188,7 @@ homeassistant:
 # feed "hiring for your search, not on your watch list" suggestions in the digest.
 aggregators:
   usajobs:                  # free key: https://developer.usajobs.gov/apirequest/
-    enabled: false
+    enabled: true           # skipped until USAJOBS_API_KEY and USAJOBS_EMAIL are set in .env
     interval: 1800
     searches:
       - {keyword: "physicist"}
@@ -196,7 +196,7 @@ aggregators:
       - {keyword: "accelerator"}
       - {keyword: "systems engineer", location: "Oregon"}
   adzuna:                   # free key: https://developer.adzuna.com/signup
-    enabled: false
+    enabled: true           # skipped until ADZUNA_APP_ID and ADZUNA_APP_KEY are set in .env
     interval: 3600
     country: us
     searches:
@@ -205,7 +205,7 @@ aggregators:
       - {what: "ion beam"}
       - {what: "R&D manager physics", where: "Oregon"}
   jsearch:                  # paid slot (RapidAPI). Free plan ~200 calls/month: keep interval >= 14400
-    enabled: false
+    enabled: true           # skipped until RAPIDAPI_KEY is set in .env
     interval: 14400
     searches:
       - {query: "physicist R&D manager"}

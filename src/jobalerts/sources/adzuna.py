@@ -9,6 +9,7 @@ from .base import Source, SourceConfigError
 
 class Adzuna(Source):
     name = "adzuna"
+    env_keys = ("ADZUNA_APP_ID", "ADZUNA_APP_KEY")
 
     async def fetch(self, board, http):
         app_id, app_key = os.environ.get("ADZUNA_APP_ID"), os.environ.get("ADZUNA_APP_KEY")

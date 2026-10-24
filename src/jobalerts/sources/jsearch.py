@@ -14,6 +14,7 @@ HOST = "jsearch.p.rapidapi.com"
 
 class JSearch(Source):
     name = "jsearch"
+    env_keys = ("RAPIDAPI_KEY",)
 
     async def fetch(self, board, http):
         key = os.environ.get("RAPIDAPI_KEY")

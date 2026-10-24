@@ -18,8 +18,8 @@ poll board ─► new job IDs? ─► keyword filter ─► (optional) Claude fi
   never scraped.
 - **Quiet:** the first poll of a board records what's already open without alerting. A board
   that suddenly lists many new matches sends at most 5 pushes; the rest go to the digest.
-- **Broad net (optional):** USAJobs, Adzuna and JSearch searches catch companies you don't
-  watch. Their matches also feed "hiring for your search, not on your watch list"
+- **Broad net:** USAJobs, Adzuna and JSearch searches catch companies you don't
+  watch. Each runs once its API key is in `.env` and is skipped until then. Their matches also feed "hiring for your search, not on your watch list"
   suggestions in the digest.
 
 ## Quick start (local, Windows or Linux)
@@ -68,8 +68,14 @@ small (see the comments in `companies.yaml`).
 `ntfy.sh`. Pick a long random topic name, since anyone who knows it can read it.
 A self-hosted ntfy works too: set `notify.server` and `NTFY_TOKEN`.
 
-**AI scoring:** put your resumes in `resume_reference/`, fill in `config/profile.md`, set
-`ANTHROPIC_API_KEY`, and set `scoring.enabled: true`. Keyword matches are scored 0–100 by
+**Features switch on from `.env`.** AI scoring, the Home Assistant sensor and the three
+aggregators are all `enabled: true` in the shipped `config.yaml`, and each one stays idle
+until its keys are in `.env`. So the server needs no edits to tracked files, and `git pull`
+never overwrites a setting. To turn something off for good, set `enabled: false` on your PC,
+commit and push.
+
+**AI scoring:** put your resumes in `resume_reference/`, fill in `config/profile.md`, and set
+`ANTHROPIC_API_KEY`. Keyword matches are scored 0–100 by
 Claude Haiku 5.5 against the resumes and profile (about $0.001 each with two resumes). Each
 alert says which resume version to apply with ("Apply with: …"), and so does the digest.
 A score of 75 or more is pushed now, 50–74 goes to the evening digest, and anything
@@ -89,7 +95,7 @@ Assistant's MQTT broker. It never gets a Home Assistant token, only an MQTT logi
    broker → Configuration → *Logins*, add `username: jobalerts` and a password, and restart
    the add-on. (The MQTT integration must already be set up in Home Assistant.)
 2. Put `MQTT_HOST=<home-assistant-ip>`, `MQTT_USERNAME=jobalerts` and `MQTT_PASSWORD=...` in
-   `.env`, set `homeassistant.enabled: true` in `config.yaml`, and restart jobalerts.
+   `.env`, and restart jobalerts.
 3. Run `jobalerts top --push` to check. A "Job alerts" device with `sensor.job_alerts`
    appears (MQTT discovery). Its state is the number of matches, and its `jobs` attribute
    holds the top 3. It refreshes every 5 minutes and right after new matches. The messages
@@ -204,7 +210,6 @@ resumes in `resume_reference/` come with it and are mounted read-only.
 ```sh
 git clone <repository URL> jobalerts && cd jobalerts
 cp .env.example .env && nano .env        # secrets
-nano config/config.yaml config/companies.yaml config/profile.md
 mkdir -p data && chown 1000:1000 data config   # the container runs as uid 1000
 docker compose up -d --build
 docker compose logs -f                   # first polls record silent baselines
@@ -212,8 +217,9 @@ docker compose exec jobalerts jobalerts stats
 docker compose exec jobalerts jobalerts discover "Some Company" --add && docker compose restart
 ```
 
-Set `notify.timezone` so the digest arrives at your local `digest_time`. Restart the
-container after any config change.
+Keys and logins go in `.env` on the server. Change everything else (`config/`, resumes) on
+your PC, then commit and push. The server only ever runs `git pull`, so pulls never hit
+local edits. Restart the container after any config change.
 
 ### Updating
 

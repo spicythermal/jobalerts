@@ -18,6 +18,7 @@ from .notify import Notifier
 from .resumes import load_resumes
 from .scheduler import Runner
 from .scorer import Scorer
+from .sources import without_missing_keys
 from .store import Store
 
 log = logging.getLogger("jobalerts")
@@ -71,7 +72,9 @@ async def open_runner(cfg: Config, *, dry_run: bool = False, memory_store: bool 
 
 
 def select_boards(cfg: Config, text: str | None):
-    boards = cfg.boards()
+    boards, skipped = without_missing_keys(cfg.boards())
+    for source, keys in sorted(skipped.items()):
+        log.info("Skipping %s: set %s in .env to use it", source, " and ".join(keys))
     if text:
         t = text.lower()
         boards = [b for b in boards if t in b.key.lower() or t in b.name.lower()]

@@ -16,7 +16,7 @@ from .http import HttpClient
 from .models import Job, normalize_company, utcnow
 from .notify import Notifier
 from .scorer import FitScore, Scorer
-from .sources import SOURCES, Source, SourceConfigError
+from .sources import SOURCES, Source, SourceConfigError, without_missing_keys
 from .store import Store
 
 log = logging.getLogger(__name__)
@@ -158,11 +158,17 @@ class Runner:
 
     # ------------------------------------------------------------------ service loops
     async def run_forever(self) -> None:
-        boards = self.cfg.boards()
+        boards, skipped = without_missing_keys(self.cfg.boards())
         if not boards:
             raise SystemExit("No boards configured: add companies to companies.yaml or enable an aggregator.")
+        note = ""
+        if skipped:
+            note = " Not running (no API key in .env): " + ", ".join(sorted(skipped)) + "."
+            for source, keys in sorted(skipped.items()):
+                log.info("%s is enabled but skipped until %s is set in .env", source, " and ".join(keys))
         log.info("Watching %d boards", len(boards))
-        await self.notifier.send("Job alerts running", f"Watching {len(boards)} boards.", priority=2, tags=["eyes"])
+        await self.notifier.send("Job alerts running", f"Watching {len(boards)} boards.{note}",
+                                 priority=2, tags=["eyes"])
         tasks = [asyncio.create_task(self._board_loop(b), name=b.key) for b in boards]
         tasks.append(asyncio.create_task(self._daily_loop(), name="digest"))
         if self.homeassistant:

@@ -249,3 +249,23 @@ def test_new_match_marks_dashboard_for_refresh(env):
     fake.jobs.append(make_job(2))
     poll(runner, board)
     assert runner._dashboard_stale.is_set()
+
+
+def test_service_start_skips_aggregators_without_keys(env, monkeypatch):
+    fake, runner, board, store, notifier = env
+    monkeypatch.delenv("USAJOBS_API_KEY", raising=False)
+    runner.cfg = runner.cfg.model_copy(update={"aggregators": runner.cfg.aggregators.model_copy(update={
+        "usajobs": runner.cfg.aggregators.usajobs.model_copy(update={"enabled": True, "searches": [{"keyword": "x"}]})})})
+    started = []
+
+    async def fake_loop(b):
+        started.append(b.key)
+
+    async def no_digest():
+        return None
+    monkeypatch.setattr(runner, "_board_loop", fake_loop)
+    monkeypatch.setattr(runner, "_daily_loop", no_digest)
+    run(runner.run_forever())
+    assert started == ["greenhouse:acme"]
+    (msg,) = notifier.sent
+    assert "Not running (no API key in .env): usajobs." in msg["message"]

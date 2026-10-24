@@ -11,6 +11,7 @@ API = "https://data.usajobs.gov/api/search"
 
 class USAJobs(Source):
     name = "usajobs"
+    env_keys = ("USAJOBS_API_KEY", "USAJOBS_EMAIL")
 
     async def fetch(self, board, http):
         key, email = os.environ.get("USAJOBS_API_KEY"), os.environ.get("USAJOBS_EMAIL")
