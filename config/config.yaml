@@ -167,13 +167,18 @@ notify:
   digest_max_items: 20
 
 # ---------------------------------------------------------------- Home Assistant dashboard
-# Publishes sensor.job_alerts: state = matches posted in the last `days`, attribute `jobs` =
-# the best `top_n` (AI score, then newest). See the README for a dashboard card.
+# Publishes sensor.job_alerts through Home Assistant's MQTT broker (MQTT discovery; no HA
+# token needed). State = matches posted in the last `days`, attribute `jobs` = the best
+# `top_n` (AI score, then newest). See the README for the broker login and a dashboard card.
 homeassistant:
   enabled: false
-  url: "${HA_URL}"          # e.g. http://192.168.1.10:8123
-  token: "${HA_TOKEN}"      # long-lived access token: HA profile -> Security
-  entity_id: sensor.job_alerts
+  mqtt_host: "${MQTT_HOST}"         # e.g. the Home Assistant box's IP (Mosquitto add-on)
+  mqtt_port: 1883
+  mqtt_username: "${MQTT_USERNAME}"
+  mqtt_password: "${MQTT_PASSWORD}"
+  mqtt_tls: false
+  discovery_prefix: homeassistant
+  base_topic: jobalerts     # writes jobalerts/top/state and jobalerts/top/attributes
   top_n: 3
   days: 7
   interval: 300             # refresh every 5 min, and right after new matches

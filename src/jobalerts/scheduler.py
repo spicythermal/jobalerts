@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from . import discover
-from .dashboard import HomeAssistantPublisher, top_matches
+from .dashboard import MqttPublisher, top_matches
 from .config import Board, Config
 from .filters import JobFilter
 from .http import HttpClient
@@ -34,7 +34,7 @@ class PollResult:
 
 class Runner:
     def __init__(self, cfg: Config, store: Store, http: HttpClient, notifier: Notifier,
-                 scorer: Scorer | None = None, homeassistant: HomeAssistantPublisher | None = None):
+                 scorer: Scorer | None = None, homeassistant: MqttPublisher | None = None):
         self.cfg = cfg
         self.store = store
         self.http = http
@@ -222,7 +222,7 @@ class Runner:
             try:
                 await self.publish_dashboard()
             except Exception as e:  # HA down or token wrong: log it, keep polling jobs
-                log.warning("Home Assistant update failed: %s", e)
+                log.warning("Home Assistant (MQTT) update failed: %s", e)
             try:
                 await asyncio.wait_for(self._dashboard_stale.wait(), cfg.interval)
             except asyncio.TimeoutError:

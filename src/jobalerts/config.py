@@ -62,10 +62,15 @@ class Notify(BaseModel):
 
 
 class HomeAssistant(BaseModel):
+    """Dashboard sensor, published to Home Assistant through its MQTT broker (no HA token needed)."""
     enabled: bool = False
-    url: str = ""                        # e.g. http://192.168.1.10:8123
-    token: str = ""                      # long-lived access token (HA profile -> Security)
-    entity_id: str = "sensor.job_alerts"
+    mqtt_host: str = ""                  # e.g. 192.168.1.10 (the Mosquitto add-on on Home Assistant)
+    mqtt_port: int = 1883
+    mqtt_username: str = ""
+    mqtt_password: str = ""
+    mqtt_tls: bool = False               # true for a TLS listener (usually port 8883)
+    discovery_prefix: str = "homeassistant"
+    base_topic: str = "jobalerts"
     top_n: int = 3
     days: int = 7                        # matches posted in the last N days
     interval: int = 300                  # seconds between refreshes (also refreshed right after new matches)

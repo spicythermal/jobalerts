@@ -37,7 +37,7 @@ Then edit the config (next section), and run `jobalerts test-notify` to check yo
 
 | File | What goes in it |
 |---|---|
-| `.env` | Secrets: `NTFY_TOPIC`, `ANTHROPIC_API_KEY`, `HA_TOKEN`, aggregator keys. Never committed. |
+| `.env` | Secrets: `NTFY_TOPIC`, `ANTHROPIC_API_KEY`, `MQTT_PASSWORD`, aggregator keys. Never committed. |
 | `config/config.yaml` | Search criteria, polling tiers, scoring thresholds, digest time, aggregators. |
 | `config/companies.yaml` | The watch list, generated from `config/candidates.txt`. |
 | `config/candidates.txt` | Companies to resolve into the watch list, one per line (see below). |
@@ -82,14 +82,19 @@ jobalerts poll --dry-run --score 5
 
 **Top matches / Home Assistant:** `jobalerts top` lists the best matches posted in the last 7 days,
 ranked by AI score and then newest. Jobs that were already open when watching started count
-too. To show the list on a Home Assistant dashboard:
+too. To show the list on a Home Assistant dashboard, jobalerts publishes it to Home
+Assistant's MQTT broker. It never gets a Home Assistant token, only an MQTT login:
 
-1. In Home Assistant, open your profile → Security → *Long-lived access tokens* and create one.
-2. Put `HA_URL=http://<ha-ip>:8123` and `HA_TOKEN=<token>` in `.env`, set
-   `homeassistant.enabled: true` in `config.yaml`, and restart.
-3. Run `jobalerts top --push` to check. Then `sensor.job_alerts` exists. Its state is the
-   number of matches, and its `jobs` attribute holds the top 3. It refreshes every 5 minutes
-   and right after new matches. After a Home Assistant restart it's missing until the next refresh.
+1. Give it its own broker login. With the Mosquitto add-on: Settings → Add-ons → Mosquitto
+   broker → Configuration → *Logins*, add `username: jobalerts` and a password, and restart
+   the add-on. (The MQTT integration must already be set up in Home Assistant.)
+2. Put `MQTT_HOST=<home-assistant-ip>`, `MQTT_USERNAME=jobalerts` and `MQTT_PASSWORD=...` in
+   `.env`, set `homeassistant.enabled: true` in `config.yaml`, and restart jobalerts.
+3. Run `jobalerts top --push` to check. A "Job alerts" device with `sensor.job_alerts`
+   appears (MQTT discovery). Its state is the number of matches, and its `jobs` attribute
+   holds the top 3. It refreshes every 5 minutes and right after new matches. The messages
+   are retained, so the sensor survives Home Assistant restarts. It turns "unavailable" if
+   jobalerts stops updating it for 15 minutes.
 4. Add a Markdown card to a dashboard (Edit dashboard → Add card → Manual):
 
 ```yaml
@@ -106,6 +111,32 @@ content: >-
   No matches in the last {{ state_attr('sensor.job_alerts', 'days') or 7 }} days.
   {% endfor %}
 ```
+
+**Optional: limit what that login can do.** By default any broker login can publish to any
+topic. To let `jobalerts` write only its own sensor, set the Mosquitto add-on's
+`customize` option to `active: true, folder: mosquitto`, then create two files in `/share/mosquitto/`:
+
+```
+# acl.conf
+acl_file /share/mosquitto/accesscontrollist
+```
+
+```
+# accesscontrollist — once this file exists, every login must be listed
+user homeassistant
+topic readwrite #
+
+user addons
+topic readwrite #
+
+user jobalerts
+topic write jobalerts/#
+topic write homeassistant/sensor/jobalerts/#
+```
+
+Add a `user` block for each other login you use (Zigbee2MQTT and so on), and restart the
+add-on. Mosquitto drops a publish the list doesn't allow without telling jobalerts, so if the
+sensor doesn't appear, check this file first.
 
 ## Commands
 

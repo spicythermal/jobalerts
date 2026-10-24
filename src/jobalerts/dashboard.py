@@ -1,10 +1,10 @@
-"""Top recent matches, for `jobalerts top` and a Home Assistant sensor (POST /api/states/<entity_id>)."""
+"""Top recent matches, for `jobalerts top` and a Home Assistant sensor published over MQTT."""
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
 from datetime import timedelta
-
-import httpx
 
 from .config import HomeAssistant
 from .filters import JobFilter
@@ -53,36 +53,61 @@ def top_matches(store: Store, job_filter: JobFilter, days: int, n: int) -> tuple
     return len(matches), matches[:n]
 
 
-class HomeAssistantPublisher:
-    def __init__(self, cfg: HomeAssistant, transport: httpx.AsyncBaseTransport | None = None):
+class MqttPublisher:
+    """Publishes the sensor through Home Assistant's MQTT discovery. All messages are retained, so the
+    sensor comes back by itself when Home Assistant or the broker restarts. Only needs an MQTT login
+    allowed to write the two topic trees below, not a Home Assistant token."""
+
+    def __init__(self, cfg: HomeAssistant, send=None):
         self.cfg = cfg
-        self._client = httpx.AsyncClient(timeout=15.0, transport=transport)
+        self._send = send or _paho_send  # tests swap in a fake
 
     @property
     def configured(self) -> bool:
-        return bool(self.cfg.url and self.cfg.token)
+        return bool(self.cfg.mqtt_host)
 
-    async def aclose(self) -> None:
-        await self._client.aclose()
+    @property
+    def state_topic(self) -> str:
+        return f"{self.cfg.base_topic}/top/state"
 
-    def payload(self, total: int, jobs: list[dict]) -> dict:
-        top = f"{jobs[0]['company']}: {jobs[0]['title']}" if jobs else "none"
+    @property
+    def attributes_topic(self) -> str:
+        return f"{self.cfg.base_topic}/top/attributes"
+
+    @property
+    def discovery_topic(self) -> str:
+        return f"{self.cfg.discovery_prefix}/sensor/{self.cfg.base_topic}/top/config"
+
+    def discovery(self) -> dict:
         return {
-            "state": total,  # number of matches, so HA can graph it; the details are attributes
-            "attributes": {
-                "friendly_name": "Job matches",
-                "icon": "mdi:briefcase-search",
-                "unit_of_measurement": "jobs",
-                "days": self.cfg.days,
-                "top": top[:250],
-                "jobs": jobs,
-                "updated": utcnow().isoformat(timespec="seconds"),
-            },
+            "name": None,  # the entity takes the device's name -> sensor.job_alerts
+            "unique_id": f"{self.cfg.base_topic}_top",
+            "state_topic": self.state_topic,
+            "json_attributes_topic": self.attributes_topic,
+            "unit_of_measurement": "jobs",
+            "state_class": "measurement",
+            "icon": "mdi:briefcase-search",
+            "expire_after": 3 * self.cfg.interval,  # goes "unavailable" if the service stops updating it
+            "device": {"identifiers": [self.cfg.base_topic], "name": "Job alerts", "manufacturer": "jobalerts"},
         }
 
+    def messages(self, total: int, jobs: list[dict]) -> list[tuple[str, str]]:
+        top = f"{jobs[0]['company']}: {jobs[0]['title']}" if jobs else "none"
+        attributes = {"days": self.cfg.days, "top": top[:250], "jobs": jobs,
+                      "updated": utcnow().isoformat(timespec="seconds")}
+        return [(self.discovery_topic, json.dumps(self.discovery())),
+                (self.attributes_topic, json.dumps(attributes)),
+                (self.state_topic, str(total))]
+
     async def publish(self, total: int, jobs: list[dict]) -> None:
-        url = f"{self.cfg.url.rstrip('/')}/api/states/{self.cfg.entity_id}"
-        r = await self._client.post(url, json=self.payload(total, jobs),
-                                    headers={"Authorization": f"Bearer {self.cfg.token}"})
-        r.raise_for_status()
-        log.debug("Home Assistant %s updated: %d matches", self.cfg.entity_id, total)
+        await asyncio.to_thread(self._send, self.cfg, self.messages(total, jobs))
+        log.debug("MQTT %s updated: %d matches", self.state_topic, total)
+
+
+def _paho_send(cfg: HomeAssistant, messages: list[tuple[str, str]]) -> None:
+    from paho.mqtt import publish
+
+    auth = {"username": cfg.mqtt_username, "password": cfg.mqtt_password} if cfg.mqtt_username else None
+    publish.multiple([{"topic": t, "payload": payload, "qos": 1, "retain": True} for t, payload in messages],
+                     hostname=cfg.mqtt_host, port=cfg.mqtt_port, client_id=f"{cfg.base_topic}-dashboard",
+                     auth=auth, tls={} if cfg.mqtt_tls else None)

@@ -11,7 +11,7 @@ from contextlib import asynccontextmanager
 
 from . import discover
 from .config import Config, load_config
-from .dashboard import HomeAssistantPublisher
+from .dashboard import MqttPublisher
 from .http import HttpClient
 from .models import utcnow
 from .notify import Notifier
@@ -44,12 +44,12 @@ def make_scorer(cfg: Config, store: Store) -> Scorer | None:
         return None
 
 
-def make_homeassistant(cfg: Config) -> HomeAssistantPublisher | None:
+def make_homeassistant(cfg: Config) -> MqttPublisher | None:
     if not cfg.homeassistant.enabled:
         return None
-    publisher = HomeAssistantPublisher(cfg.homeassistant)
+    publisher = MqttPublisher(cfg.homeassistant)
     if not publisher.configured:
-        log.warning("homeassistant.enabled is on but HA_URL or HA_TOKEN is empty; not updating Home Assistant")
+        log.warning("homeassistant.enabled is on but MQTT_HOST is empty; not updating Home Assistant")
         return None
     return publisher
 
@@ -66,8 +66,6 @@ async def open_runner(cfg: Config, *, dry_run: bool = False, memory_store: bool 
         store.add_host_stats(http.drain_stats())
         await http.aclose()
         await notifier.aclose()
-        if homeassistant:
-            await homeassistant.aclose()
         store.close()
 
 
@@ -256,11 +254,16 @@ async def cmd_top(cfg: Config, args) -> int:
                 print(f"     apply with: {j['best_resume']}")
         if args.push:
             if not runner.homeassistant:
-                print("\n--push: set homeassistant.enabled: true and HA_URL / HA_TOKEN in .env first.")
+                print("\n--push: set homeassistant.enabled: true and MQTT_HOST (plus its login) in .env first.")
                 return 1
-            await runner.publish_dashboard()
-            print(f"\nUpdated {cfg.homeassistant.entity_id} in Home Assistant (top {cfg.homeassistant.top_n}, "
-                  f"last {cfg.homeassistant.days} days).")
+            try:
+                await runner.publish_dashboard()
+            except Exception as e:  # e.g. ConnectionRefusedError, or MQTTException "Not authorized"
+                print(f"\nMQTT publish to {cfg.homeassistant.mqtt_host}:{cfg.homeassistant.mqtt_port} failed: "
+                      f"{type(e).__name__}: {e}")
+                return 1
+            print(f"\nPublished to {runner.homeassistant.state_topic} on {cfg.homeassistant.mqtt_host}. "
+                  "Home Assistant shows it as sensor.job_alerts.")
     return 0
 
 
@@ -339,6 +342,7 @@ def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,
                         format="%(asctime)s %(levelname)-7s %(name)s: %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
     logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("paho").setLevel(logging.CRITICAL)  # its connect errors are re-raised and reported by us
     cfg = load_config(args.config)
     try:
         return asyncio.run(COMMANDS[args.command](cfg, args)) or 0

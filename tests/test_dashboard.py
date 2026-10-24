@@ -2,11 +2,9 @@
 import json
 from datetime import timedelta
 
-import httpx
-
 from jobalerts.cli import main
 from jobalerts.config import Config, HomeAssistant
-from jobalerts.dashboard import HomeAssistantPublisher, top_matches
+from jobalerts.dashboard import MqttPublisher, top_matches
 from jobalerts.filters import JobFilter
 from jobalerts.models import Job, utcnow
 from jobalerts.store import Store
@@ -41,29 +39,33 @@ def test_top_matches_ranks_by_score_then_newest_and_includes_baseline():
     assert jobs[2]["age"] == "5h ago"
 
 
-def test_home_assistant_publish_sets_sensor_state():
-    seen = []
-
-    def handler(request):
-        seen.append(request)
-        return httpx.Response(201, json={})
-
-    cfg = HomeAssistant(enabled=True, url="http://ha:8123/", token="secret")
+def test_mqtt_publish_sends_retained_discovery_attributes_and_state():
+    sent = []
+    cfg = HomeAssistant(enabled=True, mqtt_host="ha.lan", interval=300)
     jobs = [{"company": "Acme", "title": "Plasma Physicist", "url": "https://x/1"}]
+    run(MqttPublisher(cfg, send=lambda c, msgs: sent.extend(msgs)).publish(4, jobs))
 
-    async def go():
-        ha = HomeAssistantPublisher(cfg, transport=httpx.MockTransport(handler))
-        await ha.publish(4, jobs)
-        await ha.aclose()
-    run(go())
+    topics = dict(sent)
+    discovery = json.loads(topics["homeassistant/sensor/jobalerts/top/config"])
+    assert discovery["name"] is None and discovery["device"]["name"] == "Job alerts"  # -> sensor.job_alerts
+    assert discovery["state_topic"] == "jobalerts/top/state"
+    assert discovery["json_attributes_topic"] == "jobalerts/top/attributes"
+    assert discovery["expire_after"] == 900
+    assert topics["jobalerts/top/state"] == "4"
+    attributes = json.loads(topics["jobalerts/top/attributes"])
+    assert attributes["top"] == "Acme: Plasma Physicist" and attributes["jobs"] == jobs
+    assert [t for t, _ in sent][-1] == "jobalerts/top/state"  # attributes land before the state changes
 
-    (req,) = seen
-    assert str(req.url) == "http://ha:8123/api/states/sensor.job_alerts"
-    assert req.headers["Authorization"] == "Bearer secret"
-    body = json.loads(req.content)
-    assert body["state"] == 4
-    assert body["attributes"]["top"] == "Acme: Plasma Physicist"
-    assert body["attributes"]["jobs"] == jobs
+
+def test_paho_messages_are_retained_with_login(monkeypatch):
+    calls = {}
+    from paho.mqtt import publish
+    monkeypatch.setattr(publish, "multiple", lambda msgs, **kw: calls.update(msgs=msgs, **kw))
+    cfg = HomeAssistant(enabled=True, mqtt_host="ha.lan", mqtt_username="jobalerts", mqtt_password="pw")
+    run(MqttPublisher(cfg).publish(0, []))
+    assert calls["hostname"] == "ha.lan" and calls["port"] == 1883
+    assert calls["auth"] == {"username": "jobalerts", "password": "pw"} and calls["tls"] is None
+    assert all(m["retain"] and m["qos"] == 1 for m in calls["msgs"])
 
 
 def test_top_command_prints_matches(tmp_path, capsys, monkeypatch):
