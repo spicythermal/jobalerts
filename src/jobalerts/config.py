@@ -61,6 +61,16 @@ class Notify(BaseModel):
     digest_max_items: int = 20
 
 
+class HomeAssistant(BaseModel):
+    enabled: bool = False
+    url: str = ""                        # e.g. http://192.168.1.10:8123
+    token: str = ""                      # long-lived access token (HA profile -> Security)
+    entity_id: str = "sensor.job_alerts"
+    top_n: int = 3
+    days: int = 7                        # matches posted in the last N days
+    interval: int = 300                  # seconds between refreshes (also refreshed right after new matches)
+
+
 class AggregatorConfig(BaseModel):
     enabled: bool = False
     interval: int = 3600
@@ -130,6 +140,7 @@ class Config(BaseModel):
     polling: Polling = Polling()
     scoring: Scoring = Scoring()
     notify: Notify = Notify()
+    homeassistant: HomeAssistant = HomeAssistant()
     aggregators: Aggregators = Aggregators()
     companies: list[Company] = []
     config_dir: Path = Path(".")

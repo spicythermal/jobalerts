@@ -237,3 +237,15 @@ def test_old_database_gains_best_resume_column(tmp_path):
     store = Store(path)
     assert "best_resume" in {r["name"] for r in store.db.execute("PRAGMA table_info(jobs)")}
     store.close()
+
+
+def test_new_match_marks_dashboard_for_refresh(env):
+    fake, runner, board, store, notifier = env
+    poll(runner, board)  # empty baseline
+    assert not runner._dashboard_stale.is_set()
+    fake.jobs = [make_job(1, title="Sales Rep")]
+    poll(runner, board)
+    assert not runner._dashboard_stale.is_set()
+    fake.jobs.append(make_job(2))
+    poll(runner, board)
+    assert runner._dashboard_stale.is_set()

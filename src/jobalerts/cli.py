@@ -1,4 +1,4 @@
-"""Command line: jobalerts run | poll | discover | test-notify | digest | stats"""
+"""Command line: jobalerts run | poll | discover | test-notify | digest | top | stats"""
 from __future__ import annotations
 
 import argparse
@@ -11,6 +11,7 @@ from contextlib import asynccontextmanager
 
 from . import discover
 from .config import Config, load_config
+from .dashboard import HomeAssistantPublisher
 from .http import HttpClient
 from .models import utcnow
 from .notify import Notifier
@@ -43,17 +44,30 @@ def make_scorer(cfg: Config, store: Store) -> Scorer | None:
         return None
 
 
+def make_homeassistant(cfg: Config) -> HomeAssistantPublisher | None:
+    if not cfg.homeassistant.enabled:
+        return None
+    publisher = HomeAssistantPublisher(cfg.homeassistant)
+    if not publisher.configured:
+        log.warning("homeassistant.enabled is on but HA_URL or HA_TOKEN is empty; not updating Home Assistant")
+        return None
+    return publisher
+
+
 @asynccontextmanager
 async def open_runner(cfg: Config, *, dry_run: bool = False, memory_store: bool | None = None):
     store = Store(":memory:" if (dry_run if memory_store is None else memory_store) else cfg.database)
     http = HttpClient(cfg.contact_email, cfg.polling.host_min_interval)
     notifier = Notifier(cfg.notify, dry_run=dry_run)
+    homeassistant = None if dry_run else make_homeassistant(cfg)
     try:
-        yield Runner(cfg, store, http, notifier, None if dry_run else make_scorer(cfg, store))
+        yield Runner(cfg, store, http, notifier, None if dry_run else make_scorer(cfg, store), homeassistant)
     finally:
         store.add_host_stats(http.drain_stats())
         await http.aclose()
         await notifier.aclose()
+        if homeassistant:
+            await homeassistant.aclose()
         store.close()
 
 
@@ -227,6 +241,29 @@ async def cmd_digest(cfg: Config, args) -> int:
     return 0
 
 
+async def cmd_top(cfg: Config, args) -> int:
+    async with open_runner(cfg, memory_store=False) as runner:
+        days = args.days or cfg.homeassistant.days
+        total, jobs = runner.top_matches(args.n, days)
+        print(f"{total} matches posted in the last {days} days" + (f"; top {len(jobs)}:" if jobs else "."))
+        for i, j in enumerate(jobs, 1):
+            score = f"[{j['score']}] " if j["score"] is not None else ""
+            extra = " · ".join(filter(None, [j["location"], j["salary"], j["age"], "pushed" if j["pushed"] else ""]))
+            print(f"{i:3}. {score}{j['company']}: {j['title']} — {extra}\n     {j['url']}")
+            if j["summary"]:
+                print(f"     {j['summary']}")
+            if j["best_resume"]:
+                print(f"     apply with: {j['best_resume']}")
+        if args.push:
+            if not runner.homeassistant:
+                print("\n--push: set homeassistant.enabled: true and HA_URL / HA_TOKEN in .env first.")
+                return 1
+            await runner.publish_dashboard()
+            print(f"\nUpdated {cfg.homeassistant.entity_id} in Home Assistant (top {cfg.homeassistant.top_n}, "
+                  f"last {cfg.homeassistant.days} days).")
+    return 0
+
+
 async def cmd_stats(cfg: Config, args) -> int:
     store = Store(cfg.database)
     try:
@@ -262,7 +299,7 @@ async def cmd_stats(cfg: Config, args) -> int:
 
 
 COMMANDS = {"run": cmd_run, "poll": cmd_poll, "discover": cmd_discover, "test-notify": cmd_test_notify,
-            "digest": cmd_digest, "stats": cmd_stats}
+            "digest": cmd_digest, "top": cmd_top, "stats": cmd_stats}
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -286,6 +323,10 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("test-notify", help="send a sample alert to your ntfy topic")
     g = sub.add_parser("digest", help="send the daily digest now")
     g.add_argument("--dry-run", action="store_true", help="print it instead of sending")
+    t = sub.add_parser("top", help="best recent matches (what the Home Assistant sensor shows)")
+    t.add_argument("-n", type=int, default=0, help="how many (default: homeassistant.top_n)")
+    t.add_argument("--days", type=int, default=0, help="posted in the last N days (default: homeassistant.days)")
+    t.add_argument("--push", action="store_true", help="also update the Home Assistant sensor now")
     sub.add_parser("stats", help="board health, request rates, detection delay, AI spend")
     return parser
 

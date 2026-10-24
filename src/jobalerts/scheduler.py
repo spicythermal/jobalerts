@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from . import discover
+from .dashboard import HomeAssistantPublisher, top_matches
 from .config import Board, Config
 from .filters import JobFilter
 from .http import HttpClient
@@ -33,7 +34,7 @@ class PollResult:
 
 class Runner:
     def __init__(self, cfg: Config, store: Store, http: HttpClient, notifier: Notifier,
-                 scorer: Scorer | None = None):
+                 scorer: Scorer | None = None, homeassistant: HomeAssistantPublisher | None = None):
         self.cfg = cfg
         self.store = store
         self.http = http
@@ -42,6 +43,8 @@ class Runner:
         self.filter = JobFilter(cfg.criteria)
         self.watched = {normalize_company(name) for name in cfg.watched_companies()}
         self._failure_alerted: set[str] = set()
+        self.homeassistant = homeassistant
+        self._dashboard_stale = asyncio.Event()  # set after new matches so Home Assistant updates right away
 
     # ------------------------------------------------------------------ pipeline
     async def poll_board(self, board: Board) -> PollResult:
@@ -84,6 +87,8 @@ class Runner:
                 f"{overflow} more new matching jobs at {board.name} were held back to avoid a flood. "
                 "They'll be in the next digest.", priority=3, tags=["inbox_tray"])
         self.store.mark_board_ok(board.key, len(jobs))
+        if result.matched:
+            self._dashboard_stale.set()
         if new:
             log.info("%s: %d new, %d matched, %d alerted", board.key, len(new), len(result.matched), result.alerted)
         return result
@@ -160,6 +165,8 @@ class Runner:
         await self.notifier.send("Job alerts running", f"Watching {len(boards)} boards.", priority=2, tags=["eyes"])
         tasks = [asyncio.create_task(self._board_loop(b), name=b.key) for b in boards]
         tasks.append(asyncio.create_task(self._daily_loop(), name="digest"))
+        if self.homeassistant:
+            tasks.append(asyncio.create_task(self._homeassistant_loop(), name="homeassistant"))
         await asyncio.gather(*tasks)
 
     async def _board_loop(self, board: Board) -> None:
@@ -207,6 +214,28 @@ class Runner:
                 await self.send_digest()
             except Exception:
                 log.exception("Digest failed")
+
+    async def _homeassistant_loop(self) -> None:
+        cfg = self.cfg.homeassistant
+        while True:
+            self._dashboard_stale.clear()
+            try:
+                await self.publish_dashboard()
+            except Exception as e:  # HA down or token wrong: log it, keep polling jobs
+                log.warning("Home Assistant update failed: %s", e)
+            try:
+                await asyncio.wait_for(self._dashboard_stale.wait(), cfg.interval)
+            except asyncio.TimeoutError:
+                pass
+
+    def top_matches(self, n: int | None = None, days: int | None = None) -> tuple[int, list[dict]]:
+        cfg = self.cfg.homeassistant
+        return top_matches(self.store, self.filter, days or cfg.days, n or cfg.top_n)
+
+    async def publish_dashboard(self) -> int:
+        total, jobs = self.top_matches()
+        await self.homeassistant.publish(total, jobs)
+        return total
 
     # ------------------------------------------------------------------ digest
     async def send_digest(self, mark: bool = True) -> str:

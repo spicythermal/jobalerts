@@ -37,7 +37,7 @@ Then edit the config (next section), and run `jobalerts test-notify` to check yo
 
 | File | What goes in it |
 |---|---|
-| `.env` | Secrets: `NTFY_TOPIC`, `ANTHROPIC_API_KEY`, aggregator keys. Never committed. |
+| `.env` | Secrets: `NTFY_TOPIC`, `ANTHROPIC_API_KEY`, `HA_TOKEN`, aggregator keys. Never committed. |
 | `config/config.yaml` | Search criteria, polling tiers, scoring thresholds, digest time, aggregators. |
 | `config/companies.yaml` | The watch list, generated from `config/candidates.txt`. |
 | `config/candidates.txt` | Companies to resolve into the watch list, one per line (see below). |
@@ -80,10 +80,37 @@ still pushed. Preview scores before turning it on:
 jobalerts poll --dry-run --score 5
 ```
 
+**Top matches / Home Assistant:** `jobalerts top` lists the best matches posted in the last 7 days,
+ranked by AI score and then newest. Jobs that were already open when watching started count
+too. To show the list on a Home Assistant dashboard:
+
+1. In Home Assistant, open your profile → Security → *Long-lived access tokens* and create one.
+2. Put `HA_URL=http://<ha-ip>:8123` and `HA_TOKEN=<token>` in `.env`, set
+   `homeassistant.enabled: true` in `config.yaml`, and restart.
+3. Run `jobalerts top --push` to check. Then `sensor.job_alerts` exists. Its state is the
+   number of matches, and its `jobs` attribute holds the top 3. It refreshes every 5 minutes
+   and right after new matches. After a Home Assistant restart it's missing until the next refresh.
+4. Add a Markdown card to a dashboard (Edit dashboard → Add card → Manual):
+
+```yaml
+type: markdown
+title: Top job matches
+content: >-
+  {% for j in state_attr('sensor.job_alerts', 'jobs') or [] %}
+  **[{{ j.title }}]({{ j.url }})**<br>
+  {{ j.company }} · {{ j.location }}{% if j.salary %} · {{ j.salary }}{% endif %} · {{ j.age }}
+  {%- if j.score is not none %} · fit {{ j.score }}{% endif %}<br>
+  {% if j.best_resume %}<small>Apply with {{ j.best_resume }}</small>{% endif %}
+
+  {% else %}
+  No matches in the last {{ state_attr('sensor.job_alerts', 'days') or 7 }} days.
+  {% endfor %}
+```
+
 ## Commands
 
 ```
-jobalerts [-c CONFIG] [-v] {run,poll,discover,test-notify,digest,stats}
+jobalerts [-c CONFIG] [-v] {run,poll,discover,test-notify,digest,top,stats}
 
   run                  the service: poll every board on its tier interval, forever
   poll [--once] [--dry-run] [--board TEXT] [--score N]
@@ -92,6 +119,8 @@ jobalerts [-c CONFIG] [-v] {run,poll,discover,test-notify,digest,stats}
                        find companies' ATS boards by name, careers URL, or a list file
   test-notify          send a sample alert to your ntfy topic
   digest [--dry-run]   send the daily digest now
+  top [-n N] [--days D] [--push]
+                       best recent matches; --push also updates the Home Assistant sensor
   stats                board health, request rates, detection delay, AI spend
 ```
 

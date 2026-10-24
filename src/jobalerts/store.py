@@ -176,6 +176,13 @@ class Store:
             """SELECT * FROM jobs WHERE status IN ('digest','notify_failed')
                ORDER BY COALESCE(score, 0) DESC, first_seen_at DESC LIMIT ?""", (limit,)).fetchall()
 
+    def recent_candidates(self, since: datetime) -> list[sqlite3.Row]:
+        """Keyword matches plus silently recorded baseline jobs posted since `since` (the caller re-filters
+        baseline rows, which were stored without filtering)."""
+        return self.db.execute(
+            """SELECT * FROM jobs WHERE status IN ('alert','alerted','digest','digested','notify_failed','baseline')
+               AND COALESCE(published_at, first_seen_at)>=?""", (_iso(since),)).fetchall()
+
     def count_status(self, statuses: tuple[str, ...]) -> int:
         marks = ",".join("?" * len(statuses))
         return self.db.execute(f"SELECT COUNT(*) FROM jobs WHERE status IN ({marks})", statuses).fetchone()[0]
