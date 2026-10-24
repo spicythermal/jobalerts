@@ -22,7 +22,8 @@ _EXTRA_SUFFIXES = {"technologies", "technology", "labs", "group", "holdings", "s
 URL_PATTERNS = [
     ("greenhouse", re.compile(r"(?:boards|job-boards)(?:\.eu)?\.greenhouse\.io/(?:embed/job_board(?:/js)?\?for=)?([A-Za-z0-9_-]+)")),
     ("greenhouse", re.compile(r"boards-api\.greenhouse\.io/v1/boards/([A-Za-z0-9_-]+)")),
-    ("lever", re.compile(r"jobs\.(?:eu\.)?lever\.co/([A-Za-z0-9_.-]+)")),
+    ("lever", re.compile(r"jobs\.lever\.co/([A-Za-z0-9_.-]+)")),
+    ("lever-eu", re.compile(r"jobs\.eu\.lever\.co/([A-Za-z0-9_.-]+)")),
     ("ashby", re.compile(r"jobs\.ashbyhq\.com/([A-Za-z0-9_.%-]+)")),
     ("smartrecruiters", re.compile(r"(?:jobs|careers)\.smartrecruiters\.com/([A-Za-z0-9_-]+)")),
     ("workday", re.compile(r"https?://[a-z0-9-]+\.wd\d+\.myworkdayjobs\.com/(?:[a-z]{2}-[A-Z]{2}/)?[A-Za-z0-9_-]+")),
@@ -37,6 +38,7 @@ class Found:
     name: str
     jobs: int
     url: str = ""
+    region: str = ""  # lever: "eu" for jobs.eu.lever.co boards
 
     def entry(self, tier: str = "normal") -> dict:
         e = {"name": self.name, "ats": self.ats}
@@ -44,6 +46,8 @@ class Found:
             e["url"] = self.url
         else:
             e["slug"] = self.slug
+        if self.region:
+            e["region"] = self.region
         e["tier"] = tier
         return e
 
@@ -60,20 +64,22 @@ def slug_candidates(name: str) -> list[str]:
     return seen[:5]
 
 
-async def probe(ats: str, slug: str, http: HttpClient, name: str = "", strict: bool = True) -> Found | None:
+async def probe(ats: str, slug: str, http: HttpClient, name: str = "", strict: bool = True,
+                region: str = "") -> Found | None:
     """strict=True (name guessing) requires a non-empty board, to avoid false positives."""
     name = name or slug
     try:
         if ats == "greenhouse":
             data = await http.get_json(f"https://boards-api.greenhouse.io/v1/boards/{slug}/jobs",
                                        conditional=False, allow_404=True)
-            if isinstance(data, dict) and "jobs" in data:
+            if isinstance(data, dict) and isinstance(data.get("jobs"), list) and (data["jobs"] or not strict):
                 return Found(ats, slug, name, len(data["jobs"]))
         elif ats == "lever":
-            data = await http.get_json(f"https://api.lever.co/v0/postings/{slug}", params={"mode": "json"},
+            host = "api.eu.lever.co" if region == "eu" else "api.lever.co"
+            data = await http.get_json(f"https://{host}/v0/postings/{slug}", params={"mode": "json"},
                                        conditional=False, allow_404=True)
             if isinstance(data, list) and (data or not strict):
-                return Found(ats, slug, name, len(data))
+                return Found(ats, slug, name, len(data), region=region)
         elif ats == "ashby":
             data = await http.get_json(f"https://api.ashbyhq.com/posting-api/job-board/{slug}",
                                        conditional=False, allow_404=True)
@@ -134,8 +140,12 @@ async def find_by_url(url: str, http: HttpClient, name: str = "") -> list[Found]
         hits = links_in(await http.get_text(url))
     found: list[Found] = []
     for ats, value in hits[:6]:
-        f = (await probe_workday(value, http, name) if ats == "workday"
-             else await probe(ats, value, http, name=name, strict=False))
+        if ats == "workday":
+            f = await probe_workday(value, http, name)
+        elif ats == "lever-eu":
+            f = await probe("lever", value, http, name=name, strict=False, region="eu")
+        else:
+            f = await probe(ats, value, http, name=name, strict=False)
         if f and all((f.ats, f.slug) != (x.ats, x.slug) for x in found):
             found.append(f)
     return found

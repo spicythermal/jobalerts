@@ -57,6 +57,8 @@ class Notifier:
             lines.append(f"Fit {score.score}/100: {score.summary}")
             if score.red_flags:
                 lines.append("Watch out: " + "; ".join(score.red_flags))
+            if score.best_resume:
+                lines.append(f"Apply with: {score.best_resume}")
         age = job.age_days()
         if age is not None:
             hours = age * 24

@@ -46,6 +46,7 @@ class Scoring(BaseModel):
     model: str = "claude-haiku-5-5"
     effort: Literal["low", "medium", "high"] = "low"
     profile_path: str = "profile.md"     # relative to the config directory
+    resume_dir: str = "../resume_reference"  # PDF/.md/.txt resumes, relative to the config directory
     push_threshold: int = 75
     digest_threshold: int = 50
     daily_max_calls: int = 300

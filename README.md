@@ -39,8 +39,10 @@ Then edit the config (next section), and run `jobalerts test-notify` to check yo
 |---|---|
 | `.env` | Secrets: `NTFY_TOPIC`, `ANTHROPIC_API_KEY`, aggregator keys. Never committed. |
 | `config/config.yaml` | Search criteria, polling tiers, scoring thresholds, digest time, aggregators. |
-| `config/companies.yaml` | The watch list. The shipped entries are examples. |
-| `config/profile.md` | Your background and what makes a role worth it to you, used for AI scoring. |
+| `config/companies.yaml` | The watch list, generated from `config/candidates.txt`. |
+| `config/candidates.txt` | Companies to resolve into the watch list, one per line (see below). |
+| `resume_reference/` | Your resumes (PDF, `.md` or `.txt`). AI scoring compares every posting against all of them. Not committed. |
+| `config/profile.md` | What the resumes don't say: target roles, location, salary floor, deal-breakers. |
 
 **Criteria** (`config.yaml` → `criteria`) are case-insensitive whole-word phrases.
 `title_include` must match. `title_exclude`, `seniority_exclude` and `description_exclude`
@@ -52,7 +54,12 @@ reject a job. `locations` must match unless the job is remote and `allow_remote:
 jobalerts discover "Cloudflare" --add                      # probes Greenhouse/Lever/Ashby/SmartRecruiters
 jobalerts discover https://company.com/careers --add       # finds ATS links on a careers page (and Workday URLs)
 jobalerts discover "Tailscale" --add --tier priority
+jobalerts discover --file config/candidates.txt --add      # a whole list; already-listed boards are skipped
 ```
+
+`candidates.txt` takes `Company Name` or `Company Name | https://careers.url` per line. Companies
+on Taleo, iCIMS, SuccessFactors or in-house career sites aren't supported and are listed as
+not found at the end of the run; the aggregators still catch many of their postings.
 
 For Workday and SmartRecruiters, add `search:` to the entry so big enterprise boards stay
 small (see the comments in `companies.yaml`).
@@ -61,9 +68,11 @@ small (see the comments in `companies.yaml`).
 `ntfy.sh`. Pick a long random topic name, since anyone who knows it can read it.
 A self-hosted ntfy works too: set `notify.server` and `NTFY_TOKEN`.
 
-**AI scoring:** fill in `config/profile.md`, set `ANTHROPIC_API_KEY`, and set
-`scoring.enabled: true`. Keyword matches are scored 0–100 by Claude Haiku 5.5 (about $0.0005
-each). A score of 75 or more is pushed now, 50–74 goes to the evening digest, and anything
+**AI scoring:** put your resumes in `resume_reference/`, fill in `config/profile.md`, set
+`ANTHROPIC_API_KEY`, and set `scoring.enabled: true`. Keyword matches are scored 0–100 by
+Claude Haiku 5.5 against the resumes and profile (about $0.001 each with two resumes). Each
+alert says which resume version to apply with ("Apply with: …"), and so does the digest.
+A score of 75 or more is pushed now, 50–74 goes to the evening digest, and anything
 lower is only stored. If scoring fails or the daily cap is reached, keyword matches are
 still pushed. Preview scores before turning it on:
 
@@ -79,8 +88,8 @@ jobalerts [-c CONFIG] [-v] {run,poll,discover,test-notify,digest,stats}
   run                  the service: poll every board on its tier interval, forever
   poll [--once] [--dry-run] [--board TEXT] [--score N]
                        one pass over every board (--dry-run stores and sends nothing)
-  discover TARGET [--add] [--tier TIER] [--name NAME]
-                       find a company's ATS board by name or careers URL
+  discover [TARGET ...] [--file FILE] [--add] [--tier TIER] [--name NAME]
+                       find companies' ATS boards by name, careers URL, or a list file
   test-notify          send a sample alert to your ntfy topic
   digest [--dry-run]   send the daily digest now
   stats                board health, request rates, detection delay, AI spend
@@ -95,6 +104,7 @@ database path.
 git clone <this repo> jobalerts && cd jobalerts
 cp .env.example .env && nano .env        # secrets
 nano config/config.yaml config/companies.yaml config/profile.md
+mkdir -p resume_reference && cp ~/resumes/*.pdf resume_reference/   # mounted read-only
 mkdir -p data && sudo chown 1000:1000 data config   # the container runs as uid 1000
 docker compose up -d --build
 docker compose logs -f                   # first polls record silent baselines

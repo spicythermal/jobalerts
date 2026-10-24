@@ -9,6 +9,7 @@ services:
     volumes:
       - ./config:/app/config   # config.yaml, companies.yaml, profile.md
       - ./data:/app/data       # SQLite database
+      - ./resume_reference:/app/resume_reference:ro   # PDF/.md resumes the AI scorer compares against
     logging:
       driver: json-file
       options:

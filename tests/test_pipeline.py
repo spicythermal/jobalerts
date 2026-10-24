@@ -206,3 +206,34 @@ def test_preview_board_stores_nothing(env):
     fetched, matches = run(runner.preview_board(board))
     assert fetched == 3 and [m.job_id for m in matches] == ["1"]
     assert store.count_status(("baseline", "alerted", "filtered")) == 0
+
+
+def test_best_resume_reaches_alert_db_and_digest(env):
+    fake, runner, board, store, notifier = env
+
+    class ResumeScorer:
+        async def score(self, job):
+            s = 90 if job.title.endswith("A") else 60
+            return FitScore(score=s, summary="PIC match", red_flags=[], best_resume="hpc.pdf")
+
+    runner.scorer = ResumeScorer()
+    fake.jobs = []
+    poll(runner, board)
+    fake.jobs = [make_job(1, title="Network Engineer A"), make_job(2, title="Network Engineer B")]
+    poll(runner, board)
+    assert "Apply with: hpc.pdf" in notifier.sent[-1]["message"]
+    assert {r[0] for r in store.db.execute("SELECT best_resume FROM jobs")} == {"hpc.pdf"}
+    assert "apply with: hpc.pdf" in run(runner.send_digest(mark=False))
+
+
+def test_old_database_gains_best_resume_column(tmp_path):
+    import sqlite3
+    from jobalerts.store import SCHEMA
+    path = tmp_path / "old.db"
+    db = sqlite3.connect(path)
+    db.executescript(SCHEMA.replace("    best_resume   TEXT,\n", ""))  # the schema before resume matching
+    assert "best_resume" not in {r[1] for r in db.execute("PRAGMA table_info(jobs)")}
+    db.close()
+    store = Store(path)
+    assert "best_resume" in {r["name"] for r in store.db.execute("PRAGMA table_info(jobs)")}
+    store.close()

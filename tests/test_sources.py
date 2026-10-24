@@ -68,6 +68,16 @@ def test_ashby_skips_unlisted():
     assert j.salary == "$140K – $170K"
 
 
+def test_ashby_hybrid_is_not_remote():
+    data = load("ashby.json")
+    listed = next(j for j in data["jobs"] if j.get("isListed", True))
+    hybrid = dict(listed, isRemote=True, workplaceType="Hybrid")
+    only_flag = dict(listed, id="2", isRemote=True, workplaceType=None)
+    jobs = fetch("ashby", Board("ashby", "gamma", "Gamma", 600),
+                 {"/job-board/gamma": dict(data, jobs=[hybrid, only_flag])})
+    assert [j.remote for j in jobs] == [False, True]
+
+
 def test_smartrecruiters():
     jobs = fetch("smartrecruiters", Board("smartrecruiters", "Delta", "Delta", 600),
                  {"/companies/Delta/postings": load("smartrecruiters.json")})

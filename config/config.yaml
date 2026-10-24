@@ -6,29 +6,128 @@ database: data/jobalerts.db         # relative to the working directory (/app in
 companies_file: companies.yaml      # relative to this file
 
 # ---------------------------------------------------------------- what to match
-# PLACEHOLDERS: replace these with your own search. Phrases are case-insensitive whole words.
+# An example for R&D leadership roles (ion/electron/plasma physics,
+# systems engineering, simulation/HPC). A wide net on purpose: AI scoring ranks what gets through.
+# Phrases are case-insensitive whole words.
 criteria:
   title_include:            # a job must match at least one (empty = every title)
-    - network engineer
-    - infrastructure engineer
-    - site reliability
-    - sre
-    - devops
-    - platform engineer
+    # physics and beam/plasma domain
+    - physicist
+    - physics
+    - plasma
+    - ion beam
+    - ion optics
+    - ion source
+    - electron beam
+    - e-beam
+    - electron optics
+    - charged particle
+    - focused ion beam
+    - fib
+    - accelerator
+    - beam
+    - fusion
+    - pulsed power
+    - high voltage
+    - vacuum
+    - rf
+    - microwave
+    - microscopy
+    - lithography
+    - metrology
+    - optics
+    - diagnostics
+    # science and R&D roles
+    - scientist
+    - research
+    - r&d
+    - rd&e
+    - technology development
+    - advanced development
+    - new product introduction
+    - npi
+    - productization
+    # systems engineering
     - systems engineer
+    - systems engineering
+    - system engineer
+    - systems architect
+    - system architect
+    - chief engineer
+    - technical lead
+    - technologist
+    # leadership
+    - group leader
+    - group lead
+    - team lead
+    - engineering manager
+    - manager, engineering
+    - r&d manager
+    - research manager
+    - director of engineering
+    - director, engineering
+    - director of research
+    - director, r&d
+    - head of engineering
+    - head of research
+    - head of hardware
+    - head of physics
+    # simulation and scientific computing
+    - simulation
+    - modeling
+    - modelling
+    - computational
+    - multiphysics
+    - hpc
+    - high performance computing
+    - scientific computing
+    - research software
   title_exclude:
     - sales
     - account executive
+    - account manager
+    - business development
+    - marketing
     - recruiter
+    - talent
+    - customer success
+    - field service
+    - service engineer
+    - technician
+    - postdoc
+    - postdoctoral
+    - clinical
+    - data scientist
+    - market research
+    - user research
+    - ux research
+    - legal
+    - counsel
+    - finance
+    - accounting
   seniority_exclude:        # checked against the title, like title_exclude
     - intern
     - internship
+    - co-op
     - junior
+    - entry level
+    - new grad
+    - graduate program
   description_exclude: []   # e.g. "active secret clearance"; only checked for keyword matches
+  # Assumed: Portland/Hillsboro area or remote. Add cities or states here (or empty the list
+  # for anywhere) if you'd relocate, e.g. new mexico, california, massachusetts.
   locations:                # a job must match one (empty = anywhere)
     - remote
-    - michigan
-    - detroit
+    - oregon
+    - us-or
+    - ", or"
+    - portland
+    - hillsboro
+    - beaverton
+    - tigard
+    - tualatin
+    - wilsonville
+    - vancouver, wa
   allow_remote: true        # remote jobs pass the location check
   max_age_days: 7           # a "new" job published longer ago than this is ignored
 
@@ -49,10 +148,11 @@ polling:
 
 # ---------------------------------------------------------------- AI fit scoring
 scoring:
-  enabled: false            # turn on after filling in profile.md and ANTHROPIC_API_KEY
-  model: claude-haiku-5-5   # ~$0.0005 per scored posting
+  enabled: false            # turn on after setting ANTHROPIC_API_KEY (and filling in profile.md)
+  model: claude-haiku-5-5   # ~$0.001 per scored posting with two resumes in the (cached) prompt
   effort: low
-  profile_path: profile.md
+  profile_path: profile.md  # preferences and deal-breakers the resumes don't say
+  resume_dir: ../resume_reference   # every PDF/.md/.txt resume here is compared against each posting
   push_threshold: 75        # >= this: phone alert now
   digest_threshold: 50      # >= this: evening digest; below: stored only
   daily_max_calls: 300
@@ -62,7 +162,7 @@ notify:
   server: https://ntfy.sh
   topic: "${NTFY_TOPIC}"    # use a long random topic name; anyone who knows it can read it
   token: "${NTFY_TOKEN}"    # optional access token (self-hosted ntfy or ntfy.sh account)
-  timezone: America/New_York
+  timezone: America/Los_Angeles
   digest_time: "18:00"
   digest_max_items: 20
 
@@ -74,16 +174,21 @@ aggregators:
     enabled: false
     interval: 1800
     searches:
-      - {keyword: "network engineer"}
-      - {keyword: "IT specialist", remote: true}
+      - {keyword: "physicist"}
+      - {keyword: "plasma"}
+      - {keyword: "accelerator"}
+      - {keyword: "systems engineer", location: "Oregon"}
   adzuna:                   # free key: https://developer.adzuna.com/signup
     enabled: false
     interval: 3600
     country: us
     searches:
-      - {what: "network engineer", where: "Michigan"}
+      - {what: "physicist", where: "Oregon"}
+      - {what: "plasma", where: "Oregon"}
+      - {what: "ion beam"}
+      - {what: "R&D manager physics", where: "Oregon"}
   jsearch:                  # paid slot (RapidAPI). Free plan ~200 calls/month: keep interval >= 14400
     enabled: false
     interval: 14400
     searches:
-      - {query: "network engineer remote"}
+      - {query: "physicist R&D manager"}

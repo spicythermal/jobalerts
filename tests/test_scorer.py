@@ -86,6 +86,35 @@ def test_shipped_profile_template_loads(monkeypatch):
     assert s is not None and "<candidate_profile>" in s.system and "Deal-breakers" in s.system
 
 
+def test_resumes_go_in_the_prompt_and_best_resume_is_checked():
+    from jobalerts.resumes import Resume
+    resumes = [Resume("rnd.pdf", "Led a 7-person FIB team"), Resume("hpc.pdf", "PIC simulation on HPC")]
+    for picked, expected in (("hpc.pdf", "hpc.pdf"), ("made-up.pdf", "")):
+        messages = FakeMessages(response({"score": 80, "summary": "PIC match", "red_flags": [],
+                                          "best_resume": picked}))
+        s = Scorer(Scoring(), Store(":memory:"), "", client=SimpleNamespace(messages=messages), resumes=resumes)
+        result = run(s.score(JOB))
+        system = messages.calls[0]["system"][0]["text"]
+        assert '<resume file="rnd.pdf">\nLed a 7-person FIB team\n</resume>' in system
+        assert '<resume file="hpc.pdf">' in system and "(no profile provided)" in system
+        assert result.best_resume == expected
+    assert "best_resume" in messages.calls[0]["output_config"]["format"]["schema"]["required"]
+
+
+def test_make_scorer_loads_resume_folder(monkeypatch, tmp_path):
+    from jobalerts.cli import make_scorer
+    from jobalerts.config import Config
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    (tmp_path / "resumes").mkdir()
+    (tmp_path / "resumes" / "mine.md").write_text("Ion optics group leader", encoding="utf-8")
+    cfg = Config(scoring={"enabled": True, "profile_path": "missing.md", "resume_dir": "resumes"},
+                 config_dir=tmp_path)
+    s = make_scorer(cfg, Store(":memory:"))
+    assert s is not None and s.resume_names == ["mine.md"] and "Ion optics group leader" in s.system
+    cfg.scoring.resume_dir = "nothing-here"
+    assert make_scorer(cfg, Store(":memory:")) is None  # no profile and no resumes: keyword-only
+
+
 def test_prompt_truncates_huge_descriptions():
     big = Job("x", "", "1", "A", "T", "u", description="y" * 50_000)
     assert "[description truncated]" in job_prompt(big)

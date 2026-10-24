@@ -18,10 +18,24 @@ def test_slug_candidates():
 def test_links_in_careers_html():
     html = '''<iframe src="https://boards.greenhouse.io/embed/job_board?for=acme"></iframe>
               <a href="https://jobs.lever.co/acme-co/123">x</a>
+              <a href="https://jobs.eu.lever.co/acme-eu">x</a>
               <a href="https://acme.wd5.myworkdayjobs.com/en-US/AcmeCareers/job/1">y</a>'''
     assert discover.links_in(html) == [
-        ("greenhouse", "acme"), ("lever", "acme-co"),
+        ("greenhouse", "acme"), ("lever", "acme-co"), ("lever-eu", "acme-eu"),
         ("workday", "https://acme.wd5.myworkdayjobs.com/en-US/AcmeCareers")]
+
+
+def test_find_by_url_probes_lever_eu_host():
+    routes = {"api.eu.lever.co/v0/postings/acme-eu": [{"id": "1"}]}
+
+    async def go():
+        http = mock_http(json_routes(routes))
+        found = await discover.find_by_url("https://jobs.eu.lever.co/acme-eu", http, name="Acme EU")
+        await http.aclose()
+        return found
+
+    [f] = run(go())
+    assert f.entry() == {"name": "Acme EU", "ats": "lever", "slug": "acme-eu", "region": "eu", "tier": "normal"}
 
 
 def test_find_by_name_probes_platforms():
@@ -39,6 +53,9 @@ def test_find_by_name_probes_platforms():
 
     found = run(go())
     assert [(f.ats, f.slug, f.jobs) for f in found] == [("greenhouse", "acme", 2)]
+
+    routes["boards-api.greenhouse.io/v1/boards/acme/jobs"] = {"jobs": []}  # empty greenhouse board too
+    assert run(go()) == []
 
 
 def test_append_to_companies(tmp_path):
@@ -84,3 +101,32 @@ def test_no_topic_means_dry_run():
     run(n.send("t", "m"))
     assert n.dry_run and n.sent[0]["title"] == "t"
     run(n.aclose())
+
+
+def test_discover_file_batch_adds_each_found_board(tmp_path, monkeypatch, capsys):
+    from jobalerts import cli
+    from jobalerts.config import Config
+    (tmp_path / "companies.yaml").write_text("companies:\n", encoding="utf-8")
+    (tmp_path / "list.txt").write_text(
+        "# comment\nAcme  # inline comment\n\nBig Corp | https://big.wd1.myworkdayjobs.com/External\nNobody\n",
+        encoding="utf-8")
+    assert cli.read_targets(str(tmp_path / "list.txt")) == [
+        ("Acme", ""), ("Big Corp", "https://big.wd1.myworkdayjobs.com/External"), ("Nobody", "")]
+
+    async def by_name(name, http):
+        return [discover.Found("greenhouse", "acme", name, 4)] if name == "Acme" else []
+
+    async def by_url(url, http, name=""):
+        return [discover.Found("workday", "big/External", name, 900, url)]
+
+    monkeypatch.setattr(discover, "find_by_name", by_name)
+    monkeypatch.setattr(discover, "find_by_url", by_url)
+    args = cli.build_parser().parse_args(["discover", "--file", str(tmp_path / "list.txt"), "--add"])
+    assert run(cli.cmd_discover(Config(config_dir=tmp_path), args)) == 0
+    import yaml
+    entries = yaml.safe_load((tmp_path / "companies.yaml").read_text(encoding="utf-8"))["companies"]
+    assert entries == [
+        {"name": "Acme", "ats": "greenhouse", "slug": "acme", "tier": "normal"},
+        {"name": "Big Corp", "ats": "workday", "url": "https://big.wd1.myworkdayjobs.com/External", "tier": "slow"},
+    ]
+    assert "2 of 3 found. No supported board for: Nobody" in capsys.readouterr().out

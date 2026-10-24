@@ -1,4 +1,4 @@
-"""AI fit scoring with Claude: one cheap call per keyword-matched job, against your profile.md.
+"""AI fit scoring with Claude: one cheap call per keyword-matched job, against your resumes and profile.md.
 
 Claude Haiku 5.5 costs $0.10/M input and $0.50/M output tokens, so a typical posting
 (~3K tokens in, a few hundred out) is about $0.0005; 100 matches a day is ~5 cents.
@@ -13,6 +13,7 @@ from pydantic import BaseModel, ValidationError
 
 from .config import Scoring
 from .models import Job
+from .resumes import Resume
 from .store import Store
 
 log = logging.getLogger(__name__)
@@ -28,15 +29,22 @@ Score each posting 0-100 for how strongly this candidate should apply right now:
 - 50-74: plausible, worth a look later
 - below 50: skip
 
-Weigh the candidate's stated priorities, the real impact and scope of the role, and their \
-deal-breakers above simple keyword overlap. Postings are often vague; judge from what is \
-actually stated and don't invent requirements.
+Compare the posting's must-have qualifications against the candidate's actual experience in \
+their resumes: domain, seniority, people leadership, tools, and track record. Weigh the \
+candidate's stated priorities, the real impact and scope of the role, and their deal-breakers \
+above simple keyword overlap. Postings are often vague; judge from what is actually stated \
+and don't invent requirements.
 
 Return:
 - score: integer 0-100
-- summary: one sentence (at most 25 words) saying why it does or doesn't fit, written for a phone notification
-- red_flags: concrete concerns such as clearance required, wrong location, pay below the candidate's floor, \
-or contract-only. Use an empty list if there are none.
+- summary: one sentence (at most 25 words) naming the strongest resume overlap or the main gap, \
+written for a phone notification
+- red_flags: concrete concerns such as a must-have the resumes don't show, clearance required, \
+wrong location, pay below the candidate's floor, or contract-only. Use an empty list if there are none.
+- best_resume: the file name of the resume version to apply with, exactly as given in the resumes \
+below (empty string if none are provided)
+
+{resumes}
 
 <candidate_profile>
 {profile}
@@ -48,8 +56,9 @@ SCHEMA = {
         "score": {"type": "integer"},
         "summary": {"type": "string"},
         "red_flags": {"type": "array", "items": {"type": "string"}},
+        "best_resume": {"type": "string"},
     },
-    "required": ["score", "summary", "red_flags"],
+    "required": ["score", "summary", "red_flags", "best_resume"],
     "additionalProperties": False,
 }
 
@@ -58,6 +67,14 @@ class FitScore(BaseModel):
     score: int
     summary: str
     red_flags: list[str] = []
+    best_resume: str = ""
+
+
+def resumes_block(resumes: list[Resume]) -> str:
+    if not resumes:
+        return "<resumes>(none provided; judge from the profile only)</resumes>"
+    parts = [f'<resume file="{r.name}">\n{r.text}\n</resume>' for r in resumes]
+    return "<resumes>\n" + "\n".join(parts) + "\n</resumes>"
 
 
 def job_prompt(job: Job) -> str:
@@ -74,10 +91,13 @@ def job_prompt(job: Job) -> str:
 
 
 class Scorer:
-    def __init__(self, cfg: Scoring, store: Store, profile: str, client: anthropic.AsyncAnthropic | None = None):
+    def __init__(self, cfg: Scoring, store: Store, profile: str, client: anthropic.AsyncAnthropic | None = None,
+                 resumes: list[Resume] | None = None):
         self.cfg = cfg
         self.store = store
-        self.system = SYSTEM.format(profile=profile.strip())
+        self.resume_names = [r.name for r in resumes or []]
+        self.system = SYSTEM.format(profile=profile.strip() or "(no profile provided)",
+                                    resumes=resumes_block(resumes or []))
         self.client = client or anthropic.AsyncAnthropic(max_retries=3, timeout=90.0)
 
     async def score(self, job: Job) -> FitScore | None:
@@ -120,4 +140,6 @@ class Scorer:
             log.error("Unparseable score for %s (stop_reason=%s): %s", job.key, response.stop_reason, e)
             return None
         result.score = max(0, min(100, result.score))
+        if result.best_resume not in self.resume_names:
+            result.best_resume = ""
         return result

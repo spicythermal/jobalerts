@@ -14,6 +14,7 @@ from .config import Config, load_config
 from .http import HttpClient
 from .models import utcnow
 from .notify import Notifier
+from .resumes import load_resumes
 from .scheduler import Runner
 from .scorer import Scorer
 from .store import Store
@@ -28,11 +29,15 @@ def make_scorer(cfg: Config, store: Store) -> Scorer | None:
     if not cfg.scoring.enabled:
         return None
     profile_path = cfg.resolve(cfg.scoring.profile_path)
-    if not profile_path.is_file():
-        log.warning("Scoring enabled but %s is missing; alerts will use keywords only", profile_path)
+    profile = profile_path.read_text(encoding="utf-8") if profile_path.is_file() else ""
+    resumes = load_resumes(cfg.resolve(cfg.scoring.resume_dir))
+    if not profile and not resumes:
+        log.warning("Scoring enabled but there's no %s and no resumes in %s; alerts will use keywords only",
+                    profile_path, cfg.resolve(cfg.scoring.resume_dir))
         return None
+    log.info("AI scoring against %d resume(s): %s", len(resumes), ", ".join(r.name for r in resumes) or "none")
     try:
-        return Scorer(cfg.scoring, store, profile_path.read_text(encoding="utf-8"))
+        return Scorer(cfg.scoring, store, profile, resumes=resumes)
     except Exception as e:  # e.g. no Anthropic credentials configured
         log.warning("AI scoring unavailable (%s); alerts will use keywords only", e)
         return None
@@ -127,39 +132,77 @@ async def preview_scores(cfg: Config, runner: Runner, boards, jobs) -> None:
         print(f"  {s.score if s else '--':>3}  {job.company}: {job.title}")
         if s:
             print(f"       {s.summary}" + (f"  ⚠ {'; '.join(s.red_flags)}" if s.red_flags else ""))
+            if s.best_resume:
+                print(f"       apply with: {s.best_resume}")
+
+
+def read_targets(path: str) -> list[tuple[str, str]]:
+    """Lines of `Company Name` or `Company Name | https://careers.url`; # starts a comment."""
+    targets = []
+    for line in open(path, encoding="utf-8"):
+        line = line.split("#", 1)[0].strip()
+        if not line:
+            continue
+        name, _, url = (part.strip() for part in line.partition("|"))
+        targets.append((name, url))
+    return targets
+
+
+async def discover_one(http: HttpClient, target: str, name: str = "") -> list[discover.Found]:
+    if target.startswith(("http://", "https://")):
+        return await discover.find_by_url(target, http, name=name)
+    found = await discover.find_by_name(target, http)
+    for f in found:
+        f.name = name or f.name
+    return found
 
 
 async def cmd_discover(cfg: Config, args) -> int:
+    targets = [(t, args.name or "") for t in args.target]
+    if args.file:
+        targets += [(url or name, name) for name, url in read_targets(args.file)]
+    if not targets:
+        print("Give a company name, a careers URL, or --file")
+        return 1
+    path = cfg.resolve(cfg.companies_file)
+    missing = []
     http = HttpClient(cfg.contact_email, cfg.polling.host_min_interval)
     try:
-        target = args.target
-        if target.startswith(("http://", "https://")):
-            found = await discover.find_by_url(target, http, name=args.name or "")
-        else:
-            found = await discover.find_by_name(target, http)
-            if args.name:
-                for f in found:
-                    f.name = args.name
+        for target, name in targets:
+            try:
+                found = await discover_one(http, target, name)
+            except Exception as e:  # a careers page that won't load shouldn't stop a batch
+                print(f"{name or target}: lookup failed ({type(e).__name__}: {e})")
+                found = []
+            if not found:
+                missing.append(name or target)
+                if len(targets) == 1:
+                    print(f"No public Greenhouse/Lever/Ashby/SmartRecruiters/Workday board found for {target!r}.\n"
+                          "Try its careers page URL instead: jobalerts discover https://company.com/careers")
+                continue
+            print(f"{name or target}:")
+            for f in found:
+                print(f"  {f.ats:16} {f.slug:35} {f.jobs:5} open jobs")
+            best = max(found, key=lambda f: f.jobs)
+            tier = args.tier or ("slow" if best.ats == "workday" else "normal")
+            if args.add:
+                if discover.append_to_companies(path, best, tier):
+                    print(f"  added {best.ats}:{best.slug} to {path}")
+                else:
+                    print(f"  {best.ats}:{best.slug} is already in {path}")
+            else:
+                import json
+                print(f"  companies.yaml entry:  - {json.dumps(best.entry(tier))}")
     finally:
         await http.aclose()
-    if not found:
-        print(f"No public Greenhouse/Lever/Ashby/SmartRecruiters/Workday board found for {args.target!r}.\n"
-              "Try its careers page URL instead: jobalerts discover https://company.com/careers")
-        return 1
-    print("Found:")
-    for f in found:
-        print(f"  {f.ats:16} {f.slug:35} {f.jobs:5} open jobs")
-    best = max(found, key=lambda f: f.jobs)
-    path = cfg.resolve(cfg.companies_file)
-    if args.add:
-        if discover.append_to_companies(path, best, args.tier):
-            print(f"Added {best.ats}:{best.slug} to {path} (restart the service to pick it up)")
-        else:
-            print(f"{best.ats}:{best.slug} is already in {path}")
-    else:
-        import json
-        print(f"\ncompanies.yaml entry:\n  - {json.dumps(best.entry(args.tier))}\n(or rerun with --add)")
-    return 0
+    if len(targets) > 1:
+        print(f"\n{len(targets) - len(missing)} of {len(targets)} found."
+              + (f" No supported board for: {', '.join(missing)}" if missing else ""))
+    if args.add and len(missing) < len(targets):
+        print("Restart the service to pick up new companies.")
+    elif not args.add:
+        print("(rerun with --add to append to companies.yaml)")
+    return 1 if len(missing) == len(targets) else 0
 
 
 async def cmd_test_notify(cfg: Config, args) -> int:
@@ -235,9 +278,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--board", help="only boards whose key or company name contains this text")
     p.add_argument("--score", type=int, default=0, metavar="N", help="with --dry-run: AI-score the first N matches")
     d = sub.add_parser("discover", help="find a company's ATS board by name or careers URL")
-    d.add_argument("target", help='company name ("Cloudflare") or careers page URL')
-    d.add_argument("--add", action="store_true", help="append the result to companies.yaml")
-    d.add_argument("--tier", default="normal", help="polling tier for --add (default: %(default)s)")
+    d.add_argument("target", nargs="*", help='company names ("Cloudflare") or careers page URLs')
+    d.add_argument("--file", help='text file with one "Company" or "Company | careers URL" per line')
+    d.add_argument("--add", action="store_true", help="append the results to companies.yaml")
+    d.add_argument("--tier", help="polling tier for --add (default: slow for Workday, else normal)")
     d.add_argument("--name", help="display name to use for the company")
     sub.add_parser("test-notify", help="send a sample alert to your ntfy topic")
     g = sub.add_parser("digest", help="send the daily digest now")

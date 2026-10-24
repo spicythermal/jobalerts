@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     score         INTEGER,
     score_summary TEXT,
     red_flags     TEXT,
+    best_resume   TEXT,
     notified_at   TEXT
 );
 CREATE INDEX IF NOT EXISTS jobs_fingerprint ON jobs(fingerprint);
@@ -84,6 +85,9 @@ class Store:
         self.db.row_factory = sqlite3.Row
         self.db.execute("PRAGMA journal_mode=WAL")
         self.db.executescript(SCHEMA)
+        columns = {r["name"] for r in self.db.execute("PRAGMA table_info(jobs)")}
+        if "best_resume" not in columns:  # databases created before resume matching
+            self.db.execute("ALTER TABLE jobs ADD COLUMN best_resume TEXT")
 
     def close(self) -> None:
         self.db.close()
@@ -155,11 +159,13 @@ class Store:
             raise
 
     def update_job(self, key: str, *, status: str, reason: str | None = None, score: int | None = None,
-                   score_summary: str | None = None, red_flags: str | None = None) -> None:
+                   score_summary: str | None = None, red_flags: str | None = None,
+                   best_resume: str | None = None) -> None:
         self.db.execute(
             """UPDATE jobs SET status=?, reason=COALESCE(?, reason), score=COALESCE(?, score),
-                   score_summary=COALESCE(?, score_summary), red_flags=COALESCE(?, red_flags) WHERE key=?""",
-            (status, reason, score, score_summary, red_flags, key),
+                   score_summary=COALESCE(?, score_summary), red_flags=COALESCE(?, red_flags),
+                   best_resume=COALESCE(?, best_resume) WHERE key=?""",
+            (status, reason, score, score_summary, red_flags, best_resume, key),
         )
 
     def mark_notified(self, key: str, status: str = "alerted") -> None:

@@ -27,7 +27,8 @@ class Ashby(Source):
             title=j.get("title", "").strip(),
             url=j.get("jobUrl", ""),
             location=location,
-            remote=bool(j.get("isRemote")) or j.get("workplaceType") == "Remote",
+            # Ashby also sets isRemote on hybrid roles, so workplaceType wins when it's there.
+            remote=(j["workplaceType"] == "Remote") if j.get("workplaceType") else bool(j.get("isRemote")),
             published_at=parse_dt(j.get("publishedAt")),
             description=j.get("descriptionPlain", ""),
             salary=comp.get("scrapeableCompensationSalarySummary") or comp.get("compensationTierSummary") or "",

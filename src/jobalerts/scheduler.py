@@ -131,6 +131,7 @@ class Runner:
             score=score.score if score else None,
             score_summary=score.summary if score else None,
             red_flags="; ".join(score.red_flags) if score and score.red_flags else None,
+            best_resume=score.best_resume if score and score.best_resume else None,
         )
         return status, score
 
@@ -218,6 +219,8 @@ class Runner:
             for r in rows:
                 score = f"[{r['score']}] " if r["score"] is not None else ""
                 lines.append(f"• {score}{r['company']}: {r['title']} ({r['location'] or 'n/a'})\n  {r['url']}")
+                if r["best_resume"]:
+                    lines.append(f"  apply with: {r['best_resume']}")
         else:
             lines.append("No held-back matches today.")
 
