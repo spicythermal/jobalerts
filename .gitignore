@@ -21,5 +21,3 @@ dist/
 .claude/.plan-gate*
 .claude/STOP_AUTORUN
 
-# personal documents (mounted into the container, never committed)
-resume_reference/

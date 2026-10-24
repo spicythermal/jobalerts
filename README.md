@@ -41,7 +41,7 @@ Then edit the config (next section), and run `jobalerts test-notify` to check yo
 | `config/config.yaml` | Search criteria, polling tiers, scoring thresholds, digest time, aggregators. |
 | `config/companies.yaml` | The watch list, generated from `config/candidates.txt`. |
 | `config/candidates.txt` | Companies to resolve into the watch list, one per line (see below). |
-| `resume_reference/` | Your resumes (PDF, `.md` or `.txt`). AI scoring compares every posting against all of them. Not committed. |
+| `resume_reference/` | Your resumes (PDF, `.md` or `.txt`). AI scoring compares every posting against all of them. Committed (private repo) and mounted read-only into the container. |
 | `config/profile.md` | What the resumes don't say: target roles, location, salary floor, deal-breakers. |
 
 **Criteria** (`config.yaml` → `criteria`) are case-insensitive whole-word phrases.
