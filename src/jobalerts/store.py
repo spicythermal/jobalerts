@@ -6,7 +6,7 @@ from collections import Counter
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from .models import Job, normalize_company, utcnow
+from .models import Job, normalize_company, parse_dt, utcnow
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS jobs (
@@ -75,6 +75,13 @@ CREATE TABLE IF NOT EXISTS host_stats (
 
 def _iso(dt: datetime | None) -> str | None:
     return dt.isoformat(timespec="seconds") if dt else None
+
+
+def job_from_row(r: sqlite3.Row) -> Job:
+    """A stored job back as a Job (the description isn't stored; sources re-fetch it when needed)."""
+    return Job(r["source"], r["board"], r["job_id"], r["company"] or "", r["title"] or "", r["url"] or "",
+               location=r["location"] or "", remote=bool(r["remote"]), published_at=parse_dt(r["published_at"]),
+               salary=r["salary"] or "")
 
 
 class Store:

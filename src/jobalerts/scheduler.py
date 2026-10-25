@@ -17,7 +17,7 @@ from .models import Job, normalize_company, utcnow
 from .notify import Notifier
 from .scorer import FitScore, Scorer
 from .sources import SOURCES, Source, SourceConfigError, without_missing_keys
-from .store import Store
+from .store import Store, job_from_row
 
 log = logging.getLogger(__name__)
 
@@ -92,6 +92,44 @@ class Runner:
         if new:
             log.info("%s: %d new, %d matched, %d alerted", board.key, len(new), len(result.matched), result.alerted)
         return result
+
+    async def backfill(self, boards: list[Board], push: bool = False) -> list[tuple[Job, str, FitScore | None]]:
+        """Run the jobs that were already open when their board was first polled (the silent baseline)
+        through the same filter -> score -> route steps as a job found live. Only jobs posted within
+        max_age_days are considered, and each is done once. Without `push`, strong fits go to the
+        digest instead of the phone."""
+        by_slug = {(b.source, b.slug): b for b in boards}
+        since = utcnow() - timedelta(days=self.cfg.criteria.max_age_days)
+        alerts_left = self.cfg.polling.max_alerts_per_poll
+        results = []
+        for row in self.store.recent_candidates(since):
+            if row["status"] != "baseline":
+                continue
+            job = job_from_row(row)
+            board = by_slug.get((job.source, job.board))
+            if board is None or self.filter.is_stale(job) or not self.filter.check_basic(job)[0]:
+                continue
+            try:
+                status, score = await self._process(job, board, SOURCES[job.source])
+            except Exception as e:
+                log.exception("backfill: failed processing %s", job.key)
+                self.store.update_job(job.key, status="error", reason=str(e)[:200])
+                continue
+            if status == "alert" and score is None:
+                # Couldn't score (bad key, API down, daily cap): leave it for the next backfill to retry.
+                self.store.update_job(job.key, status="baseline", reason="backfill: not scored")
+                status = "unscored"
+            elif status == "alert":
+                if push and alerts_left > 0:
+                    alerts_left -= 1
+                    status = "alerted" if await self._notify(job, score) else "notify_failed"
+                else:
+                    status = "digest"
+                    self.store.update_job(job.key, status=status, reason="baseline backfill, not pushed")
+            results.append((job, status, score))
+        if results:
+            self._dashboard_stale.set()
+        return results
 
     async def _process(self, job: Job, board: Board, source: Source) -> tuple[str, FitScore | None]:
         if self.store.seen_elsewhere(job):

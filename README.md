@@ -147,7 +147,7 @@ sensor doesn't appear, check this file first.
 ## Commands
 
 ```
-jobalerts [-c CONFIG] [-v] {run,poll,discover,test-notify,digest,top,stats}
+jobalerts [-c CONFIG] [-v] {run,poll,discover,test-notify,digest,top,stats,backfill}
 
   run                  the service: poll every board on its tier interval, forever
   poll [--once] [--dry-run] [--board TEXT] [--score N]
@@ -159,6 +159,8 @@ jobalerts [-c CONFIG] [-v] {run,poll,discover,test-notify,digest,top,stats}
   top [-n N] [--days D] [--push]
                        best recent matches; --push also updates the Home Assistant sensor
   stats                board health, request rates, detection delay, AI spend
+  backfill [--dry-run] [--push]
+                       AI-score the matches that were already open at the first poll
 ```
 
 `-c` defaults to `config/config.yaml` (or `$JOBALERTS_CONFIG`). `$JOBALERTS_DB` overrides the
@@ -227,6 +229,20 @@ local edits. Restart the container after any config change.
 cd jobalerts && git pull
 docker compose up -d --build             # rebuilds and recreates the container if the code changed
 docker compose restart                   # needed when only config/ or resume_reference/ changed
+```
+
+### After the first deploy: score what was already open
+
+The first poll of each board records its open jobs silently, so none of them are scored.
+`backfill` sends the ones that pass your filters and were posted within
+`criteria.max_age_days` through Claude, the same way a new job would go. Each job is
+scored only once, and any job that can't be scored (wrong key, API down) is left to retry
+on the next run.
+
+```sh
+docker compose exec jobalerts jobalerts backfill --dry-run   # show the scores, save nothing
+docker compose exec jobalerts jobalerts backfill             # save: 50+ go in the digest, `top` and HA show scores
+docker compose exec jobalerts jobalerts backfill --push      # same, but 75+ are pushed to your phone now
 ```
 
 ## Living with it

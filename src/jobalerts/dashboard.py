@@ -8,8 +8,8 @@ from datetime import timedelta
 
 from .config import HomeAssistant
 from .filters import JobFilter
-from .models import Job, parse_dt, utcnow
-from .store import Store
+from .models import parse_dt, utcnow
+from .store import Store, job_from_row
 
 log = logging.getLogger(__name__)
 
@@ -30,11 +30,8 @@ def top_matches(store: Store, job_filter: JobFilter, days: int, n: int) -> tuple
     matches = []
     for r in store.recent_candidates(utcnow() - timedelta(days=days)):
         published = parse_dt(r["published_at"])
-        if r["status"] == "baseline":
-            job = Job(r["source"], r["board"], r["job_id"], r["company"] or "", r["title"] or "", r["url"] or "",
-                      location=r["location"] or "", remote=bool(r["remote"]), published_at=published)
-            if not job_filter.check_basic(job)[0]:
-                continue
+        if r["status"] == "baseline" and not job_filter.check_basic(job_from_row(r))[0]:
+            continue
         matches.append({
             "company": r["company"] or "",
             "title": r["title"] or "",

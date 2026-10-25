@@ -269,3 +269,45 @@ def test_service_start_skips_aggregators_without_keys(env, monkeypatch):
     assert started == ["greenhouse:acme"]
     (msg,) = notifier.sent
     assert "Not running (no API key in .env): usajobs." in msg["message"]
+
+
+def test_backfill_scores_recent_baseline_matches_once(env):
+    fake, runner, board, store, notifier = env
+    runner.scorer = FakeScorer({"Network Engineer A": 80, "Network Engineer B": 60, "Network Engineer C": 20})
+    fake.jobs = [make_job(i, title=f"Network Engineer {c}") for i, c in enumerate("ABC")]
+    fake.jobs += [make_job(7, title="Sales Engineer"), make_job(8, age_days=30)]
+    poll(runner, board)  # first poll: everything recorded silently, nothing scored
+
+    results = run(runner.backfill([board]))
+    assert {job.title: status for job, status, _ in results} == {
+        "Network Engineer A": "digest",  # strong fit, but no --push: held for the digest
+        "Network Engineer B": "digest",
+        "Network Engineer C": "low",
+    }
+    assert notifier.sent == []
+    rows = {r["title"]: r for r in store.db.execute("SELECT title, status, score FROM jobs")}
+    assert rows["Network Engineer A"]["score"] == 80
+    assert rows["Sales Engineer"]["status"] == "baseline"   # filtered out: left alone
+    assert rows["Network Engineer"]["status"] == "baseline"  # too old: left alone
+    assert run(runner.backfill([board])) == []  # each job is done once
+
+
+def test_backfill_push_sends_strong_fits(env):
+    fake, runner, board, store, notifier = env
+    runner.scorer = FakeScorer({"Network Engineer A": 80, "Network Engineer B": 60})
+    fake.jobs = [make_job(i, title=f"Network Engineer {c}") for i, c in enumerate("AB")]
+    poll(runner, board)
+    results = run(runner.backfill([board], push=True))
+    assert sorted(status for _, status, _ in results) == ["alerted", "digest"]
+    assert [m["title"] for m in notifier.sent] == ["Acme: Network Engineer A"]
+
+
+def test_backfill_leaves_unscored_jobs_for_a_retry(env):
+    fake, runner, board, store, notifier = env
+    runner.scorer = FakeScorer({})  # every call fails, e.g. a wrong API key
+    fake.jobs = [make_job(1)]
+    poll(runner, board)
+    assert [status for _, status, _ in run(runner.backfill([board], push=True))] == ["unscored"]
+    assert notifier.sent == []
+    runner.scorer = FakeScorer({"Network Engineer": 80})  # key fixed
+    assert [status for _, status, _ in run(runner.backfill([board]))] == ["digest"]

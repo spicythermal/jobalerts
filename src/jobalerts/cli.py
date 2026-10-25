@@ -8,6 +8,8 @@ import os
 import statistics
 import sys
 from contextlib import asynccontextmanager
+from datetime import timedelta
+from pathlib import Path
 
 from . import discover
 from .config import Config, load_config
@@ -19,7 +21,7 @@ from .resumes import load_resumes
 from .scheduler import Runner
 from .scorer import Scorer
 from .sources import without_missing_keys
-from .store import Store
+from .store import Store, job_from_row
 
 log = logging.getLogger("jobalerts")
 
@@ -221,6 +223,57 @@ async def cmd_discover(cfg: Config, args) -> int:
     return 1 if len(missing) == len(targets) else 0
 
 
+async def cmd_backfill(cfg: Config, args) -> int:
+    if not Path(cfg.database).is_file():
+        print(f"No database at {cfg.database}: run the service first so it records each board's baseline.")
+        return 1
+    async with open_runner(cfg, dry_run=args.dry_run) as runner:
+        if args.dry_run:
+            # Work on an in-memory copy of the baseline so the real database is left exactly as it was.
+            real = Store(cfg.database)
+            try:
+                rows = real.recent_candidates(utcnow() - timedelta(days=cfg.criteria.max_age_days))
+            finally:
+                real.close()
+            runner.store.insert_jobs([job_from_row(r) for r in rows if r["status"] == "baseline"], "baseline")
+            runner.scorer = make_scorer(cfg, runner.store)
+        if not runner.scorer:
+            print("AI scoring isn't configured: set ANTHROPIC_API_KEY in .env (and scoring.enabled: true).")
+            return 1
+        results = await runner.backfill(cfg.boards(), push=args.push and not args.dry_run)
+        if not results:
+            print(f"No unscored baseline matches posted in the last {cfg.criteria.max_age_days} days.")
+            return 0
+        print(f"\n{len(results)} baseline matches posted in the last {cfg.criteria.max_age_days} days:")
+        results.sort(key=lambda r: -1 if r[2] is None else r[2].score, reverse=True)
+        for job, status, score in results:
+            if status == "alerted":
+                status = "pushed"
+            extra = " · ".join(filter(None, [job.location, job.salary]))
+            print(f"  [{score.score if score else '--':>3}] {status:8} {job.company}: {job.title} — {extra}\n"
+                  f"                 {job.url}")
+            if score:
+                print(f"                 {score.summary}" + (f"  ⚠ {'; '.join(score.red_flags)}" if score.red_flags else ""))
+                if score.best_resume:
+                    print(f"                 apply with: {score.best_resume}")
+        if args.dry_run:
+            print("\nDry run: scores shown above, nothing stored or sent.")
+            return 0
+        held = "" if args.push else f" (and {cfg.scoring.push_threshold}+, since --push wasn't given)"
+        print(f"\nSaved. Scores {cfg.scoring.digest_threshold}-{cfg.scoring.push_threshold - 1}{held} "
+              "go in the next digest; `jobalerts top` and Home Assistant now show the scores.")
+        unscored = sum(1 for _, status, _ in results if status == "unscored")
+        if unscored:
+            print(f"{unscored} couldn't be scored (see the log above); run backfill again to retry them.")
+        if runner.homeassistant:
+            try:
+                await runner.publish_dashboard()
+                print("Home Assistant sensor updated.")
+            except Exception as e:
+                print(f"Home Assistant (MQTT) update failed: {type(e).__name__}: {e}")
+    return 0
+
+
 async def cmd_test_notify(cfg: Config, args) -> int:
     if not cfg.notify.topic:
         print("Set NTFY_TOPIC in .env (and notify.topic: \"${NTFY_TOPIC}\" in config.yaml) first.")
@@ -306,7 +359,7 @@ async def cmd_stats(cfg: Config, args) -> int:
 
 
 COMMANDS = {"run": cmd_run, "poll": cmd_poll, "discover": cmd_discover, "test-notify": cmd_test_notify,
-            "digest": cmd_digest, "top": cmd_top, "stats": cmd_stats}
+            "digest": cmd_digest, "top": cmd_top, "stats": cmd_stats, "backfill": cmd_backfill}
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -335,6 +388,10 @@ def build_parser() -> argparse.ArgumentParser:
     t.add_argument("--days", type=int, default=0, help="posted in the last N days (default: homeassistant.days)")
     t.add_argument("--push", action="store_true", help="also update the Home Assistant sensor now")
     sub.add_parser("stats", help="board health, request rates, detection delay, AI spend")
+    b = sub.add_parser("backfill", help="AI-score the matches that were already open when each board was first "
+                                        "polled (once per job, posted within criteria.max_age_days)")
+    b.add_argument("--dry-run", action="store_true", help="score and print only: store nothing, send nothing")
+    b.add_argument("--push", action="store_true", help="push strong fits to your phone (default: next digest)")
     return parser
 
 
