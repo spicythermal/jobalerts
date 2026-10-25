@@ -148,7 +148,7 @@ polling:
 
 # ---------------------------------------------------------------- AI fit scoring
 scoring:
-  enabled: false            # turn on after setting ANTHROPIC_API_KEY (and filling in profile.md)
+  enabled: true            # turn on after setting ANTHROPIC_API_KEY (and filling in profile.md)
   model: claude-haiku-5-5   # ~$0.001 per scored posting with two resumes in the (cached) prompt
   effort: low
   profile_path: profile.md  # preferences and deal-breakers the resumes don't say
@@ -171,7 +171,7 @@ notify:
 # token needed). State = matches posted in the last `days`, attribute `jobs` = the best
 # `top_n` (AI score, then newest). See the README for the broker login and a dashboard card.
 homeassistant:
-  enabled: false
+  enabled: true
   mqtt_host: "${MQTT_HOST}"         # e.g. the Home Assistant box's IP (Mosquitto add-on)
   mqtt_port: 1883
   mqtt_username: "${MQTT_USERNAME}"
@@ -179,9 +179,9 @@ homeassistant:
   mqtt_tls: false
   discovery_prefix: homeassistant
   base_topic: jobalerts     # writes jobalerts/top/state and jobalerts/top/attributes
-  top_n: 3
+  top_n: 5
   days: 7
-  interval: 300             # refresh every 5 min, and right after new matches
+  interval: 3000             # refresh every 50 min, and right after new matches
 
 # ---------------------------------------------------------------- broad-net aggregators
 # Slower, catch-all searches for companies not on the watch list. Their matches also
