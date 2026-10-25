@@ -179,9 +179,9 @@ homeassistant:
   mqtt_tls: false
   discovery_prefix: homeassistant
   base_topic: jobalerts     # writes jobalerts/top/state and jobalerts/top/attributes
-  top_n: 3
+  top_n: 5
   days: 7
-  interval: 300             # refresh every 5 min, and right after new matches
+  interval: 3000             # refresh every 50 min, and right after new matches
 
 # ---------------------------------------------------------------- broad-net aggregators
 # Slower, catch-all searches for companies not on the watch list. Their matches also
