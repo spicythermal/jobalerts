@@ -52,6 +52,8 @@ class Scoring(BaseModel):
     push_threshold: int = 75
     digest_threshold: int = 50
     daily_max_calls: int = 300
+    credit_usd: float = 0                # API credit balance on credit_as_of (Console -> Billing); 0 = no sensor
+    credit_as_of: str = ""               # YYYY-MM-DD that balance was read; spend from that day on is subtracted
 
 
 class Notify(BaseModel):

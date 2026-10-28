@@ -18,6 +18,18 @@ from .store import Store
 
 log = logging.getLogger(__name__)
 
+# List prices, USD per million tokens (input, output). Cache reads cost 0.1x input and cache writes
+# (5-minute TTL) 1.25x. An unknown model is priced like the dearest one, so the credit estimate errs low.
+PRICES = {"claude-haiku-5-5": (0.10, 0.50), "claude-sonnet-5-5": (2.00, 10.00), "claude-opus-5-5": (4.00, 20.00)}
+
+
+def ai_cost_usd(rows, model: str) -> float:
+    """Estimated spend for ai_usage rows at the model's list prices."""
+    inp, out = PRICES.get(model, max(PRICES.values()))
+    return sum(r["input_tokens"] * inp + r["output_tokens"] * out
+               + r["cache_read_tokens"] * inp * 0.1 + r["cache_write_tokens"] * inp * 1.25
+               for r in rows) / 1e6
+
 MAX_DESCRIPTION_CHARS = 30_000
 
 SYSTEM = """You screen newly posted jobs for one candidate and decide which ones are worth \
@@ -125,11 +137,8 @@ class Scorer:
             return None
 
         usage = response.usage
-        self.store.record_ai_call(
-            (usage.input_tokens or 0) + (usage.cache_read_input_tokens or 0)
-            + (usage.cache_creation_input_tokens or 0),
-            usage.output_tokens or 0,
-        )
+        self.store.record_ai_call(usage.input_tokens or 0, usage.output_tokens or 0,
+                                  usage.cache_read_input_tokens or 0, usage.cache_creation_input_tokens or 0)
         if response.stop_reason == "refusal":
             log.warning("Claude declined to score %s", job.key)
             return None

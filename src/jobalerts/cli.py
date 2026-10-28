@@ -13,20 +13,17 @@ from pathlib import Path
 
 from . import discover
 from .config import Config, load_config
-from .dashboard import MqttPublisher
+from .dashboard import MqttPublisher, api_credit
 from .http import HttpClient
 from .models import utcnow
 from .notify import Notifier
 from .resumes import load_resumes
 from .scheduler import Runner
-from .scorer import Scorer
+from .scorer import Scorer, ai_cost_usd
 from .sources import without_missing_keys
 from .store import Store, job_from_row
 
 log = logging.getLogger("jobalerts")
-
-# Claude Haiku 5.5 list prices (USD per million tokens), for the cost estimate in `stats`.
-HAIKU_INPUT_PER_M, HAIKU_OUTPUT_PER_M = 0.10, 0.50
 
 
 def make_scorer(cfg: Config, store: Store) -> Scorer | None:
@@ -300,6 +297,9 @@ async def cmd_top(cfg: Config, args) -> int:
     async with open_runner(cfg, memory_store=False) as runner:
         days = args.days or cfg.homeassistant.days
         total, jobs = runner.top_matches(args.n, days)
+        if credit := api_credit(runner.store, cfg.scoring):
+            print(f"API credit: ~${credit['remaining']:.2f} left (${credit['balance']:.2f} on {credit['as_of']}, "
+                  f"jobalerts spent ${credit['spent']:.3f} since)")
         print(f"{total} matches posted in the last {days} days" + (f"; top {len(jobs)}:" if jobs else "."))
         for i, j in enumerate(jobs, 1):
             score = f"[{j['score']}] " if j["score"] is not None else ""
@@ -319,8 +319,9 @@ async def cmd_top(cfg: Config, args) -> int:
                 print(f"\nMQTT publish to {cfg.homeassistant.mqtt_host}:{cfg.homeassistant.mqtt_port} failed: "
                       f"{type(e).__name__}: {e}")
                 return 1
+            credit = " and sensor.job_alerts_api_credit" if api_credit(runner.store, cfg.scoring) else ""
             print(f"\nPublished to {runner.homeassistant.state_topic} on {cfg.homeassistant.mqtt_host}. "
-                  "Home Assistant shows it as sensor.job_alerts.")
+                  f"Home Assistant shows it as sensor.job_alerts{credit}.")
     return 0
 
 
@@ -350,9 +351,11 @@ async def cmd_stats(cfg: Config, args) -> int:
         usage = store.ai_usage()
         if usage:
             calls = sum(r["calls"] for r in usage)
-            cost = sum(r["input_tokens"] * HAIKU_INPUT_PER_M + r["output_tokens"] * HAIKU_OUTPUT_PER_M
-                       for r in usage) / 1e6
-            print(f"\nAI scoring, 7d: {calls} calls, ~${cost:.3f} at Haiku 5.5 list prices")
+            cost = ai_cost_usd(usage, cfg.scoring.model)
+            print(f"\nAI scoring, 7d: {calls} calls, ~${cost:.3f} at {cfg.scoring.model} list prices")
+        if credit := api_credit(store, cfg.scoring):
+            print(f"API credit: ~${credit['remaining']:.2f} left of ${credit['balance']:.2f} "
+                  f"(as of {credit['as_of']}; jobalerts spent ${credit['spent']:.3f} since)")
     finally:
         store.close()
     return 0

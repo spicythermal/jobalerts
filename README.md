@@ -121,6 +121,21 @@ content: >-
   {% endfor %}
 ```
 
+**API credit left:** Anthropic has no API for the prepaid credit balance (its cost report needs
+an organization Admin API key), so jobalerts estimates it. Read the balance on
+console.anthropic.com → Billing, then set `scoring.credit_usd` and `scoring.credit_as_of`
+(that date) in `config.yaml`. jobalerts subtracts its own AI spend since that day, at list
+prices, and publishes `sensor.job_alerts_api_credit` (USD) on the same device. Its attributes
+hold `spent`, `spent_7d`, `calls_7d` and `days_left` at the past week's rate. Other programs
+using the same key aren't counted, so update both settings after a top-up or when the
+Console disagrees. `jobalerts top` and `jobalerts stats` print the same estimate. A card:
+
+```yaml
+type: entity
+entity: sensor.job_alerts_api_credit
+name: Claude API credit
+```
+
 **Optional: limit what that login can do.** By default any broker login can publish to any
 topic. To let `jobalerts` write only its own sensor, set the Mosquitto add-on's
 `customize` option to `active: true, folder: mosquitto`, then create two files in `/share/mosquitto/`:

@@ -53,7 +53,8 @@ def test_scores_and_records_usage():
     assert "Floor $140K" in call["system"][0]["text"]
     assert "BGP all day" in call["messages"][0]["content"]
     assert store.ai_calls_today() == 1
-    assert store.ai_usage()[0]["input_tokens"] == 1000
+    row = store.ai_usage()[0]
+    assert (row["input_tokens"], row["output_tokens"], row["cache_read_tokens"]) == (100, 40, 900)
 
 
 def test_daily_cap_stops_calls():

@@ -175,6 +175,11 @@ scoring:
   push_threshold: 75        # >= this: phone alert now
   digest_threshold: 50      # >= this: evening digest; below: stored only
   daily_max_calls: 300
+  # Home Assistant sensor.job_alerts_api_credit: Anthropic has no API for the prepaid balance, so
+  # enter what console.anthropic.com -> Billing shows and the date you read it; jobalerts subtracts
+  # its own spend since then (list prices). Update both after a top-up. 0 = no sensor.
+  credit_usd: 0
+  credit_as_of: ""          # e.g. "2026-10-28"
 
 # ---------------------------------------------------------------- phone notifications (ntfy)
 notify:

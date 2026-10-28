@@ -47,8 +47,10 @@ CREATE TABLE IF NOT EXISTS boards (
 CREATE TABLE IF NOT EXISTS ai_usage (
     day           TEXT PRIMARY KEY,
     calls         INTEGER NOT NULL DEFAULT 0,
-    input_tokens  INTEGER NOT NULL DEFAULT 0,
-    output_tokens INTEGER NOT NULL DEFAULT 0
+    input_tokens  INTEGER NOT NULL DEFAULT 0,  -- uncached input (rows before 2026-10-28 include cache tokens)
+    output_tokens INTEGER NOT NULL DEFAULT 0,
+    cache_read_tokens  INTEGER NOT NULL DEFAULT 0,
+    cache_write_tokens INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS suggestions (
@@ -95,6 +97,10 @@ class Store:
         columns = {r["name"] for r in self.db.execute("PRAGMA table_info(jobs)")}
         if "best_resume" not in columns:  # databases created before resume matching
             self.db.execute("ALTER TABLE jobs ADD COLUMN best_resume TEXT")
+        usage_columns = {r["name"] for r in self.db.execute("PRAGMA table_info(ai_usage)")}
+        for col in ("cache_read_tokens", "cache_write_tokens"):  # databases created before the credit sensor
+            if col not in usage_columns:
+                self.db.execute(f"ALTER TABLE ai_usage ADD COLUMN {col} INTEGER NOT NULL DEFAULT 0")
 
     def close(self) -> None:
         self.db.close()
@@ -221,13 +227,21 @@ class Store:
         row = self.db.execute("SELECT calls FROM ai_usage WHERE day=?", (utcnow().date().isoformat(),)).fetchone()
         return row[0] if row else 0
 
-    def record_ai_call(self, input_tokens: int, output_tokens: int) -> None:
+    def record_ai_call(self, input_tokens: int, output_tokens: int, cache_read_tokens: int = 0,
+                       cache_write_tokens: int = 0) -> None:
         self.db.execute(
-            """INSERT INTO ai_usage(day, calls, input_tokens, output_tokens) VALUES(?,1,?,?)
+            """INSERT INTO ai_usage(day, calls, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens)
+               VALUES(?,1,?,?,?,?)
                ON CONFLICT(day) DO UPDATE SET calls=calls+1, input_tokens=input_tokens+excluded.input_tokens,
-                   output_tokens=output_tokens+excluded.output_tokens""",
-            (utcnow().date().isoformat(), input_tokens, output_tokens),
+                   output_tokens=output_tokens+excluded.output_tokens,
+                   cache_read_tokens=cache_read_tokens+excluded.cache_read_tokens,
+                   cache_write_tokens=cache_write_tokens+excluded.cache_write_tokens""",
+            (utcnow().date().isoformat(), input_tokens, output_tokens, cache_read_tokens, cache_write_tokens),
         )
+
+    def ai_usage_since(self, day: str) -> list[sqlite3.Row]:
+        """Daily AI usage rows from `day` (YYYY-MM-DD, UTC) on."""
+        return self.db.execute("SELECT * FROM ai_usage WHERE day>=? ORDER BY day", (day,)).fetchall()
 
     def ai_usage(self, days: int = 7) -> list[sqlite3.Row]:
         since = (utcnow().date() - timedelta(days=days)).isoformat()
