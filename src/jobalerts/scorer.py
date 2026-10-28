@@ -19,7 +19,7 @@ from .store import Store
 log = logging.getLogger(__name__)
 
 # List prices, USD per million tokens (input, output). Cache reads cost 0.1x input and cache writes
-# (5-minute TTL) 1.25x. An unknown model is priced like the dearest one, so the credit estimate errs low.
+# (5-minute TTL) 1.25x. An unknown model is priced like the dearest one, so the cost estimate errs high.
 PRICES = {"claude-haiku-5-5": (0.10, 0.50), "claude-sonnet-5-5": (2.00, 10.00), "claude-opus-5-5": (4.00, 20.00)}
 
 

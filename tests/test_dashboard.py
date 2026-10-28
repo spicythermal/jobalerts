@@ -81,40 +81,40 @@ def test_top_command_prints_matches(tmp_path, capsys, monkeypatch):
     assert main(["-c", str(tmp_path / "config.yaml"), "top", "--push"]) == 1  # Home Assistant not set up
 
 
-def test_api_credit_subtracts_spend_since_the_balance_date():
+def test_ai_cost_month_today_and_week():
     from jobalerts.config import Scoring
-    from jobalerts.dashboard import api_credit
+    from jobalerts.dashboard import ai_cost
     store = Store(":memory:")
-    assert api_credit(store, Scoring()) is None  # no balance entered -> no sensor
+    assert ai_cost(store, Scoring(enabled=False)) is None  # no scoring -> no sensor
     today = utcnow().date()
-    old = (today - timedelta(days=30)).isoformat()
+    last_month = (today.replace(day=1) - timedelta(days=1)).isoformat()
     store.db.execute("INSERT INTO ai_usage(day, calls, input_tokens, output_tokens) VALUES(?,?,?,?)",
-                     (old, 100, 10_000_000, 0))                    # $1.00, before the balance date
+                     (last_month, 100, 10_000_000, 0))              # $1.00, not this month
     for _ in range(10):  # today: 10 calls, 1K uncached + 9K cached input, 400 output each
         store.record_ai_call(1_000, 400, cache_read_tokens=9_000)
-    scoring = Scoring(credit_usd=5.0, credit_as_of=(today - timedelta(days=1)).isoformat())
-    credit = api_credit(store, scoring)
+    cost = ai_cost(store, Scoring(enabled=True))
     # 10 x (1000 x $0.10 + 400 x $0.50 + 9000 x $0.01) / 1M = $0.0039
-    assert credit["spent"] == 0.0039 and credit["remaining"] == 5.0
-    assert credit["calls_7d"] == 10 and credit["days_left"] > 1000
+    assert cost["month"] == cost["today"] == 0.0039
+    assert cost["calls_month"] == 10 and cost["model"] == "claude-haiku-5-5"
+    assert cost["last_7_days"] in (0.0039, 1.0039)  # last month's day falls inside the week early in a month
 
 
-def test_mqtt_publishes_credit_sensor_only_when_configured():
+def test_mqtt_publishes_cost_sensor_only_when_given():
     sent = []
     cfg = HomeAssistant(enabled=True, mqtt_host="ha.lan", interval=300)
     publisher = MqttPublisher(cfg, send=lambda c, msgs: sent.extend(msgs))
     run(publisher.publish(0, []))
-    assert not any("credit" in t for t, _ in sent)
+    assert not any("cost" in t for t, _ in sent)
 
-    credit = {"remaining": 4.256, "balance": 5.0, "as_of": "2026-10-28", "spent": 0.744}
-    run(publisher.publish(0, [], credit))
+    cost = {"month": 0.12345, "today": 0.01, "last_7_days": 0.05, "calls_month": 250}
+    run(publisher.publish(0, [], cost))
     topics = dict(sent)
-    discovery = json.loads(topics["homeassistant/sensor/jobalerts/credit/config"])
-    assert discovery["name"] == "API credit" and discovery["device_class"] == "monetary"
-    assert discovery["unit_of_measurement"] == "USD" and discovery["unique_id"] == "jobalerts_api_credit"
+    discovery = json.loads(topics["homeassistant/sensor/jobalerts/cost/config"])
+    assert discovery["name"] == "AI cost this month" and discovery["device_class"] == "monetary"
+    assert discovery["unit_of_measurement"] == "USD" and discovery["unique_id"] == "jobalerts_ai_cost"
     assert discovery["device"] == json.loads(topics["homeassistant/sensor/jobalerts/top/config"])["device"]
-    assert topics["jobalerts/credit/state"] == "4.26"
-    assert json.loads(topics["jobalerts/credit/attributes"])["balance"] == 5.0
+    assert topics["jobalerts/cost/state"] == "0.1235"
+    assert json.loads(topics["jobalerts/cost/attributes"])["calls_month"] == 250
 
 
 def test_old_ai_usage_table_gets_cache_columns(tmp_path):

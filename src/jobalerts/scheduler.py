@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from . import discover
-from .dashboard import MqttPublisher, api_credit, top_matches
+from .dashboard import MqttPublisher, ai_cost, top_matches
 from .config import Board, Config
 from .filters import JobFilter
 from .http import HttpClient
@@ -278,7 +278,7 @@ class Runner:
 
     async def publish_dashboard(self) -> int:
         total, jobs = self.top_matches()
-        await self.homeassistant.publish(total, jobs, api_credit(self.store, self.cfg.scoring))
+        await self.homeassistant.publish(total, jobs, ai_cost(self.store, self.cfg.scoring))
         return total
 
     # ------------------------------------------------------------------ digest

@@ -121,19 +121,16 @@ content: >-
   {% endfor %}
 ```
 
-**API credit left:** Anthropic has no API for the prepaid credit balance (its cost report needs
-an organization Admin API key), so jobalerts estimates it. Read the balance on
-console.anthropic.com → Billing, then set `scoring.credit_usd` and `scoring.credit_as_of`
-(that date) in `config.yaml`. jobalerts subtracts its own AI spend since that day, at list
-prices, and publishes `sensor.job_alerts_api_credit` (USD) on the same device. Its attributes
-hold `spent`, `spent_7d`, `calls_7d` and `days_left` at the past week's rate. Other programs
-using the same key aren't counted, so update both settings after a top-up or when the
-Console disagrees. `jobalerts top` and `jobalerts stats` print the same estimate. A card:
+**AI cost:** while AI scoring is on, the same device also gets
+`sensor.job_alerts_ai_cost_this_month` (USD): an estimate of this month's scoring spend at
+list prices. Its attributes hold `today`, `last_7_days`, `calls_month` and `calls_7_days`.
+It counts only jobalerts' own calls; the Console's Billing page is the real bill (Anthropic
+has no API for the prepaid balance). `jobalerts stats` prints the same numbers. A card:
 
 ```yaml
 type: entity
-entity: sensor.job_alerts_api_credit
-name: Claude API credit
+entity: sensor.job_alerts_ai_cost_this_month
+name: Claude API cost this month
 ```
 
 **Optional: limit what that login can do.** By default any broker login can publish to any

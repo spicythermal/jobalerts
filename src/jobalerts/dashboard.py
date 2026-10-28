@@ -1,4 +1,4 @@
-"""Top recent matches and API credit left, for `jobalerts top` and Home Assistant sensors over MQTT."""
+"""Top recent matches and AI cost, for `jobalerts top` and Home Assistant sensors over MQTT."""
 from __future__ import annotations
 
 import asyncio
@@ -51,25 +51,20 @@ def top_matches(store: Store, job_filter: JobFilter, days: int, n: int) -> tuple
     return len(matches), matches[:n]
 
 
-def api_credit(store: Store, scoring: Scoring) -> dict | None:
-    """Estimated API credit left: the balance you entered minus what jobalerts has spent since that day.
-
-    Anthropic has no endpoint for the prepaid balance (the cost report needs an organization Admin
-    key), so this only knows about this app's own calls, priced at list prices."""
-    if scoring.credit_usd <= 0 or not scoring.credit_as_of:
+def ai_cost(store: Store, scoring: Scoring) -> dict | None:
+    """Estimated AI scoring spend at list prices: this month (UTC), today and the last 7 days.
+    Only this app's own calls; the Console's Billing page is the real bill."""
+    if not scoring.enabled:
         return None
-    spent = ai_cost_usd(store.ai_usage_since(scoring.credit_as_of), scoring.model)
-    week = store.ai_usage(days=7)
-    per_day = ai_cost_usd(week, scoring.model) / 7
-    remaining = scoring.credit_usd - spent
+    today = utcnow().date()
+    month = store.ai_usage_since(today.replace(day=1).isoformat())
+    week = store.ai_usage(days=6)  # today and the 6 days before it
     return {
-        "remaining": round(remaining, 2),
-        "balance": scoring.credit_usd,
-        "as_of": scoring.credit_as_of,
-        "spent": round(spent, 4),
-        "spent_7d": round(per_day * 7, 4),
-        "calls_7d": sum(r["calls"] for r in week),
-        "days_left": int(remaining / per_day) if per_day > 0 and remaining > 0 else None,
+        "month": round(ai_cost_usd(month, scoring.model), 4),
+        "today": round(ai_cost_usd([r for r in month if r["day"] == today.isoformat()], scoring.model), 4),
+        "last_7_days": round(ai_cost_usd(week, scoring.model), 4),
+        "calls_month": sum(r["calls"] for r in month),
+        "calls_7_days": sum(r["calls"] for r in week),
         "model": scoring.model,
     }
 
@@ -115,13 +110,13 @@ class MqttPublisher:
             "device": self._device(),
         }
 
-    def credit_discovery(self) -> dict:
+    def cost_discovery(self) -> dict:
         base = self.cfg.base_topic
         return {
-            "name": "API credit",  # -> sensor.job_alerts_api_credit
-            "unique_id": f"{base}_api_credit",
-            "state_topic": f"{base}/credit/state",
-            "json_attributes_topic": f"{base}/credit/attributes",
+            "name": "AI cost this month",  # -> sensor.job_alerts_ai_cost_this_month
+            "unique_id": f"{base}_ai_cost",
+            "state_topic": f"{base}/cost/state",
+            "json_attributes_topic": f"{base}/cost/attributes",
             "unit_of_measurement": "USD",
             "device_class": "monetary",
             "suggested_display_precision": 2,
@@ -130,22 +125,22 @@ class MqttPublisher:
             "device": self._device(),
         }
 
-    def messages(self, total: int, jobs: list[dict], credit: dict | None = None) -> list[tuple[str, str]]:
+    def messages(self, total: int, jobs: list[dict], cost: dict | None = None) -> list[tuple[str, str]]:
         top = f"{jobs[0]['company']}: {jobs[0]['title']}" if jobs else "none"
         updated = utcnow().isoformat(timespec="seconds")
         attributes = {"days": self.cfg.days, "top": top[:250], "jobs": jobs, "updated": updated}
         out = [(self.discovery_topic, json.dumps(self.discovery())),
                (self.attributes_topic, json.dumps(attributes)),
                (self.state_topic, str(total))]
-        if credit:
+        if cost:
             base = self.cfg.base_topic
-            out += [(f"{self.cfg.discovery_prefix}/sensor/{base}/credit/config", json.dumps(self.credit_discovery())),
-                    (f"{base}/credit/attributes", json.dumps({**credit, "updated": updated})),
-                    (f"{base}/credit/state", f"{credit['remaining']:.2f}")]
+            out += [(f"{self.cfg.discovery_prefix}/sensor/{base}/cost/config", json.dumps(self.cost_discovery())),
+                    (f"{base}/cost/attributes", json.dumps({**cost, "updated": updated})),
+                    (f"{base}/cost/state", f"{cost['month']:.4f}")]
         return out
 
-    async def publish(self, total: int, jobs: list[dict], credit: dict | None = None) -> None:
-        await asyncio.to_thread(self._send, self.cfg, self.messages(total, jobs, credit))
+    async def publish(self, total: int, jobs: list[dict], cost: dict | None = None) -> None:
+        await asyncio.to_thread(self._send, self.cfg, self.messages(total, jobs, cost))
         log.debug("MQTT %s updated: %d matches", self.state_topic, total)
 
 

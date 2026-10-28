@@ -13,7 +13,7 @@ from pathlib import Path
 
 from . import discover
 from .config import Config, load_config
-from .dashboard import MqttPublisher, api_credit
+from .dashboard import MqttPublisher, ai_cost
 from .http import HttpClient
 from .models import utcnow
 from .notify import Notifier
@@ -297,9 +297,6 @@ async def cmd_top(cfg: Config, args) -> int:
     async with open_runner(cfg, memory_store=False) as runner:
         days = args.days or cfg.homeassistant.days
         total, jobs = runner.top_matches(args.n, days)
-        if credit := api_credit(runner.store, cfg.scoring):
-            print(f"API credit: ~${credit['remaining']:.2f} left (${credit['balance']:.2f} on {credit['as_of']}, "
-                  f"jobalerts spent ${credit['spent']:.3f} since)")
         print(f"{total} matches posted in the last {days} days" + (f"; top {len(jobs)}:" if jobs else "."))
         for i, j in enumerate(jobs, 1):
             score = f"[{j['score']}] " if j["score"] is not None else ""
@@ -319,9 +316,9 @@ async def cmd_top(cfg: Config, args) -> int:
                 print(f"\nMQTT publish to {cfg.homeassistant.mqtt_host}:{cfg.homeassistant.mqtt_port} failed: "
                       f"{type(e).__name__}: {e}")
                 return 1
-            credit = " and sensor.job_alerts_api_credit" if api_credit(runner.store, cfg.scoring) else ""
+            cost = " and sensor.job_alerts_ai_cost_this_month" if ai_cost(runner.store, cfg.scoring) else ""
             print(f"\nPublished to {runner.homeassistant.state_topic} on {cfg.homeassistant.mqtt_host}. "
-                  f"Home Assistant shows it as sensor.job_alerts{credit}.")
+                  f"Home Assistant shows it as sensor.job_alerts{cost}.")
     return 0
 
 
@@ -353,9 +350,8 @@ async def cmd_stats(cfg: Config, args) -> int:
             calls = sum(r["calls"] for r in usage)
             cost = ai_cost_usd(usage, cfg.scoring.model)
             print(f"\nAI scoring, 7d: {calls} calls, ~${cost:.3f} at {cfg.scoring.model} list prices")
-        if credit := api_credit(store, cfg.scoring):
-            print(f"API credit: ~${credit['remaining']:.2f} left of ${credit['balance']:.2f} "
-                  f"(as of {credit['as_of']}; jobalerts spent ${credit['spent']:.3f} since)")
+        if cost := ai_cost(store, cfg.scoring):
+            print(f"AI cost this month: ~${cost['month']:.3f} ({cost['calls_month']} calls)")
     finally:
         store.close()
     return 0

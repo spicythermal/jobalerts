@@ -98,7 +98,7 @@ class Store:
         if "best_resume" not in columns:  # databases created before resume matching
             self.db.execute("ALTER TABLE jobs ADD COLUMN best_resume TEXT")
         usage_columns = {r["name"] for r in self.db.execute("PRAGMA table_info(ai_usage)")}
-        for col in ("cache_read_tokens", "cache_write_tokens"):  # databases created before the credit sensor
+        for col in ("cache_read_tokens", "cache_write_tokens"):  # databases created before the AI cost sensor
             if col not in usage_columns:
                 self.db.execute(f"ALTER TABLE ai_usage ADD COLUMN {col} INTEGER NOT NULL DEFAULT 0")
 
