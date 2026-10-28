@@ -4,8 +4,9 @@ Watches employers' own job boards and pushes newly posted, matching jobs to your
 within minutes. LinkedIn and Indeed copy listings from those boards hours or days later.
 
 Most companies publish openings first in their applicant tracking system (ATS): Greenhouse,
-Lever, Ashby, SmartRecruiters or Workday. Each ATS serves the company's careers page from a
-public JSON feed, and jobalerts reads those feeds directly:
+Lever, Ashby, SmartRecruiters, Workday, UKG/UltiPro, Personio, Workable, BambooHR, Rippling,
+Breezy or SuccessFactors. Each ATS serves the company's careers page from a public JSON (or
+XML/RSS) feed, and jobalerts reads those feeds directly:
 
 ```
 poll board ─► new job IDs? ─► keyword filter ─► (optional) Claude fit score ─► ntfy push / evening digest
@@ -46,23 +47,25 @@ Then edit the config (next section), and run `jobalerts test-notify` to check yo
 
 **Criteria** (`config.yaml` → `criteria`) are case-insensitive whole-word phrases.
 `title_include` must match. `title_exclude`, `seniority_exclude` and `description_exclude`
-reject a job. `locations` must match unless the job is remote and `allow_remote: true`.
+reject a job. `locations` must match unless the job is remote and `allow_remote: true`; an
+empty list (the shipped default) means anywhere, and the AI score ranks by `profile.md`.
 
 **Adding companies:**
 
 ```sh
-jobalerts discover "Cloudflare" --add                      # probes Greenhouse/Lever/Ashby/SmartRecruiters
-jobalerts discover https://company.com/careers --add       # finds ATS links on a careers page (and Workday URLs)
+jobalerts discover "Cloudflare" --add                      # probes Greenhouse/Lever/Ashby/SmartRecruiters/Personio/Workable
+jobalerts discover https://company.com/careers --add       # finds ATS links on a careers page (any supported ATS)
 jobalerts discover "Tailscale" --add --tier priority
 jobalerts discover --file config/candidates.txt --add      # a whole list; already-listed boards are skipped
 ```
 
 `candidates.txt` takes `Company Name` or `Company Name | https://careers.url` per line. Companies
-on Taleo, iCIMS, SuccessFactors or in-house career sites aren't supported and are listed as
+on Taleo, iCIMS, Eightfold, Oracle or in-house career sites aren't supported and are listed as
 not found at the end of the run; the aggregators still catch many of their postings.
 
-For Workday and SmartRecruiters, add `search:` to the entry so big enterprise boards stay
-small (see the comments in `companies.yaml`).
+For Workday, SmartRecruiters, UltiPro and SuccessFactors, add `search:` to the entry so big
+enterprise boards stay small (see the comments in `companies.yaml`). SuccessFactors sites are
+read through their RSS feed, which holds the newest 20 postings.
 
 **Phone:** install the ntfy app (Android/iOS) and subscribe to your `NTFY_TOPIC` on
 `ntfy.sh`. Pick a long random topic name, since anyone who knows it can read it.
@@ -257,8 +260,10 @@ docker compose exec jobalerts jobalerts backfill --push      # same, but 75+ are
 
 ## Limitations
 
-- Companies on iCIMS, Taleo or SuccessFactors have no clean public feed. Use the aggregators
-  or watch those companies manually.
+- Companies on iCIMS, Taleo, Eightfold (e.g. Lam Research, Infineon) or in-house sites have no
+  clean public feed. Use the aggregators or watch those companies manually.
+- BambooHR and Rippling lists carry no posting date; it is filled in when a keyword match is
+  enriched, and `first_seen_at` stands in until then.
 - Workday reports "Posted 3 Days Ago", not an exact time, until a job is enriched.
 - An ATS sometimes reposts an old job with a new ID. Jobs published more than
   `max_age_days` ago are never alerted.

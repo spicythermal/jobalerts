@@ -6,6 +6,10 @@ import os
 from ..models import Job, format_salary, parse_dt, strip_html
 from .base import Source, SourceConfigError
 
+CURRENCY = {"gb": "GBP", "at": "EUR", "be": "EUR", "de": "EUR", "es": "EUR", "fr": "EUR", "it": "EUR",
+            "nl": "EUR", "ch": "CHF", "pl": "PLN", "in": "INR", "sg": "SGD", "br": "BRL", "mx": "MXN",
+            "ca": "CAD", "au": "AUD", "nz": "NZD", "za": "ZAR"}
+
 
 class Adzuna(Source):
     name = "adzuna"
@@ -24,9 +28,9 @@ class Adzuna(Source):
         # Adzuna has no ETag support and the key is in the URL; skip conditional caching.
         data = await http.get_json(f"https://api.adzuna.com/v1/api/jobs/{country}/search/1",
                                    params=params, conditional=False)
-        return [self._job(r) for r in data.get("results", [])]
+        return [self._job(r, CURRENCY.get(country, "USD")) for r in data.get("results", [])]
 
-    def _job(self, r) -> Job:
+    def _job(self, r, currency: str = "USD") -> Job:
         location = (r.get("location") or {}).get("display_name", "")
         return Job(
             source=self.name,
@@ -39,5 +43,5 @@ class Adzuna(Source):
             remote="remote" in location.lower() or "remote" in r.get("title", "").lower(),
             published_at=parse_dt(r.get("created")),
             description=strip_html(r.get("description", "")),
-            salary=format_salary(r.get("salary_min"), r.get("salary_max"), "USD", "yr"),
+            salary=format_salary(r.get("salary_min"), r.get("salary_max"), currency, "yr"),
         )

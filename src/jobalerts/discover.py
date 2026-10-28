@@ -1,6 +1,6 @@
 """Find which ATS a company uses, so it can be added to companies.yaml.
 
-By name: try a few likely slugs against each platform's public API (a miss is a cheap 404).
+By name: try a few likely slugs against the slug-based platforms (a miss is a cheap 404).
 By URL: recognise ATS links in the URL itself or in the careers page HTML.
 """
 from __future__ import annotations
@@ -8,12 +8,14 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlparse
 
 import httpx
 
-from .config import parse_workday_url
+from .config import parse_ultipro_url, parse_workday_url
 from .http import HttpClient, RateLimited
 from .models import normalize_company
 
@@ -27,8 +29,15 @@ URL_PATTERNS = [
     ("ashby", re.compile(r"jobs\.ashbyhq\.com/([A-Za-z0-9_.%-]+)")),
     ("smartrecruiters", re.compile(r"(?:jobs|careers)\.smartrecruiters\.com/([A-Za-z0-9_-]+)")),
     ("workday", re.compile(r"https?://[a-z0-9-]+\.wd\d+\.myworkdayjobs\.com/(?:[a-z]{2}-[A-Z]{2}/)?[A-Za-z0-9_-]+")),
+    ("ultipro", re.compile(r"https?://recruiting\d*\.ultipro\.com/[A-Za-z0-9]+/JobBoard/[0-9a-fA-F-]{36}")),
+    ("personio", re.compile(r"([a-z0-9-]+)\.jobs\.personio\.(?:com|de)")),
+    ("workable", re.compile(r"apply\.workable\.com/(?:api/v\d/(?:widget/)?accounts/)?([A-Za-z0-9_-]+)")),
+    ("bamboohr", re.compile(r"([a-z0-9-]+)\.bamboohr\.com")),
+    ("rippling", re.compile(r"ats\.rippling\.com/(?:api/v2/board/)?([A-Za-z0-9_-]+)")),
+    ("breezy", re.compile(r"([a-z0-9-]+)\.breezy\.hr")),
 ]
-_NOT_SLUGS = {"embed", "v1", "api", "js", "jobs", "careers"}
+_URL_ATS = {"workday", "ultipro", "successfactors"}  # boards identified by their full URL rather than a slug
+_NOT_SLUGS = {"embed", "v1", "api", "js", "jobs", "careers", "j", "www", "app", "static", "cdn", "assets"}
 
 
 @dataclass
@@ -42,7 +51,7 @@ class Found:
 
     def entry(self, tier: str = "normal") -> dict:
         e = {"name": self.name, "ats": self.ats}
-        if self.ats == "workday":
+        if self.ats in _URL_ATS:
             e["url"] = self.url
         else:
             e["slug"] = self.slug
@@ -91,9 +100,49 @@ async def probe(ats: str, slug: str, http: HttpClient, name: str = "", strict: b
             # SmartRecruiters answers 200 for any company id, so an empty board means "not here".
             if isinstance(data, dict) and data.get("totalFound", 0) > 0:
                 return Found(ats, slug, name, data["totalFound"])
-    except (httpx.HTTPError, RateLimited, ValueError):
+        elif ats == "personio":
+            positions = ET.fromstring(await http.get_text(f"https://{slug}.jobs.personio.com/xml")).findall("position")
+            if positions or not strict:
+                return Found(ats, slug, name, len(positions))
+        elif ats == "workable":
+            data = await http.get_json(f"https://apply.workable.com/api/v1/widget/accounts/{slug}",
+                                       conditional=False, allow_404=True)
+            if isinstance(data, dict) and isinstance(data.get("jobs"), list) and (data["jobs"] or not strict):
+                return Found(ats, slug, data.get("name") or name, len(data["jobs"]))
+        elif ats == "bamboohr":
+            data = await http.get_json(f"https://{slug}.bamboohr.com/careers/list", conditional=False,
+                                       headers={"Accept": "application/json"}, allow_404=True)
+            if isinstance(data, dict) and isinstance(data.get("result"), list) and (data["result"] or not strict):
+                return Found(ats, slug, name, len(data["result"]))
+        elif ats == "rippling":
+            data = await http.get_json(f"https://ats.rippling.com/api/v2/board/{slug}/jobs", conditional=False,
+                                       allow_404=True)
+            if isinstance(data, dict) and "items" in data and (data["items"] or not strict):
+                return Found(ats, slug, name, int(data.get("totalItems") or len(data["items"])))
+        elif ats == "successfactors":
+            root = ET.fromstring(await http.get_text(f"{slug.rstrip('/')}/services/rss/job/?locale=en_US&keywords="))
+            if root.tag == "rss":
+                return Found(ats, urlparse(slug).netloc, name, len(root.findall(".//item")), url=slug.rstrip("/"))
+        elif ats == "breezy":
+            data = await http.get_json(f"https://{slug}.breezy.hr/json", conditional=False, allow_404=True)
+            if isinstance(data, list) and (data or not strict):
+                return Found(ats, slug, name, len(data))
+    except (httpx.HTTPError, RateLimited, ValueError, ET.ParseError):
         return None
     return None
+
+
+async def probe_ultipro(url: str, http: HttpClient, name: str = "") -> Found | None:
+    try:
+        host, tenant, board_id = parse_ultipro_url(url)
+        base = f"https://{host}/{tenant}/JobBoard/{board_id}"
+        data = await http.post_json(f"{base}/JobBoardView/LoadSearchResults", {"opportunitySearch": {
+            "Top": 1, "Skip": 0, "QueryString": "", "OrderBy": [], "Filters": []}}, allow_404=True)
+    except (httpx.HTTPError, RateLimited, ValueError):
+        return None
+    if not isinstance(data, dict) or "opportunities" not in data:
+        return None
+    return Found("ultipro", f"{tenant}/{board_id[:8]}", name or tenant, int(data.get("totalCount") or 0), base)
 
 
 async def probe_workday(url: str, http: HttpClient, name: str = "") -> Found | None:
@@ -117,7 +166,8 @@ async def find_by_name(name: str, http: HttpClient) -> list[Found]:
                 return found
         return None
 
-    results = await asyncio.gather(*(first_hit(a) for a in ("greenhouse", "lever", "ashby", "smartrecruiters")))
+    platforms = ("greenhouse", "lever", "ashby", "smartrecruiters", "personio", "workable")
+    results = await asyncio.gather(*(first_hit(a) for a in platforms))
     return [r for r in results if r]
 
 
@@ -126,7 +176,7 @@ def links_in(text: str) -> list[tuple[str, str]]:
     hits: list[tuple[str, str]] = []
     for ats, rx in URL_PATTERNS:
         for m in rx.finditer(text):
-            value = m.group(0) if ats == "workday" else m.group(1)
+            value = m.group(0) if ats in _URL_ATS else m.group(1)
             if value.lower() in _NOT_SLUGS:
                 continue
             if (ats, value) not in hits:
@@ -137,11 +187,19 @@ def links_in(text: str) -> list[tuple[str, str]]:
 async def find_by_url(url: str, http: HttpClient, name: str = "") -> list[Found]:
     hits = links_in(url)
     if not hits:
-        hits = links_in(await http.get_text(url))
+        page = await http.get_text(url)
+        hits = links_in(page)
+        if "rmkcdn.successfactors.com" in page:  # the page is itself a SuccessFactors career site
+            u = urlparse(url)
+            hits.insert(0, ("successfactors", f"{u.scheme}://{u.netloc}"))
     found: list[Found] = []
     for ats, value in hits[:6]:
         if ats == "workday":
             f = await probe_workday(value, http, name)
+        elif ats == "ultipro":
+            f = await probe_ultipro(value, http, name)
+        elif ats == "successfactors":
+            f = await probe(ats, value, http, name=name)
         elif ats == "lever-eu":
             f = await probe("lever", value, http, name=name, strict=False, region="eu")
         else:
@@ -154,7 +212,7 @@ async def find_by_url(url: str, http: HttpClient, name: str = "") -> list[Found]
 def append_to_companies(path: Path, found: Found, tier: str) -> bool:
     """Append one entry (JSON flow style is valid YAML). Returns False if it's already listed."""
     text = path.read_text(encoding="utf-8") if path.exists() else "companies:\n"
-    marker = found.url if found.ats == "workday" else f'"slug": "{found.slug}"'
+    marker = found.url if found.ats in _URL_ATS else f'"slug": "{found.slug}"'
     if marker in text or re.search(rf"slug:\s*['\"]?{re.escape(found.slug)}['\"]?\s*(,|}}|$)", text, re.M):
         return False
     if not text.endswith("\n"):

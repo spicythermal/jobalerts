@@ -1,0 +1,100 @@
+{
+ "opportunities": [
+  {
+   "Id": "1fdba27f-1ac5-4fe6-b1a0-eea9646e2714",
+   "Featured": false,
+   "Title": "Senior Controls Engineer - PLC",
+   "RequisitionNumber": "CONTR001513",
+   "FullTime": true,
+   "JobCategoryName": "Engineering",
+   "Locations": [
+    {
+     "Id": "582a2bf5-11d2-546d-a934-c3016ae51819",
+     "LocalizedName": null,
+     "LocalizedLocationId": null,
+     "LocalizedDescription": "Little Pauling",
+     "Address": {
+      "Line1": "19711 Pauling",
+      "Line2": null,
+      "City": "Foothill Ranch",
+      "PostalCode": "92610",
+      "State": {
+       "Code": "CA",
+       "Name": "California"
+      },
+      "Country": {
+       "Code": "USA",
+       "Name": "United States"
+      }
+     },
+     "DisplayName": false,
+     "DisplayLocationId": false,
+     "DisplayAddress": true,
+     "DisplayStreetAddress": false,
+     "DisplayDescription": true,
+     "SourceOfTruth": 1,
+     "Coordinates": {
+      "Latitude": 33.67530488587502,
+      "Longitude": -117.6510940072023
+     }
+    }
+   ],
+   "PostedDate": "2026-10-23T20:13:57.418Z",
+   "BriefDescription": "To design, engineer and implement Programmable Logic Controller (PLC) systems associated with building, cooling, electrical, vacuum and safety systems.",
+   "MatchScore": 1.0,
+   "MatchedLocations": [],
+   "Distance": null,
+   "JobLocationType": 1,
+   "OpportunityType": 0
+  },
+  {
+   "Id": "e1cdbee6-96a3-4d22-811a-0608dd614c87",
+   "Featured": false,
+   "Title": "Sr. Design Engineer",
+   "RequisitionNumber": "SRDES001450",
+   "FullTime": true,
+   "JobCategoryName": "Engineering",
+   "Locations": [
+    {
+     "Id": "d0151685-b078-5017-9412-db703e5713d0",
+     "LocalizedName": null,
+     "LocalizedLocationId": null,
+     "LocalizedDescription": "Copernicus Office",
+     "Address": {
+      "Line1": "9750 Irvine Blvd, 101",
+      "Line2": null,
+      "City": "Irvine",
+      "PostalCode": "92618",
+      "State": {
+       "Code": "CA",
+       "Name": "California"
+      },
+      "Country": {
+       "Code": "USA",
+       "Name": "United States"
+      }
+     },
+     "DisplayName": false,
+     "DisplayLocationId": false,
+     "DisplayAddress": true,
+     "DisplayStreetAddress": false,
+     "DisplayDescription": false,
+     "SourceOfTruth": 1,
+     "Coordinates": {
+      "Latitude": 33.65336319267654,
+      "Longitude": -117.75240005643126
+     }
+    }
+   ],
+   "PostedDate": "2026-10-14T20:34:55.721Z",
+   "BriefDescription": "The Senior Design Engineer will lead the design and development of mechanical systems supporting TAE’s R&D and commercial ventures. Projects will range from simple machined components to large structural weldments and advanced electro-mechanical assemblies. The role is ideal for creative, hands-on, and technology-savvy candidates with specialized expertise in areas such as high vacuum systems, plasma/accelerator design, high voltage design, cryogenics, refractory materials, and additive manufacturing. Experience from national labs, universities, or large-scale R&D facilities is a plus.",
+   "MatchScore": 1.0,
+   "MatchedLocations": [],
+   "Distance": null,
+   "JobLocationType": 1,
+   "OpportunityType": 0
+  }
+ ],
+ "totalCount": 21,
+ "locations": []
+}

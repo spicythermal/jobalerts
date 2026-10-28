@@ -25,6 +25,33 @@ def test_links_in_careers_html():
         ("workday", "https://acme.wd5.myworkdayjobs.com/en-US/AcmeCareers")]
 
 
+def test_links_in_more_platforms():
+    html = '''<a href="https://recruiting2.ultipro.com/ACM1001ACME/JobBoard/49386e5d-f909-4648-8335-415ce97e3f15/?q=">u</a>
+              <script src="https://acme-gmbh.jobs.personio.de/widget.js"></script>
+              <a href="https://apply.workable.com/acme/j/123">w</a>
+              <a href="https://acme.bamboohr.com/careers">b</a> <a href="https://www.bamboohr.com">ad</a>
+              <a href="https://ats.rippling.com/acme-careers/jobs">r</a>
+              <a href="https://acme-inc.breezy.hr/">z</a>'''
+    assert discover.links_in(html) == [
+        ("ultipro", "https://recruiting2.ultipro.com/ACM1001ACME/JobBoard/49386e5d-f909-4648-8335-415ce97e3f15"),
+        ("personio", "acme-gmbh"), ("workable", "acme"), ("bamboohr", "acme"),
+        ("rippling", "acme-careers"), ("breezy", "acme-inc")]
+
+
+def test_find_by_url_ultipro_entry_keeps_board_url():
+    url = "https://recruiting.ultipro.com/ACM1001ACME/JobBoard/49386e5d-f909-4648-8335-415ce97e3f15"
+    routes = {"/JobBoardView/LoadSearchResults": {"opportunities": [{"Id": "1"}], "totalCount": 7}}
+
+    async def go():
+        http = mock_http(json_routes(routes))
+        found = await discover.find_by_url(url + "/?q=", http, name="Acme")
+        await http.aclose()
+        return found
+
+    [f] = run(go())
+    assert f.jobs == 7 and f.entry("slow") == {"name": "Acme", "ats": "ultipro", "url": url, "tier": "slow"}
+
+
 def test_find_by_url_probes_lever_eu_host():
     routes = {"api.eu.lever.co/v0/postings/acme-eu": [{"id": "1"}]}
 
@@ -130,3 +157,22 @@ def test_discover_file_batch_adds_each_found_board(tmp_path, monkeypatch, capsys
         {"name": "Big Corp", "ats": "workday", "url": "https://big.wd1.myworkdayjobs.com/External", "tier": "slow"},
     ]
     assert "2 of 3 found. No supported board for: Nobody" in capsys.readouterr().out
+
+
+def test_find_by_url_recognises_successfactors_site():
+    rss = '<?xml version="1.0"?><rss version="2.0"><channel><item><title>A</title></item></channel></rss>'
+
+    def handler(request):
+        if request.url.path.startswith("/services/rss/job"):
+            return httpx.Response(200, text=rss)
+        return httpx.Response(200, text='<link href="https://rmkcdn.successfactors.com/abc/site.css">')
+
+    async def go():
+        http = mock_http(handler)
+        found = await discover.find_by_url("https://careers.acme.com/", http, name="Acme")
+        await http.aclose()
+        return found
+
+    [f] = run(go())
+    assert (f.slug, f.jobs) == ("careers.acme.com", 1)
+    assert f.entry() == {"name": "Acme", "ats": "successfactors", "url": "https://careers.acme.com", "tier": "normal"}

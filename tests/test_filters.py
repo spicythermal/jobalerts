@@ -57,3 +57,13 @@ def test_description_and_staleness():
 
 def test_empty_criteria_passes_everything():
     assert JobFilter(Criteria()).check_basic(job("Anything", "Mars"))[0]
+
+
+def test_shipped_config_drops_non_english_internships():
+    from conftest import REPO
+    from jobalerts.config import load_config
+    f = JobFilter(load_config(REPO / "config" / "config.yaml").criteria)
+    assert not f.check_basic(job("Stage Bac+5 - Pilotage par IA d'une chaîne de simulation F/H", "Elancourt"))[0]
+    assert not f.check_basic(job("Werkstudent Physik (m/w/d)", "München"))[0]
+    assert f.check_basic(job("Physiker für Beschleunigertechnik (m/w/d)", "Darmstadt"))[0]
+    assert f.check_basic(job("Accelerator Physicist", "Lund, Sweden"))[0]  # no location filter any more

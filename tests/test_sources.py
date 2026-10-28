@@ -4,7 +4,7 @@ import pytest
 from jobalerts.config import Board
 from jobalerts.sources import SOURCES, SourceConfigError
 
-from conftest import json_routes, load, mock_http, run
+from conftest import FIXTURES, json_routes, load, mock_http, run
 
 
 def fetch(source, board, routes):
@@ -121,6 +121,11 @@ def test_adzuna(monkeypatch):
                  {"api.adzuna.com/v1/api/jobs/us/search/1": load("adzuna.json")})
     (j,) = jobs
     assert j.title == "Network Engineer" and j.company == "Epsilon LLC"
+    assert j.salary.startswith("$")
+
+    (uk,) = fetch("adzuna", Board("adzuna", "net-gb", "x", 3600, {"what": "network", "country": "gb"}),
+                  {"api.adzuna.com/v1/api/jobs/gb/search/1": load("adzuna.json")})
+    assert uk.salary.startswith("GBP ")
 
 
 def test_jsearch(monkeypatch):
@@ -129,3 +134,110 @@ def test_jsearch(monkeypatch):
                  {"jsearch.p.rapidapi.com/search": load("jsearch.json")})
     (j,) = jobs
     assert j.remote and j.location == "US" and j.salary == "$120K-150K/year"
+
+
+ULTIPRO_URL = "https://recruiting2.ultipro.com/TRI1021TRIAE/JobBoard/49386e5d-f909-4648-8335-415ce97e3f15"
+
+
+def test_ultipro_posts_search_and_builds_detail_urls():
+    from jobalerts.config import Company, Config
+    cfg = Config(companies=[Company(name="TAE Technologies", ats="ultipro", url=ULTIPRO_URL + "/?q=")])
+    (board,) = [b for b in cfg.boards() if b.watched]
+    assert board.slug == "TRI1021TRIAE/49386e5d"
+    jobs = fetch("ultipro", board, {"/JobBoardView/LoadSearchResults": load("ultipro.json")})
+    j = jobs[0]
+    assert [x.title for x in jobs] == ["Senior Controls Engineer - PLC", "Sr. Design Engineer"]
+    assert j.url == ULTIPRO_URL + "/OpportunityDetail?opportunityId=" + j.job_id
+    assert j.location == "Foothill Ranch, California, United States" and not j.remote
+    assert j.published_at.date().isoformat() == "2026-10-23"
+    assert j.department == "Engineering" and j.description
+
+
+def test_personio_xml():
+    xml = (FIXTURES / "personio.xml").read_text(encoding="utf-8")
+
+    async def go():
+        http = mock_http(lambda request: httpx.Response(200, text=xml))
+        jobs = await SOURCES["personio"].fetch(Board("personio", "gauss", "Gauss Fusion", 600), http)
+        await http.aclose()
+        return jobs
+    j = run(go())[0]
+    assert j.title == "Design & Analysis Engineer" and j.job_id == "2117264"
+    assert j.url == "https://gauss.jobs.personio.com/job/2117264"
+    assert j.location == "Munich" and j.published_at.year == 2025
+    assert "Main responsibilities" in j.description and "stellarator" in j.description
+
+
+def test_workable():
+    jobs = fetch("workable", Board("workable", "quandela", "Quandela", 600),
+                 {"/widget/accounts/quandela": load("workable.json")})
+    j = jobs[0]
+    assert j.title == "Cloud DevOps Engineer" and j.url == "https://apply.workable.com/j/7445534397"
+    assert j.location == "Massy, Île-de-France, France" and not j.remote
+    assert j.published_at.date().isoformat() == "2026-10-16"
+    assert j.description.startswith("Quandela") and jobs[1].department == "Business & Marketing"
+
+
+def test_bamboohr_list_and_enrich():
+    board = Board("bamboohr", "satellogic", "Satellogic", 600)
+    routes = {"/careers/554/detail": load("bamboohr_detail.json"), "/careers/list": load("bamboohr.json")}
+    j = fetch("bamboohr", board, routes)[0]
+    assert j.title == "Hardware Design Engineer" and j.location == "Buenos Aires, Argentina"
+    assert j.url == "https://satellogic.bamboohr.com/careers/554" and j.published_at is None
+
+    async def enrich():
+        http = mock_http(json_routes(routes))
+        await SOURCES["bamboohr"].enrich(j, board, http)
+        await http.aclose()
+    run(enrich())
+    assert j.published_at.date().isoformat() == "2026-07-13" and j.description
+
+
+def test_rippling_list_and_enrich():
+    board = Board("rippling", "zap-energy-careers", "Zap Energy", 600)
+    routes = {"/jobs/5ac2acce": load("rippling_detail.json"), "/jobs": load("rippling.json")}
+    jobs = fetch("rippling", board, routes)
+    j = jobs[0]
+    assert [x.department for x in jobs] == ["Executives", "Fission Technology"]
+    assert j.location == "Everett, WA" and not j.remote and j.url.endswith(j.job_id)
+
+    async def enrich():
+        http = mock_http(json_routes(routes))
+        await SOURCES["rippling"].enrich(j, board, http)
+        await http.aclose()
+    run(enrich())
+    assert j.published_at.year == 2026 and "<" not in j.description and j.description
+
+
+def test_breezy():
+    jobs = fetch("breezy", Board("breezy", "zeno-power", "Zeno Power", 600), {"zeno-power.breezy.hr/json": load("breezy.json")})
+    j = jobs[1]
+    assert j.title == "Analysis Manager" and j.location == "Seattle, WA" and not j.remote
+    assert j.salary == "$175,000 – $225,000 / year" and j.department == "Engineering"
+    assert j.published_at.date().isoformat() == "2026-10-02"
+
+
+def test_successfactors_rss():
+    from jobalerts.config import Company, Config
+    cfg = Config(companies=[Company(name="BWXT", ats="successfactors", url="https://careers.bwxt.com/", search="physicist")])
+    (board,) = cfg.boards()
+    assert board.slug == "careers.bwxt.com"
+    rss = (FIXTURES / "successfactors.xml").read_text(encoding="utf-8")
+    urls = []
+
+    def handler(request):
+        urls.append(str(request.url))
+        return httpx.Response(200, text=rss)
+
+    async def go():
+        http = mock_http(handler)
+        jobs = await SOURCES["successfactors"].fetch(board, http)
+        await http.aclose()
+        return jobs
+    jobs = run(go())
+    assert urls == ["https://careers.bwxt.com/services/rss/job/?locale=en_US&keywords=physicist"]
+    assert [(j.title, j.location) for j in jobs] == [
+        ("Intern - Analytical Services (Year Round)", "Erwin, TN, US"), ("Quality Engineer", "Jonesborough, TN, US")]
+    j = jobs[1]
+    assert j.job_id == "1434475900" and "?" not in j.url and j.url.endswith("/1434475900/")
+    assert j.published_at.isoformat() == "2026-10-27T07:00:00+00:00" and "BWX Technologies" in j.description

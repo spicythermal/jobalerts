@@ -1,0 +1,47 @@
+{
+ "meta": {
+  "totalCount": 2
+ },
+ "result": [
+  {
+   "id": "554",
+   "jobOpeningName": "Hardware Design Engineer",
+   "departmentId": "20572",
+   "departmentLabel": "RDO",
+   "employmentStatusLabel": "Full-Time",
+   "employmentType": null,
+   "location": {
+    "city": "Buenos Aires",
+    "state": "Argentina"
+   },
+   "atsLocation": {
+    "country": null,
+    "state": null,
+    "province": null,
+    "city": null
+   },
+   "isRemote": null,
+   "locationType": "2"
+  },
+  {
+   "id": "546",
+   "jobOpeningName": "Especialista en Optomecánica",
+   "departmentId": "20572",
+   "departmentLabel": "RDO",
+   "employmentStatusLabel": "Full-Time",
+   "employmentType": null,
+   "location": {
+    "city": "Montevideo",
+    "state": "Zonamerica"
+   },
+   "atsLocation": {
+    "country": null,
+    "state": null,
+    "province": null,
+    "city": null
+   },
+   "isRemote": null,
+   "locationType": "0"
+  }
+ ]
+}

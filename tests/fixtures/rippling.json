@@ -1,0 +1,48 @@
+{
+ "items": [
+  {
+   "id": "5ac2acce-c61e-4892-9227-bceeaf3b24eb",
+   "name": "Vice President of Public Affairs & Government Affairs",
+   "url": "https://ats.rippling.com/zap-energy-careers/jobs/5ac2acce-c61e-4892-9227-bceeaf3b24eb",
+   "department": {
+    "name": "Executives"
+   },
+   "locations": [
+    {
+     "name": "Everett, WA",
+     "country": "United States",
+     "countryCode": "US",
+     "state": "Washington",
+     "stateCode": "WA",
+     "city": "Everett",
+     "workplaceType": "ON_SITE"
+    }
+   ],
+   "language": "en-US"
+  },
+  {
+   "id": "d97bdb74-5b08-40dc-a7cc-d67c5620644e",
+   "name": "Design for Manufacturing - Fission",
+   "url": "https://ats.rippling.com/zap-energy-careers/jobs/d97bdb74-5b08-40dc-a7cc-d67c5620644e",
+   "department": {
+    "name": "Fission Technology"
+   },
+   "locations": [
+    {
+     "name": "Everett, WA",
+     "country": "United States",
+     "countryCode": "US",
+     "state": "Washington",
+     "stateCode": "WA",
+     "city": "Everett",
+     "workplaceType": "ON_SITE"
+    }
+   ],
+   "language": "en-US"
+  }
+ ],
+ "page": 0,
+ "pageSize": 50,
+ "totalItems": 2,
+ "totalPages": 1
+}

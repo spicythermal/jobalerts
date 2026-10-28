@@ -1,0 +1,103 @@
+[
+ {
+  "id": "e058402f9786",
+  "friendly_id": "e058402f9786-accountant",
+  "name": "Accountant",
+  "url": "https://zeno-power.breezy.hr/p/e058402f9786-accountant",
+  "published_date": "2026-10-21T22:56:34.821Z",
+  "type": {
+   "id": "fullTime",
+   "name": "Full-Time"
+  },
+  "location": {
+   "country": {
+    "name": "United States",
+    "id": "US"
+   },
+   "state": {
+    "id": "WA",
+    "name": "Washington"
+   },
+   "city": "Seattle",
+   "primary": true,
+   "is_remote": false,
+   "name": "Seattle, WA",
+   "id": "0064f0bf343f"
+  },
+  "department": "Finance",
+  "salary": "$75,000 – $105,000 / year",
+  "company": {
+   "name": "Zeno Power",
+   "logo_url": null,
+   "friendly_id": "zeno-power",
+   "isMultipleLocationsEnabled": true
+  },
+  "locations": [
+   {
+    "country": {
+     "name": "United States",
+     "id": "US"
+    },
+    "state": {
+     "id": "WA",
+     "name": "Washington"
+    },
+    "city": "Seattle",
+    "primary": true,
+    "is_remote": false,
+    "name": "Seattle, WA",
+    "id": "0064f0bf343f"
+   }
+  ]
+ },
+ {
+  "id": "87661d83988b",
+  "friendly_id": "87661d83988b-analysis-manager",
+  "name": "Analysis Manager",
+  "url": "https://zeno-power.breezy.hr/p/87661d83988b-analysis-manager",
+  "published_date": "2026-10-02T16:38:03.174Z",
+  "type": {
+   "id": "fullTime",
+   "name": "Full-Time"
+  },
+  "location": {
+   "country": {
+    "name": "United States",
+    "id": "US"
+   },
+   "state": {
+    "id": "WA",
+    "name": "Washington"
+   },
+   "city": "Seattle",
+   "primary": true,
+   "is_remote": false,
+   "name": "Seattle, WA"
+  },
+  "department": "Engineering",
+  "salary": "$175,000 – $225,000 / year",
+  "company": {
+   "name": "Zeno Power",
+   "logo_url": null,
+   "friendly_id": "zeno-power",
+   "isMultipleLocationsEnabled": true
+  },
+  "locations": [
+   {
+    "country": {
+     "name": "United States",
+     "id": "US"
+    },
+    "state": {
+     "id": "WA",
+     "name": "Washington"
+    },
+    "city": "Seattle",
+    "primary": true,
+    "is_remote": false,
+    "name": "Seattle, WA",
+    "id": "212ce34cb12c"
+   }
+  ]
+ }
+]

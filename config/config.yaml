@@ -82,6 +82,21 @@ criteria:
     - high performance computing
     - scientific computing
     - research software
+    # common non-English titles (DE, FR, ES/PT, NL)
+    - physiker
+    - physikerin
+    - physicien
+    - physicienne
+    - físico
+    - física
+    - fysicus
+    - wissenschaftler
+    - entwicklungsingenieur
+    - beschleuniger
+    - ingénieur de recherche
+    - chercheur
+    - pesquisador
+    - investigador
   title_exclude:
     - sales
     - account executive
@@ -113,21 +128,25 @@ criteria:
     - entry level
     - new grad
     - graduate program
+    - trainee
+    - apprentice
+    # internships and student jobs in DE, FR, ES/PT
+    - praktikum
+    - praktikant
+    - werkstudent
+    - abschlussarbeit
+    - stage
+    - stagiaire
+    - alternance
+    - apprenti
+    - estágio
+    - pasantía
+    - becario
   description_exclude: []   # e.g. "active secret clearance"; only checked for keyword matches
-  # Assumed: Portland/Hillsboro area or remote. Add cities or states here (or empty the list
-  # for anywhere) if you'd relocate, e.g. new mexico, california, massachusetts.
-  locations:                # a job must match one (empty = anywhere)
-    - remote
-    - oregon
-    - us-or
-    - ", or"
-    - portland
-    - hillsboro
-    - beaverton
-    - tigard
-    - tualatin
-    - wilsonville
-    - vancouver, wa
+  # Worldwide since 2026-10-27 (US, Europe, Asia, South America): the AI score ranks by
+  # profile.md. To go back to
+  # local only, list places, e.g. [remote, colorado, ", co", denver, boulder].
+  locations: []             # a job must match one (empty = anywhere)
   allow_remote: true        # remote jobs pass the location check
   max_age_days: 7           # a "new" job published longer ago than this is ignored
 
@@ -197,13 +216,22 @@ aggregators:
       - {keyword: "systems engineer", location: "Oregon"}
   adzuna:                   # free key: https://developer.adzuna.com/signup
     enabled: true           # skipped until ADZUNA_APP_ID and ADZUNA_APP_KEY are set in .env
-    interval: 3600
-    country: us
+    # Free plan is ~2500 calls/month: 12 searches every 4 h = ~2200. Searches only look 2 days back.
+    interval: 14400
+    country: us             # default; a search can set its own: gb de fr nl ch at it es pl in sg br mx ca au
     searches:
-      - {what: "physicist", where: "Oregon"}
-      - {what: "plasma", where: "Oregon"}
+      - {what: "physicist"}
+      - {what: "accelerator physicist"}
       - {what: "ion beam"}
-      - {what: "R&D manager physics", where: "Oregon"}
+      - {what: "plasma physicist"}
+      - {what: "physicist", country: gb}
+      - {what: "accelerator", country: gb}
+      - {what: "physiker", country: de}
+      - {what: "physicist", country: de}
+      - {what: "physicist", country: nl}
+      - {what: "physicist", country: ch}
+      - {what: "physicist", country: sg}
+      - {what: "físico", country: br}
   jsearch:                  # paid slot (RapidAPI). Free plan ~200 calls/month: keep interval >= 14400
     enabled: true           # skipped until RAPIDAPI_KEY is set in .env
     interval: 14400

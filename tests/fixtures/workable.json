@@ -1,0 +1,66 @@
+{
+ "name": "Quandela",
+ "description": "<p>Quandela is a European start up that provides photonic quantum computers that are modular, scalable, energy-efficient and accessible both on the cloud and on premise. </p><p>Our team of 85 employee",
+ "jobs": [
+  {
+   "title": "Cloud DevOps Engineer",
+   "shortcode": "7445534397",
+   "code": "",
+   "employment_type": "",
+   "telecommuting": false,
+   "department": null,
+   "url": "https://apply.workable.com/j/7445534397",
+   "shortlink": "https://apply.workable.com/j/7445534397",
+   "application_url": "https://apply.workable.com/j/7445534397/apply",
+   "published_on": "2026-10-16",
+   "created_at": "2026-10-16",
+   "country": "France",
+   "city": "Massy",
+   "state": "Île-de-France",
+   "education": "",
+   "experience": "",
+   "function": "",
+   "industry": "Computer Hardware",
+   "locations": [
+    {
+     "country": "France",
+     "countryCode": "FR",
+     "city": "Massy",
+     "region": "Île-de-France",
+     "hidden": false
+    }
+   ],
+   "description": "<p>Quandela is a global leader in quantum computing, designing, building, and delivering cutting-edge quantum solutions for research and industry. Its offerings include the most energy-efficient quantum computers for data centers, full-stack quantum computing solutions accessible via the cloud, and algorithm access services for academic and industrial customers. Following a pragmatic, step-by-step roadmap, Quandela has been deploying industrial-grade systems since 2023 while developing future generations of fault-tolerant quantum computers capable of scaling through the integration of thousand"
+  },
+  {
+   "title": "Corporate Development Analyst - CEO Office",
+   "shortcode": "31AF1D9151",
+   "code": "",
+   "employment_type": "",
+   "telecommuting": false,
+   "department": "Business & Marketing",
+   "url": "https://apply.workable.com/j/31AF1D9151",
+   "shortlink": "https://apply.workable.com/j/31AF1D9151",
+   "application_url": "https://apply.workable.com/j/31AF1D9151/apply",
+   "published_on": "2026-10-16",
+   "created_at": "2026-10-16",
+   "country": "France",
+   "city": "Massy",
+   "state": "Île-de-France",
+   "education": "",
+   "experience": "",
+   "function": "",
+   "industry": "Computer Hardware",
+   "locations": [
+    {
+     "country": "France",
+     "countryCode": "FR",
+     "city": "Massy",
+     "region": "Île-de-France",
+     "hidden": false
+    }
+   ],
+   "description": "<p>Quandela is a global leader in quantum computing, designing, building, and delivering cutting-edge quantum solutions for research and industry. Its offerings include very energy-efficient quantum computers for data centers, full-stack quantum computing solutions accessible via the cloud, and algorithm access services for academic and industrial customers. Following a pragmatic, step-by-step roadmap, Quandela has been deploying industrial-grade systems since 2023 while developing future generations of fault-tolerant quantum computers capable of scaling through the integration of thousands of"
+  }
+ ]
+}

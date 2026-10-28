@@ -39,6 +39,9 @@ def test_company_validation():
     with pytest.raises(ValueError):
         Company(name="X", ats="workday", url="https://example.com")
     Company(name="X", ats="workday", url="https://x.wd1.myworkdayjobs.com/Ext")
+    with pytest.raises(ValueError):
+        Company(name="X", ats="ultipro", url="https://recruiting.ultipro.com/ACME/JobBoard/not-a-guid")
+    Company(name="X", ats="ultipro", url="https://recruiting.ultipro.com/ACM1/JobBoard/49386e5d-f909-4648-8335-415ce97e3f15")
 
 
 def test_boards_include_enabled_aggregators():
@@ -53,6 +56,13 @@ def test_boards_include_enabled_aggregators():
     assert keys["greenhouse:acme"].interval == 180
     assert keys["usajobs:it-specialist"].watched is False
     assert keys["workday:big/Ext"].params["host"] == "big.wd5.myworkdayjobs.com"
+
+
+def test_adzuna_search_can_pick_its_country():
+    cfg = Config.model_validate({"aggregators": {"adzuna": {"enabled": True, "country": "us", "searches": [
+        {"what": "physicist", "where": "Oregon"}, {"what": "physicist", "country": "de"}]}}})
+    boards = {b.key: b.params["country"] for b in cfg.boards()}
+    assert boards == {"adzuna:physicist": "us", "adzuna:physicist-de": "de"}
 
 
 def test_unknown_tier_rejected():

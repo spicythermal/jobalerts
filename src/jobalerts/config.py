@@ -11,11 +11,13 @@ from urllib.parse import urlparse
 import yaml
 from pydantic import BaseModel, model_validator
 
-ATS = Literal["greenhouse", "lever", "ashby", "smartrecruiters", "workday"]
+ATS = Literal["greenhouse", "lever", "ashby", "smartrecruiters", "workday", "ultipro",
+              "personio", "workable", "bamboohr", "rippling", "breezy", "successfactors"]
 AGGREGATORS = ("usajobs", "adzuna", "jsearch")
 
 _ENV_REF = re.compile(r"\$\{(\w+)\}")
 _LOCALE = re.compile(r"^[a-z]{2}-[A-Z]{2}$")
+_ULTIPRO = re.compile(r"https?://(recruiting\d*\.ultipro\.com)/([A-Za-z0-9]+)/JobBoard/([0-9a-fA-F-]{36})")
 
 
 class Criteria(BaseModel):
@@ -79,7 +81,7 @@ class HomeAssistant(BaseModel):
 class AggregatorConfig(BaseModel):
     enabled: bool = False
     interval: int = 3600
-    country: str = "us"                  # adzuna only
+    country: str = "us"                  # adzuna only; a search can override it with its own country
     searches: list[dict] = []
 
 
@@ -93,10 +95,10 @@ class Company(BaseModel):
     name: str
     ats: ATS
     slug: str = ""        # board token / company id (not needed for workday)
-    url: str = ""         # workday: the careers site URL
-    search: str = ""      # workday / smartrecruiters: server-side search text to narrow big boards
+    url: str = ""         # workday / ultipro / successfactors: the careers site URL
+    search: str = ""      # workday / smartrecruiters / ultipro / successfactors: server-side search text
     region: str = ""      # lever: "eu" for jobs.eu.lever.co companies
-    pages: int = 2        # workday: pages of 20 to read per poll
+    pages: int = 2        # workday / ultipro: pages (of 20 / 50) to read per poll
     tier: str = "normal"
     enabled: bool = True
 
@@ -105,6 +107,11 @@ class Company(BaseModel):
         if self.ats == "workday":
             if ".myworkdayjobs.com" not in self.url:
                 raise ValueError(f"{self.name}: workday companies need url: https://<tenant>.wdN.myworkdayjobs.com/<site>")
+        elif self.ats == "ultipro":
+            parse_ultipro_url(self.url)
+        elif self.ats == "successfactors":
+            if not urlparse(self.url).netloc:
+                raise ValueError(f"{self.name}: successfactors companies need url: https://careers.<company>.com")
         elif not self.slug:
             raise ValueError(f"{self.name}: {self.ats} companies need a slug")
         return self
@@ -120,6 +127,14 @@ def parse_workday_url(url: str) -> tuple[str, str, str]:
     if not host or not parts:
         raise ValueError(f"not a Workday careers URL: {url}")
     return host, host.split(".")[0], parts[0]
+
+
+def parse_ultipro_url(url: str) -> tuple[str, str, str]:
+    """https://recruiting2.ultipro.com/TEN1234/JobBoard/<guid>/... -> (host, tenant, board id)."""
+    m = _ULTIPRO.match(url or "")
+    if not m:
+        raise ValueError(f"not a UltiPro job board URL (https://recruitingN.ultipro.com/<tenant>/JobBoard/<id>): {url}")
+    return m.group(1), m.group(2), m.group(3)
 
 
 @dataclass
@@ -167,6 +182,13 @@ class Config(BaseModel):
                 host, tenant, site = parse_workday_url(c.url)
                 params.update(host=host, tenant=tenant, site=site)
                 slug = f"{tenant}/{site}"
+            elif c.ats == "ultipro":
+                host, tenant, board_id = parse_ultipro_url(c.url)
+                params.update(host=host, tenant=tenant, board_id=board_id)
+                slug = f"{tenant}/{board_id[:8]}"
+            elif c.ats == "successfactors":
+                params["url"] = c.url
+                slug = urlparse(c.url).netloc
             out.append(Board(c.ats, slug, c.name, self.polling.tiers[c.tier], params))
         for source in AGGREGATORS:
             agg: AggregatorConfig = getattr(self.aggregators, source)
@@ -175,7 +197,9 @@ class Config(BaseModel):
             for search in agg.searches:
                 label = search.get("name") or next(
                     (str(search[k]) for k in ("keyword", "query", "what") if search.get(k)), "search")
-                params = dict(search, country=agg.country)
+                params = {"country": agg.country, **search}
+                if params["country"] != agg.country and not search.get("name"):
+                    label = f"{label} {params['country']}"  # same words in another country is another board
                 out.append(Board(source, _slugify(label), f"{source} '{label}'", agg.interval, params, watched=False))
         return out
 

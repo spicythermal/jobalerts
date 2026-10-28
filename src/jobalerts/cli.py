@@ -195,7 +195,7 @@ async def cmd_discover(cfg: Config, args) -> int:
             if not found:
                 missing.append(name or target)
                 if len(targets) == 1:
-                    print(f"No public Greenhouse/Lever/Ashby/SmartRecruiters/Workday board found for {target!r}.\n"
+                    print(f"No Greenhouse/Lever/Ashby/SmartRecruiters/Personio/Workable board found for {target!r}.\n"
                           "Try its careers page URL instead: jobalerts discover https://company.com/careers")
                 continue
             print(f"{name or target}:")
