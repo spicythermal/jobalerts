@@ -220,9 +220,17 @@ def parse_salary(text: str) -> Pay | None:
 _MONEY = (r"(?:(?:US|S|R|C|CA|A|HK)?\$|€|£|\b(?:USD|EUR|GBP|CHF|SGD|CAD|AUD|SEK|DKK|NOK)\b)\s?\d[\d,.\u00a0\u202f]*\d(?:\s?[kK]\b)?"
           r"|\d[\d,.\u00a0\u202f]*\d(?:\s?[kK]\b)?\s?(?:€|\b(?:EUR|USD|CHF|GBP)\b)")
 _PAY_RANGE = re.compile(rf"(?:{_MONEY})(?:\s*(?:-|–|—|to|and|bis|à)\s*(?:(?:{_MONEY})|\d[\d,.]*\d(?:\s?[kK]\b)?))?")
+# A range with no currency marker ("Principal: 150,000-210,000"), counted only right after a marked one.
+_BARE_RANGE = re.compile(r"(?<![\d.,])\d{2,3}(?:[,.]\d{3})+(?:[.,]\d{2})?\s*(?:-|–|—|to)\s*\$?\d{2,3}(?:[,.]\d{3})+"
+                         r"|(?<![\d.,])\d{2,3}\s?[kK]\s*(?:-|–|—|to)\s*\d{2,3}\s?[kK]\b")
 _NOT_BASE = re.compile(r"(?i)bonus|sign-on|signing|relocation|stipend|allowance|referral|tuition|401")
 _PAY_WORDS = re.compile(r"(?i)salary|\bpay\b|compensation|\bbase\b|\bwage|gehalt|vergütung|salaire|rémunération"
                         r"|hourly rate|annual|per year")
+
+
+def _plausible(pay: Pay, currency: str) -> bool:
+    low, high = pay.annual()
+    return low >= 20_000 and not (high > 2_000_000 and currency in ("$", "USD", "EUR", "GBP", "CHF"))
 
 
 def pay_in_description(text: str) -> Pay | None:
@@ -232,7 +240,8 @@ def pay_in_description(text: str) -> Pay | None:
     (by level: "Level 3 ... and Level 4 ..."), returns the span from the lowest to the highest in the
     first one's currency, so a higher level isn't missed. None when the posting states no pay."""
     found: list[Pay] = []
-    for m in _PAY_RANGE.finditer(text or ""):
+    text = text or ""
+    for m in _PAY_RANGE.finditer(text):
         if not _PAY_WORDS.search(text[max(0, m.start() - 250):m.start()]):
             continue
         if _NOT_BASE.search(text[max(0, m.start() - 40):m.end() + 40]):
@@ -242,12 +251,16 @@ def pay_in_description(text: str) -> Pay | None:
             continue
         if period := next((p for p, rx in _PERIOD_WORDS if re.search(rx, text[m.end():m.end() + 40].lower())), None):
             pay.period = period
-        low, high = pay.annual()
-        if low < 20_000 or (high > 2_000_000 and pay.currency in ("$", "USD", "EUR", "GBP", "CHF")):
+        if not _plausible(pay, pay.currency):
             continue
         if found and (pay.currency, pay.period) != (found[0].currency, found[0].period):
             continue
         found.append(pay)
+        # Unmarked ranges just after this one are more levels in the same currency.
+        for bare in _BARE_RANGE.finditer(text[m.end():m.end() + 200]):
+            extra = parse_salary(bare.group(0))
+            if extra and extra.period == pay.period and _plausible(extra, pay.currency):
+                found.append(Pay(extra.low, extra.high, pay.currency, pay.period))
     if not found:
         return None
     return Pay(min(p.low for p in found), max(p.high for p in found), found[0].currency, found[0].period)

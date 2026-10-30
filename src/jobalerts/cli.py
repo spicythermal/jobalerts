@@ -220,6 +220,19 @@ async def cmd_discover(cfg: Config, args) -> int:
     return 1 if len(missing) == len(targets) else 0
 
 
+def print_repriced(repriced, cfg: Config) -> None:
+    priced = [r for r in repriced if r[3]]
+    print(f"Pay index for {len(repriced)} matches already processed: {len(priced)} state pay, "
+          f"{len(repriced) - len(priced)} don't (left as they were).")
+    for job, old, new, pay in sorted(priced, key=lambda r: r[3].index, reverse=True):
+        change = f"{old} -> {new}" if new != old else new
+        print(f"  {pay.index:5.2f} {change:22} {job.company}: {job.title}\n        {pay.text()}")
+    dropped = sum(1 for _, old, new, _ in repriced if new == "low_pay" and old != "low_pay")
+    if dropped:
+        print(f"{dropped} now low_pay (top of range under {cfg.pay.min_index:g}): out of `top` and Home Assistant.")
+    print()
+
+
 async def cmd_backfill(cfg: Config, args) -> int:
     if not Path(cfg.database).is_file():
         print(f"No database at {cfg.database}: run the service first so it records each board's baseline.")
@@ -234,12 +247,22 @@ async def cmd_backfill(cfg: Config, args) -> int:
                 real.close()
             runner.store.insert_jobs([job_from_row(r) for r in rows if r["status"] == "baseline"], "baseline")
             runner.scorer = make_scorer(cfg, runner.store)
+        real = Store(cfg.database) if args.dry_run else None
+        try:
+            repriced = await runner.reprice(cfg.boards(), store=real, write=not args.dry_run)
+        finally:
+            if real:
+                real.close()
+        if repriced:
+            print_repriced(repriced, cfg)
         if not runner.scorer:
             print("AI scoring isn't configured: set ANTHROPIC_API_KEY in .env (and scoring.enabled: true).")
-            return 1
+            return 0 if repriced else 1
         results = await runner.backfill(cfg.boards(), push=args.push and not args.dry_run)
         if not results:
             print(f"No unscored baseline matches posted in the last {cfg.criteria.max_age_days} days.")
+            if repriced and runner.homeassistant and not args.dry_run:
+                await runner.publish_dashboard()
             return 0
         print(f"\n{len(results)} baseline matches posted in the last {cfg.criteria.max_age_days} days:")
         results.sort(key=lambda r: -1 if r[2] is None else r[2].score, reverse=True)
@@ -421,8 +444,9 @@ def build_parser() -> argparse.ArgumentParser:
     t.add_argument("--days", type=int, default=0, help="posted in the last N days (default: homeassistant.days)")
     t.add_argument("--push", action="store_true", help="also update the Home Assistant sensor now")
     sub.add_parser("stats", help="board health, request rates, detection delay, AI spend")
-    b = sub.add_parser("backfill", help="AI-score the matches that were already open when each board was first "
-                                        "polled (once per job, posted within criteria.max_age_days)")
+    b = sub.add_parser("backfill", help="pay-index the matches already processed (no AI calls), then AI-score the "
+                                        "matches that were already open when each board was first polled "
+                                        "(once per job, posted within criteria.max_age_days)")
     b.add_argument("--dry-run", action="store_true", help="score and print only: store nothing, send nothing")
     b.add_argument("--push", action="store_true", help="push strong fits to your phone (default: next digest)")
     y = sub.add_parser("pay", help="explain the cost-of-living pay index for a salary and location, or "

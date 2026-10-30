@@ -135,6 +135,45 @@ class Runner:
             self._dashboard_stale.set()
         return results
 
+    async def reprice(self, boards: list[Board], store: Store | None = None,
+                      write: bool = True) -> list[tuple[Job, str, str, col.PayResult | None]]:
+        """Re-check the pay index of matches that already went through the pipeline, posted within
+        max_age_days (no AI calls: pay comes from the salary field or the re-fetched description).
+        Under pay.min_index -> low_pay. A low_pay job that now passes goes back to where its AI score
+        puts it (digest or low, never pushed), or to baseline for `backfill` to score if it had none.
+        Returns (job, old status, new status, pay index)."""
+        if not self.pay:
+            return []
+        store = store or self.store
+        by_slug = {(b.source, b.slug): b for b in boards}
+        since = utcnow() - timedelta(days=self.cfg.criteria.max_age_days)
+        out = []
+        for row in store.processed_since(since):
+            job = job_from_row(row)
+            board = by_slug.get((job.source, job.board))
+            if board is not None:
+                try:
+                    await SOURCES[job.source].enrich(job, board, self.http)
+                except Exception as e:
+                    log.warning("reprice: couldn't fetch %s: %s", job.key, e)
+            pay = self.pay_index(job)
+            old = status = row["status"]
+            if pay and pay.high < self.cfg.pay.min_index:
+                status = "low_pay"
+            elif old == "low_pay":
+                score = row["score"]
+                status = ("baseline" if score is None else "digest" if score >= self.cfg.scoring.digest_threshold
+                          else "low")
+            if write:
+                reason = (f"top of range {pay.high:.2f} < {self.cfg.pay.min_index:g}" if status == "low_pay"
+                          else "repriced" if status != old else None)
+                store.update_job(job.key, status=status, reason=reason, pay_index=round(pay.index, 3) if pay else None,
+                                 pay_note=pay.text() if pay else None)
+            out.append((job, old, status, pay))
+        if out and write:
+            self._dashboard_stale.set()
+        return out
+
     async def _process(self, job: Job, board: Board, source: Source) -> tuple[str, FitScore | None]:
         if self.store.seen_elsewhere(job):
             self.store.insert_job(job, "duplicate", "already seen from another source")

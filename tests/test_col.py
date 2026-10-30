@@ -310,6 +310,9 @@ def test_top_matches_computes_pay_for_baseline_rows(pay_env):
     ("Salary ranges for U.S. locations (USD): $105,600.00 - $158,400.00. Pay range / Gehaltsband: "
      "Ireland: 64,640.00 EUR - 96,960.00 EUR", Pay(105_600, 158_400, "$", "year")),
     ("Pay range: $45.50 to $60 per hour", Pay(45.5, 60, "$", "hour")),
+    ("Estimated salary range for Senior $130,000-160,000 and Principal: 150,000-210,000. Candidates may",
+     Pay(130_000, 210_000, "$", "year")),
+    ("Salary: $150,000 - $180,000. Founded in 2015, 2,000-5,000 employees.", Pay(150_000, 180_000, "$", "year")),
     ("Gehalt: 80.000 € - 95.000 € brutto", Pay(80_000, 95_000, "EUR", "year")),
     ("Compensation includes a $15,000 sign-on bonus and $10,000 relocation.", None),
     ("Backed by $100,000,000 from investors.", None),
@@ -317,3 +320,43 @@ def test_top_matches_computes_pay_for_baseline_rows(pay_env):
 ])
 def test_pay_in_description(text, expected):
     assert col.pay_in_description(text) == expected
+
+
+def test_reprice_applies_the_index_to_jobs_processed_before_it(pay_env):
+    fake, runner, board, store, notifier = pay_env
+    # Three matches scored before the pay index existed.
+    for n, salary, status, score in [(7, "$120K-140K", "alerted", 90), (8, "$200K-260K", "digested", 60),
+                                     (9, "", "digest", 70)]:
+        job = make_job(n, location="Portland, OR")
+        job.salary = salary
+        store.insert_job(job, "processing")
+        store.update_job(job.key, status=status, score=score)
+    out = {job.job_id: (old, new, pay) for job, old, new, pay in run(runner.reprice([board]))}
+    assert out["7"][:2] == ("alerted", "low_pay") and out["7"][2].high < 1.05
+    assert out["8"][:2] == ("digested", "digested") and out["8"][2].index > 1.4
+    assert out["9"] == ("digest", "digest", None)
+    rows = {r["job_id"]: r for r in store.db.execute("SELECT * FROM jobs")}
+    assert rows["7"]["status"] == "low_pay" and rows["8"]["pay_index"] > 1.4
+    assert [j["title"] for j in runner.top_matches(10, 7)[1]].count("Network Engineer") == 3  # 8, 9 and baseline 0
+
+
+def test_reprice_restores_low_pay_jobs_that_now_pass(pay_env):
+    fake, runner, board, store, notifier = pay_env
+    for n, score in [(10, 80), (11, None)]:
+        job = make_job(n, location="Portland, OR")
+        job.salary = "$120K-160K"  # top 1.03
+        store.insert_job(job, "processing")
+        store.update_job(job.key, status="low_pay", score=score)
+    runner.cfg.pay.min_index = 1.0
+    out = {job.job_id: new for job, _, new, _ in run(runner.reprice([board]))}
+    assert out == {"10": "digest", "11": "baseline"}  # unscored -> baseline, so backfill scores it
+
+
+def test_reprice_dry_run_writes_nothing(pay_env):
+    fake, runner, board, store, notifier = pay_env
+    job = make_job(12, location="Portland, OR")
+    job.salary = "$100K"
+    store.insert_job(job, "processing")
+    store.update_job(job.key, status="alerted", score=90)
+    assert run(runner.reprice([board], write=False))[0][2] == "low_pay"
+    assert store.db.execute("SELECT status, pay_index FROM jobs WHERE job_id='12'").fetchone()[:] == ("alerted", None)

@@ -211,6 +211,12 @@ class Store:
         for key in keys:
             self.mark_notified(key, "digested")
 
+    def processed_since(self, since: datetime) -> list[sqlite3.Row]:
+        """Matches that already went through the pipeline (not baseline), posted since `since`."""
+        return self.db.execute(
+            """SELECT * FROM jobs WHERE status IN ('alert','alerted','digest','digested','notify_failed','low_pay')
+               AND COALESCE(published_at, first_seen_at)>=?""", (_iso(since),)).fetchall()
+
     def low_pay_since(self, since: datetime) -> list[sqlite3.Row]:
         return self.db.execute("SELECT * FROM jobs WHERE status='low_pay' AND first_seen_at>=? ORDER BY pay_index DESC",
                                (_iso(since),)).fetchall()

@@ -191,7 +191,8 @@ jobalerts [-c CONFIG] [-v] {run,poll,discover,test-notify,digest,top,stats,backf
                        best recent matches; --push also updates the Home Assistant sensor
   stats                board health, request rates, detection delay, AI spend
   backfill [--dry-run] [--push]
-                       AI-score the matches that were already open at the first poll
+                       re-check the pay index of processed matches, then AI-score the
+                       matches that were already open at the first poll
   pay [SALARY LOCATION] [--remote] [--update]
                        explain the cost-of-living pay index; --update downloads fresh price data
 ```
@@ -271,6 +272,12 @@ The first poll of each board records its open jobs silently, so none of them are
 `criteria.max_age_days` through Claude, the same way a new job would go. Each job is
 scored only once, and any job that can't be scored (wrong key, API down) is left to retry
 on the next run.
+
+Before that, `backfill` re-checks the pay index of matches already processed in that window
+(pushed, in the digest, or held back for pay). It re-fetches each description and makes no AI
+calls. Run it after upgrading to the pay index, or after changing `pay.min_index`. Jobs under
+the threshold become `low_pay` and drop out of `top` and Home Assistant. A `low_pay` job that now
+passes goes back to the digest, or to the baseline to be scored if it never was.
 
 ```sh
 docker compose exec jobalerts jobalerts backfill --dry-run   # show the scores, save nothing
