@@ -74,7 +74,7 @@ CREATE TABLE IF NOT EXISTS host_stats (
 );
 """
 
-# Statuses: processing, baseline, duplicate, stale, filtered, low, digest, alert, alerted, digested, notify_failed
+# Statuses: processing, baseline, duplicate, stale, filtered, low_pay, low, digest, alert, alerted, digested, notify_failed
 
 
 def _iso(dt: datetime | None) -> str | None:
@@ -210,6 +210,10 @@ class Store:
     def mark_digested(self, keys: list[str]) -> None:
         for key in keys:
             self.mark_notified(key, "digested")
+
+    def low_pay_since(self, since: datetime) -> list[sqlite3.Row]:
+        return self.db.execute("SELECT * FROM jobs WHERE status='low_pay' AND first_seen_at>=? ORDER BY pay_index DESC",
+                               (_iso(since),)).fetchall()
 
     def activity_since(self, since: datetime) -> Counter:
         rows = self.db.execute(

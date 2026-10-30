@@ -92,6 +92,8 @@ def test_abroad_uses_ppp_in_local_currency(pi):
     ("Santa Fe, NM", False, "New Mexico"),
     ("US > New Mexico > Albuquerque", False, "Albuquerque"),
     ("Japan > Tokyo (Tama-shi)", False, "JPN"),
+    ("Albuquerque-NM (Main)", False, "Albuquerque"),
+    ("Greater Albuquerque Area", False, "Albuquerque"),
 ])
 def test_resolve(pi, location, remote, label):
     assert label in pi.resolve(location, remote).label
@@ -203,8 +205,10 @@ def test_failed_or_broken_refresh_keeps_the_old_data(tmp_path, monkeypatch):
 class PayScorer:
     def __init__(self, fit: FitScore):
         self.fit = fit
+        self.calls = 0
 
     async def score(self, job):
+        self.calls += 1
         return self.fit
 
 
@@ -228,36 +232,65 @@ def pay_env(tmp_path, monkeypatch):
 
 def test_pay_index_from_ai_reaches_alert_and_db(pay_env):
     fake, runner, board, store, notifier = pay_env
-    runner.scorer = PayScorer(FitScore(score=90, summary="fit", pay_min=155_000, pay_max=186_000,
+    runner.scorer = PayScorer(FitScore(score=90, summary="fit", pay_min=165_000, pay_max=210_000,
                                        pay_currency="USD", pay_period="year"))
-    fake.jobs.append(make_job(1, location="San Jose, CA"))
+    fake.jobs.append(make_job(1, location="San Jose, CA"))  # FakeSource.enrich: no pay in the description
     run(runner.poll_board(board))
     row = store.db.execute("SELECT status, pay_index, pay_note FROM jobs WHERE job_id='1'").fetchone()
-    assert row["status"] == "alerted" and row["pay_index"] == pytest.approx(0.917, abs=1e-3)
-    assert "pay index 0.92 (0.83-1.00)" in row["pay_note"]
-    assert "Pay index 0.92" in notifier.sent[-1]["message"]
+    assert row["status"] == "alerted" and row["pay_index"] == pytest.approx(1.008, abs=1e-3)
+    assert "pay index 1.01 (0.89-1.13)" in row["pay_note"]
+    assert "Pay index 1.01" in notifier.sent[-1]["message"]
 
 
-def test_posted_salary_wins_over_ai_and_low_pay_is_held_back(pay_env):
+def test_low_stated_pay_skips_the_ai_and_shows_in_the_digest(pay_env):
     fake, runner, board, store, notifier = pay_env
-    runner.scorer = PayScorer(FitScore(score=95, summary="fit", pay_min=300_000, pay_max=300_000))
+    runner.scorer = scorer = PayScorer(FitScore(score=95, summary="fit"))
     job = make_job(2, location="Portland, OR")
-    job.salary = "$120K-150K/yr"
+    job.salary = "$120K-160K/yr"  # top of range 160/155 = 1.03 < 1.05
     fake.jobs.append(job)
     run(runner.poll_board(board))
     row = store.db.execute("SELECT status, reason, pay_index FROM jobs WHERE job_id='2'").fetchone()
-    assert row["status"] == "low" and "under 1" in row["reason"]
-    assert row["pay_index"] == pytest.approx(135 / 155, abs=1e-3)
-    assert len(notifier.sent) == 0
+    assert row["status"] == "low_pay" and "1.03 < 1.05" in row["reason"]
+    assert scorer.calls == 0 and notifier.sent == []
+    digest = run(runner.send_digest(mark=False))
+    assert "Skipped for pay" in digest and "Acme: Network Engineer: pay index 0.90 (0.77-1.03)" in digest
 
 
-def test_no_pay_stated_still_alerts(pay_env):
+def test_pay_in_the_description_is_checked_before_the_ai(pay_env):
     fake, runner, board, store, notifier = pay_env
-    runner.scorer = PayScorer(FitScore(score=95, summary="fit"))
-    fake.jobs.append(make_job(3, location="Portland, OR"))
+    runner.scorer = scorer = PayScorer(FitScore(score=95, summary="fit"))
+    job = make_job(3, location="Portland, OR")
+    job.description = "The base salary range for this role is $110,000 - $140,000."
+    fake.jobs.append(job)
     run(runner.poll_board(board))
-    row = store.db.execute("SELECT status, pay_index FROM jobs WHERE job_id='3'").fetchone()
-    assert row["status"] == "alerted" and row["pay_index"] is None
+    assert store.db.execute("SELECT status FROM jobs WHERE job_id='3'").fetchone()["status"] == "low_pay"
+    assert scorer.calls == 0
+
+
+def test_top_of_range_at_the_threshold_goes_to_the_ai(pay_env):
+    fake, runner, board, store, notifier = pay_env
+    runner.scorer = scorer = PayScorer(FitScore(score=95, summary="fit"))
+    job = make_job(4, location="Portland, OR")
+    job.salary = "$120K-165K/yr"  # 165/155 = 1.065
+    fake.jobs.append(job)
+    run(runner.poll_board(board))
+    assert scorer.calls == 1
+    assert store.db.execute("SELECT status FROM jobs WHERE job_id='4'").fetchone()["status"] == "alerted"
+
+
+def test_no_stated_pay_still_goes_to_the_ai_which_may_find_it_low(pay_env):
+    fake, runner, board, store, notifier = pay_env
+    runner.scorer = scorer = PayScorer(FitScore(score=95, summary="fit"))
+    fake.jobs.append(make_job(5, location="Portland, OR"))
+    run(runner.poll_board(board))
+    assert scorer.calls == 1
+    assert store.db.execute("SELECT status, pay_index FROM jobs WHERE job_id='5'").fetchone()["status"] == "alerted"
+
+    scorer.fit = FitScore(score=95, summary="fit", pay_min=100_000, pay_max=120_000, pay_currency="USD")
+    fake.jobs.append(make_job(6, location="Portland, OR"))
+    run(runner.poll_board(board))
+    row = store.db.execute("SELECT status, score FROM jobs WHERE job_id='6'").fetchone()
+    assert row["status"] == "low_pay" and row["score"] == 95 and len(notifier.sent) == 1
 
 
 def test_top_matches_computes_pay_for_baseline_rows(pay_env):
@@ -265,3 +298,22 @@ def test_top_matches_computes_pay_for_baseline_rows(pay_env):
     store.db.execute("UPDATE jobs SET salary='$310K', location='Hillsboro, OR' WHERE job_id='0'")
     total, jobs = runner.top_matches(5, 7)
     assert jobs[0]["pay_index"] == 2.0
+
+
+@pytest.mark.parametrize("text, expected", [
+    ("We raised $50M. The base salary range for this role is $150,000 - $200,000 per year.",
+     Pay(150_000, 200_000, "$", "year")),
+    ("The base salary range is 152,000 USD - 241,500 USD for Level 3, and 184,000 USD - 287,500 USD for Level 4.",
+     Pay(152_000, 287_500, "USD", "year")),
+    ("Estimated salary range for Senior $130,000-160,000 and Principal: $150,000-210,000.",
+     Pay(130_000, 210_000, "$", "year")),
+    ("Salary ranges for U.S. locations (USD): $105,600.00 - $158,400.00. Pay range / Gehaltsband: "
+     "Ireland: 64,640.00 EUR - 96,960.00 EUR", Pay(105_600, 158_400, "$", "year")),
+    ("Pay range: $45.50 to $60 per hour", Pay(45.5, 60, "$", "hour")),
+    ("Gehalt: 80.000 € - 95.000 € brutto", Pay(80_000, 95_000, "EUR", "year")),
+    ("Compensation includes a $15,000 sign-on bonus and $10,000 relocation.", None),
+    ("Backed by $100,000,000 from investors.", None),
+    ("We offer great pay and a 401(k).", None),
+])
+def test_pay_in_description(text, expected):
+    assert col.pay_in_description(text) == expected

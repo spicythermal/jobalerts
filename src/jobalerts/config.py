@@ -59,7 +59,7 @@ class PayConfig(BaseModel):
     enabled: bool = True
     reference_salary: float = 155_000
     reference_location: str = "Portland, OR"
-    min_index: float = 1.0               # whole posted range below this -> held back as "low" (0 = off)
+    min_index: float = 1.05              # top of the stated range below this -> no AI call, no alert (0 = off)
     col_data: str = "col_data.json"      # committed seed, relative to the config directory
     refresh_days: int = 30               # rebuild from BEA + World Bank when older (0 = never); kept next to the DB
     locations: dict[str, str] = {}       # location text -> US metro name, state code, ISO3 country or "home"

@@ -151,7 +151,7 @@ class Runner:
         if not board.watched and normalize_company(job.company) not in self.watched:
             self.store.add_suggestion(job.company)
 
-        if not job.description and (self.scorer or self.filter.description_exclude):
+        if not job.description and (self.scorer or self.pay or self.filter.description_exclude):
             try:
                 await source.enrich(job, board, self.http)
             except Exception as e:
@@ -164,6 +164,12 @@ class Runner:
             self.store.update_job(job.key, status="filtered", reason=why_desc)
             return "filtered", None
 
+        # Pay gate before AI scoring: a posting whose stated pay is under pay.min_index even at the top of
+        # its range isn't worth a Claude call. No stated pay -> scored anyway; the AI may find it.
+        pay = self.pay_index(job)
+        if self._pay_too_low(job, pay):
+            return "low_pay", None
+
         score = await self.scorer.score(job) if self.scorer else None
         if score is None:
             status = "alert"  # keyword match and no score available: better to over-notify than miss it
@@ -173,13 +179,12 @@ class Runner:
             status = "digest"
         else:
             status = "low"
-        pay = self.pay_index(job, score)
-        reason = None
-        if pay and pay.high < self.cfg.pay.min_index and status in ("alert", "digest"):
-            status = "low"
-            reason = f"pay index {pay.high:.2f} at the top of the range, under {self.cfg.pay.min_index:g}"
+        if pay is None and score is not None:  # pay the AI read from the posting
+            pay = self.pay_index(job, score)
+            if self._pay_too_low(job, pay, score):
+                return "low_pay", score
         self.store.update_job(
-            job.key, status=status, reason=reason,
+            job.key, status=status,
             pay_index=round(pay.index, 3) if pay else None, pay_note=pay.text() if pay else None,
             score=score.score if score else None,
             score_summary=score.summary if score else None,
@@ -189,11 +194,25 @@ class Runner:
         return status, score
 
     def pay_index(self, job: Job, score: FitScore | None = None) -> col.PayResult | None:
-        """Cost-of-living pay index from the posting's salary field, else from the pay the AI read."""
+        """Cost-of-living pay index from the posting's salary field, else the pay stated in its description,
+        else (given a score) the pay the AI read."""
         if not self.pay:
             return None
-        pay = col.parse_salary(job.salary) or (score.pay() if score else None)
+        pay = col.parse_salary(job.salary) or col.pay_in_description(job.description) or (score.pay() if score else None)
         return self.pay.index(pay, job.location, job.remote)
+
+    def _pay_too_low(self, job: Job, pay: col.PayResult | None, score: FitScore | None = None) -> bool:
+        """Stores the job as low_pay (listed in the digest, never pushed) when even the top of its range
+        is under pay.min_index."""
+        if pay is None or pay.high >= self.cfg.pay.min_index:
+            return False
+        self.store.update_job(
+            job.key, status="low_pay", reason=f"top of range {pay.high:.2f} < {self.cfg.pay.min_index:g}",
+            pay_index=round(pay.index, 3), pay_note=pay.text(),
+            score=score.score if score else None, score_summary=score.summary if score else None,
+            red_flags="; ".join(score.red_flags) if score and score.red_flags else None,
+            best_resume=score.best_resume if score and score.best_resume else None)
+        return True
 
     # ------------------------------------------------------------------ cost-of-living data
     def _pay_paths(self) -> tuple[Path, Path]:
@@ -384,8 +403,15 @@ class Runner:
         limited = sum(c["rate_limited"] for c in hosts.values())
         errors = sum(c["errors"] for c in hosts.values())
         lines.append(f"\nLast 24h: {seen} new postings seen, {activity['alerted']} pushed, "
-                     f"{activity['digest'] + activity['digested']} for digest, {activity['low']} low-fit. "
+                     f"{activity['digest'] + activity['digested']} for digest, {activity['low']} low-fit, "
+                     f"{activity['low_pay']} low pay. "
                      f"{requests} requests, {limited} rate-limited, {errors} errors.")
+        skipped = self.store.low_pay_since(utcnow() - timedelta(days=1))
+        if skipped:
+            lines.append(f"\nSkipped for pay (top of range under {self.cfg.pay.min_index:g}), check for misreads:")
+            lines += [f"• {r['company']}: {r['title']}: {r['pay_note']}\n  {r['url']}" for r in skipped[:10]]
+            if len(skipped) > 10:
+                lines.append(f"  …and {len(skipped) - 10} more")
         if self.pay_problem:
             lines.append(f"Pay index: {self.pay_problem}")
         failing = [b for b in self.store.boards() if b["failures"]]

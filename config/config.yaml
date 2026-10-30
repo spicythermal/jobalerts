@@ -185,7 +185,8 @@ pay:
   enabled: true
   reference_salary: 155000
   reference_location: "Portland, OR"
-  min_index: 1.0            # hold a match back (status "low") when even the top of its range is under this; 0 = off
+  min_index: 1.05           # skip AI scoring and alerts when even the top of the stated range is under this; 0 = off
+                            # (no stated pay: scored anyway). Skipped jobs are listed in the digest.
   col_data: col_data.json   # committed seed; refreshed copies go to data/col_data.json
   refresh_days: 30          # re-download BEA + World Bank data when older than this (checked daily); 0 = never
   locations: {}             # location text -> metro name, state code, ISO3 country, or "home"

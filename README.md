@@ -94,9 +94,11 @@ relative to `pay.reference_salary` at `pay.reference_location` ($155K in the Por
 twice the pay at Portland prices = 2.00; the same pay somewhere 20% cheaper = 1.25). US prices come
 from the BEA's Regional Price Parities (by metro area, else by state). Prices abroad come from the
 World Bank's purchasing-power parity divided by the exchange rate (country-wide). Remote jobs use
-your home prices. The pay comes from the posting's salary field, or else the AI reads it from the
-description. A match is held back (status `low`) when even the top of its range is under
-`pay.min_index`. A posting that states no pay is never held back. The index shows in alerts, the
+your home prices. The pay comes from the posting's salary field, or else from a salary range stated
+in the description. When even the top of that range is under `pay.min_index` (1.05), the match is
+stored as `low_pay` *before* AI scoring: no Claude call, no alert. The digest lists those jobs with
+their pay note so you can catch a misread. A posting that states no pay is still scored; the AI
+reads pay from the text, and the same check applies afterwards. The index shows in alerts, the
 digest, `top` and Home Assistant. `jobalerts pay "$150K-180K" "Austin, TX"` shows how one case is
 worked out. The price data refreshes itself: once a day the service checks it, and when it's older
 than `pay.refresh_days` it downloads new tables into `data/col_data.json`. They replace the old

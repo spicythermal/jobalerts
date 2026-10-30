@@ -216,6 +216,43 @@ def parse_salary(text: str) -> Pay | None:
     return Pay(lo, hi, currency, period)
 
 
+# A money amount with a currency marker, and an optional second amount after a range separator.
+_MONEY = (r"(?:(?:US|S|R|C|CA|A|HK)?\$|€|£|\b(?:USD|EUR|GBP|CHF|SGD|CAD|AUD|SEK|DKK|NOK)\b)\s?\d[\d,.\u00a0\u202f]*\d(?:\s?[kK]\b)?"
+          r"|\d[\d,.\u00a0\u202f]*\d(?:\s?[kK]\b)?\s?(?:€|\b(?:EUR|USD|CHF|GBP)\b)")
+_PAY_RANGE = re.compile(rf"(?:{_MONEY})(?:\s*(?:-|–|—|to|and|bis|à)\s*(?:(?:{_MONEY})|\d[\d,.]*\d(?:\s?[kK]\b)?))?")
+_NOT_BASE = re.compile(r"(?i)bonus|sign-on|signing|relocation|stipend|allowance|referral|tuition|401")
+_PAY_WORDS = re.compile(r"(?i)salary|\bpay\b|compensation|\bbase\b|\bwage|gehalt|vergütung|salaire|rémunération"
+                        r"|hourly rate|annual|per year")
+
+
+def pay_in_description(text: str) -> Pay | None:
+    """Salary amounts or ranges in a posting's text: currency amounts within a few lines after words
+    like 'salary', 'pay range' or 'compensation', so funding rounds and revenue figures elsewhere are
+    skipped, and not next to 'bonus', 'relocation' or 'stipend'. When the posting gives several ranges
+    (by level: "Level 3 ... and Level 4 ..."), returns the span from the lowest to the highest in the
+    first one's currency, so a higher level isn't missed. None when the posting states no pay."""
+    found: list[Pay] = []
+    for m in _PAY_RANGE.finditer(text or ""):
+        if not _PAY_WORDS.search(text[max(0, m.start() - 250):m.start()]):
+            continue
+        if _NOT_BASE.search(text[max(0, m.start() - 40):m.end() + 40]):
+            continue
+        pay = parse_salary(m.group(0))
+        if pay is None:
+            continue
+        if period := next((p for p, rx in _PERIOD_WORDS if re.search(rx, text[m.end():m.end() + 40].lower())), None):
+            pay.period = period
+        low, high = pay.annual()
+        if low < 20_000 or (high > 2_000_000 and pay.currency in ("$", "USD", "EUR", "GBP", "CHF")):
+            continue
+        if found and (pay.currency, pay.period) != (found[0].currency, found[0].period):
+            continue
+        found.append(pay)
+    if not found:
+        return None
+    return Pay(min(p.low for p in found), max(p.high for p in found), found[0].currency, found[0].period)
+
+
 # ---------------------------------------------------------------------------- the data file
 def _bea_rows(blob: bytes, prefix: str) -> tuple[int, list[tuple[str, str, float]]]:
     """(latest year, [(fips, name, all-items RPP)]) from a BEA regional zip."""
@@ -361,6 +398,9 @@ class PayIndex:
         pairs += [(c, _STATE_BY_NAME[s.lower()]) for c, s in re.findall(
             r"([A-Za-z][A-Za-z .'\-]*?),\s*([A-Za-z][A-Za-z ]+?)(?=,|;|\)|$)", location) if s.lower() in _STATE_BY_NAME]
         pairs += [(c, s) for s, c in re.findall(r"\bUSA?[-, ]+([A-Z]{2})[-, ]+([A-Za-z][A-Za-z .']*)", location)]
+        pairs += re.findall(r"([A-Za-z][A-Za-z .']*?)-([A-Z]{2})\b", location)  # "Wilmington-MA"
+        pairs += [(c, st) for c in re.findall(r"(?i)greater (.+?) area", location)
+                  for (city, st) in self._cities if city == c.strip().lower()][:1]
         parts = _parts(location)  # "US > Arizona > Phoenix"
         pairs += [(c, _STATE_BY_NAME[s]) for s in parts if s in _STATE_BY_NAME for c in parts if c != s]
         for city, st in pairs:
