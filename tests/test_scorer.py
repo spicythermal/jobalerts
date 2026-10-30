@@ -119,3 +119,21 @@ def test_make_scorer_loads_resume_folder(monkeypatch, tmp_path):
 def test_prompt_truncates_huge_descriptions():
     big = Job("x", "", "1", "A", "T", "u", description="y" * 50_000)
     assert "[description truncated]" in job_prompt(big)
+
+
+def test_reads_posted_pay_but_leaves_the_floor_to_the_program():
+    s, messages, _ = scorer(response({"score": 80, "summary": "ok", "red_flags": [], "best_resume": "",
+                                      "pay_min": 170000, "pay_max": 150000, "pay_currency": "usd",
+                                      "pay_period": "year"}))
+    result = run(s.score(JOB))
+    pay = result.pay()
+    assert (pay.low, pay.high, pay.currency, pay.period) == (150000, 170000, "USD", "year")
+    call = messages.calls[0]
+    assert "pay_max" in call["output_config"]["format"]["schema"]["required"]
+    assert "cost of living" in call["system"][0]["text"]
+    assert "pay below the candidate's floor" not in call["system"][0]["text"]
+
+
+def test_no_pay_stated_means_no_pay():
+    s, _, _ = scorer(response({"score": 80, "summary": "ok", "red_flags": [], "pay_min": 0, "pay_max": 0}))
+    assert run(s.score(JOB)).pay() is None

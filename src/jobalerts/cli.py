@@ -1,4 +1,4 @@
-"""Command line: jobalerts run | poll | discover | test-notify | digest | top | stats"""
+"""Command line: jobalerts run | poll | discover | test-notify | digest | top | stats | backfill | pay"""
 from __future__ import annotations
 
 import argparse
@@ -11,7 +11,7 @@ from contextlib import asynccontextmanager
 from datetime import timedelta
 from pathlib import Path
 
-from . import discover
+from . import col, discover
 from .config import Config, load_config
 from .dashboard import MqttPublisher, ai_cost
 from .http import HttpClient
@@ -300,7 +300,8 @@ async def cmd_top(cfg: Config, args) -> int:
         print(f"{total} matches posted in the last {days} days" + (f"; top {len(jobs)}:" if jobs else "."))
         for i, j in enumerate(jobs, 1):
             score = f"[{j['score']}] " if j["score"] is not None else ""
-            extra = " · ".join(filter(None, [j["location"], j["salary"], j["age"], "pushed" if j["pushed"] else ""]))
+            pay = f"pay {j['pay_index']:.2f}" if j["pay_index"] is not None else ""
+            extra = " · ".join(filter(None, [j["location"], j["salary"], pay, j["age"], "pushed" if j["pushed"] else ""]))
             print(f"{i:3}. {score}{j['company']}: {j['title']} — {extra}\n     {j['url']}")
             if j["summary"]:
                 print(f"     {j['summary']}")
@@ -357,8 +358,41 @@ async def cmd_stats(cfg: Config, args) -> int:
     return 0
 
 
+async def cmd_pay(cfg: Config, args) -> int:
+    async with open_runner(cfg, dry_run=True) as runner:
+        if args.update:
+            print(await runner.refresh_pay_data(force=True))
+        if not runner.pay:
+            print(runner.pay_problem or "Pay index is off (pay.enabled: false).")
+            return 1
+        data, home, ref = runner.pay.data, runner.pay.home, cfg.pay.reference_salary
+        print(f"Reference: ${ref:,.0f} in {home.label} = 1.00")
+        print(f"Data built {data.get('built')} ({col.data_age_days(data)} days ago; refreshed after "
+              f"{cfg.pay.refresh_days}):\n  US: {data['sources']['us']}\n  Abroad: {data['sources']['countries']}")
+        if not args.salary:
+            return 0
+        pay = col.parse_salary(args.salary)
+        place = runner.pay.resolve(args.location, args.remote)
+        if pay is None or place is None:
+            print(f"\nCan't read {'the salary ' + repr(args.salary) if pay is None else 'the location ' + repr(args.location)}."
+                  + ("" if pay is None else " Map it with pay.locations in config.yaml."))
+            return 1
+        result = runner.pay.index(pay, args.location, args.remote)
+        if result is None:
+            print(f"\nNo exchange rate for {pay.currency}.")
+            return 1
+        lo, hi = result.pay.annual()
+        print(f"\n{args.salary!r} in {args.location!r}{' (remote)' if args.remote else ''}:")
+        amount = f"{lo:,.0f}" if lo == hi else f"{lo:,.0f}-{hi:,.0f}"
+        print(f"  pay:         {result.pay.text()} = {result.pay.currency} {amount} a year")
+        print(f"  place:       {place.label}: prices {place.level:.3f}x the US average")
+        print(f"  reference:   ${ref:,.0f} / {home.level:.3f} = ${ref / home.level:,.0f} in US-average prices")
+        print(f"  pay index:   {result.index:.2f} (range {result.low:.2f}-{result.high:.2f})")
+    return 0
+
+
 COMMANDS = {"run": cmd_run, "poll": cmd_poll, "discover": cmd_discover, "test-notify": cmd_test_notify,
-            "digest": cmd_digest, "top": cmd_top, "stats": cmd_stats, "backfill": cmd_backfill}
+            "digest": cmd_digest, "top": cmd_top, "stats": cmd_stats, "backfill": cmd_backfill, "pay": cmd_pay}
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -391,6 +425,12 @@ def build_parser() -> argparse.ArgumentParser:
                                         "polled (once per job, posted within criteria.max_age_days)")
     b.add_argument("--dry-run", action="store_true", help="score and print only: store nothing, send nothing")
     b.add_argument("--push", action="store_true", help="push strong fits to your phone (default: next digest)")
+    y = sub.add_parser("pay", help="explain the cost-of-living pay index for a salary and location, or "
+                                   "--update its data from BEA and the World Bank")
+    y.add_argument("salary", nargs="?", help='e.g. "$150K-180K" or "EUR 90,000"')
+    y.add_argument("location", nargs="?", default="", help='e.g. "Austin, TX" or "Munich, Germany"')
+    y.add_argument("--remote", action="store_true", help="a remote job (you'd live at pay.reference_location)")
+    y.add_argument("--update", action="store_true", help="download fresh price data now")
     return parser
 
 

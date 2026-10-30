@@ -6,6 +6,7 @@ import json
 import logging
 from datetime import timedelta
 
+from .col import parse_salary
 from .config import HomeAssistant, Scoring
 from .filters import JobFilter
 from .models import parse_dt, utcnow
@@ -22,22 +23,28 @@ def _age(published) -> str:
     return f"{hours:.0f}h ago" if hours < 48 else f"{hours / 24:.0f}d ago"
 
 
-def top_matches(store: Store, job_filter: JobFilter, days: int, n: int) -> tuple[int, list[dict]]:
+def top_matches(store: Store, job_filter: JobFilter, days: int, n: int, pay=None) -> tuple[int, list[dict]]:
     """(number of matches posted in the last `days`, the best `n` of them).
 
     Ranked by AI score, then newest first. Jobs that were already open when a board was first
     polled (baseline) count too if they pass the title/location filter, so the list isn't empty
-    right after a deploy."""
+    right after a deploy. `pay` (a col.PayIndex) fills in the pay index for jobs stored without one."""
     matches = []
     for r in store.recent_candidates(utcnow() - timedelta(days=days)):
         published = parse_dt(r["published_at"])
         if r["status"] == "baseline" and not job_filter.check_basic(job_from_row(r))[0]:
             continue
+        pay_index, pay_note = r["pay_index"], r["pay_note"] or ""
+        if pay_index is None and pay and (result := pay.index(parse_salary(r["salary"] or ""), r["location"] or "",
+                                                              bool(r["remote"]))):
+            pay_index, pay_note = result.index, result.text()
         matches.append({
             "company": r["company"] or "",
             "title": r["title"] or "",
             "location": r["location"] or "",
             "salary": r["salary"] or "",
+            "pay_index": round(pay_index, 2) if pay_index is not None else None,
+            "pay": pay_note,
             "url": r["url"] or "",
             "score": r["score"],
             "summary": r["score_summary"] or "",

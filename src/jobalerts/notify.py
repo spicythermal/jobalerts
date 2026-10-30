@@ -50,9 +50,11 @@ class Notifier:
                 log.warning("ntfy send failed (%s); retrying", e)
                 await asyncio.sleep(3 * (attempt + 1))
 
-    async def job_alert(self, job: Job, score=None) -> None:
+    async def job_alert(self, job: Job, score=None, pay: str = "") -> None:
         lines = [" · ".join(filter(None, [job.location or None, "Remote" if job.remote and
                                            "remote" not in job.location.lower() else None, job.salary or None]))]
+        if pay:
+            lines.append(pay[0].upper() + pay[1:])
         if score is not None:
             lines.append(f"Fit {score.score}/100: {score.summary}")
             if score.red_flags:

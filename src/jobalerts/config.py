@@ -54,6 +54,17 @@ class Scoring(BaseModel):
     daily_max_calls: int = 300
 
 
+class PayConfig(BaseModel):
+    """Cost-of-living pay index (see col.py): reference_salary at reference_location scores 1.0."""
+    enabled: bool = True
+    reference_salary: float = 155_000
+    reference_location: str = "Portland, OR"
+    min_index: float = 1.0               # whole posted range below this -> held back as "low" (0 = off)
+    col_data: str = "col_data.json"      # committed seed, relative to the config directory
+    refresh_days: int = 30               # rebuild from BEA + World Bank when older (0 = never); kept next to the DB
+    locations: dict[str, str] = {}       # location text -> US metro name, state code, ISO3 country or "home"
+
+
 class Notify(BaseModel):
     server: str = "https://ntfy.sh"
     topic: str = ""
@@ -159,6 +170,7 @@ class Config(BaseModel):
     criteria: Criteria = Criteria()
     polling: Polling = Polling()
     scoring: Scoring = Scoring()
+    pay: PayConfig = PayConfig()
     notify: Notify = Notify()
     homeassistant: HomeAssistant = HomeAssistant()
     aggregators: Aggregators = Aggregators()

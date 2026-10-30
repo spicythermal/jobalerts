@@ -29,6 +29,8 @@ CREATE TABLE IF NOT EXISTS jobs (
     score_summary TEXT,
     red_flags     TEXT,
     best_resume   TEXT,
+    pay_index     REAL,
+    pay_note      TEXT,
     notified_at   TEXT
 );
 CREATE INDEX IF NOT EXISTS jobs_fingerprint ON jobs(fingerprint);
@@ -97,6 +99,9 @@ class Store:
         columns = {r["name"] for r in self.db.execute("PRAGMA table_info(jobs)")}
         if "best_resume" not in columns:  # databases created before resume matching
             self.db.execute("ALTER TABLE jobs ADD COLUMN best_resume TEXT")
+        if "pay_index" not in columns:  # databases created before the cost-of-living pay index
+            self.db.execute("ALTER TABLE jobs ADD COLUMN pay_index REAL")
+            self.db.execute("ALTER TABLE jobs ADD COLUMN pay_note TEXT")
         usage_columns = {r["name"] for r in self.db.execute("PRAGMA table_info(ai_usage)")}
         for col in ("cache_read_tokens", "cache_write_tokens"):  # databases created before the AI cost sensor
             if col not in usage_columns:
@@ -173,12 +178,14 @@ class Store:
 
     def update_job(self, key: str, *, status: str, reason: str | None = None, score: int | None = None,
                    score_summary: str | None = None, red_flags: str | None = None,
-                   best_resume: str | None = None) -> None:
+                   best_resume: str | None = None, pay_index: float | None = None,
+                   pay_note: str | None = None) -> None:
         self.db.execute(
             """UPDATE jobs SET status=?, reason=COALESCE(?, reason), score=COALESCE(?, score),
                    score_summary=COALESCE(?, score_summary), red_flags=COALESCE(?, red_flags),
-                   best_resume=COALESCE(?, best_resume) WHERE key=?""",
-            (status, reason, score, score_summary, red_flags, best_resume, key),
+                   best_resume=COALESCE(?, best_resume), pay_index=COALESCE(?, pay_index),
+                   pay_note=COALESCE(?, pay_note) WHERE key=?""",
+            (status, reason, score, score_summary, red_flags, best_resume, pay_index, pay_note, key),
         )
 
     def mark_notified(self, key: str, status: str = "alerted") -> None:

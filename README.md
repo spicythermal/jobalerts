@@ -89,6 +89,20 @@ still pushed. Preview scores before turning it on:
 jobalerts poll --dry-run --score 5
 ```
 
+**Cost-of-living pay index:** every match gets a pay index: base pay divided by local prices,
+relative to `pay.reference_salary` at `pay.reference_location` ($155K in the Portland metro = 1.00;
+twice the pay at Portland prices = 2.00; the same pay somewhere 20% cheaper = 1.25). US prices come
+from the BEA's Regional Price Parities (by metro area, else by state). Prices abroad come from the
+World Bank's purchasing-power parity divided by the exchange rate (country-wide). Remote jobs use
+your home prices. The pay comes from the posting's salary field, or else the AI reads it from the
+description. A match is held back (status `low`) when even the top of its range is under
+`pay.min_index`. A posting that states no pay is never held back. The index shows in alerts, the
+digest, `top` and Home Assistant. `jobalerts pay "$150K-180K" "Austin, TX"` shows how one case is
+worked out. The price data refreshes itself: once a day the service checks it, and when it's older
+than `pay.refresh_days` it downloads new tables into `data/col_data.json`. They replace the old
+data only if they pass sanity checks; if not, the old data stays and the digest says why.
+`jobalerts pay --update` refreshes now. The seed copy is `config/col_data.json`.
+
 **Top matches / Home Assistant:** `jobalerts top` lists the best matches posted in the last 7 days,
 ranked by AI score and then newest. Jobs that were already open when watching started count
 too. To show the list on a Home Assistant dashboard, jobalerts publishes it to Home
@@ -162,7 +176,7 @@ sensor doesn't appear, check this file first.
 ## Commands
 
 ```
-jobalerts [-c CONFIG] [-v] {run,poll,discover,test-notify,digest,top,stats,backfill}
+jobalerts [-c CONFIG] [-v] {run,poll,discover,test-notify,digest,top,stats,backfill,pay}
 
   run                  the service: poll every board on its tier interval, forever
   poll [--once] [--dry-run] [--board TEXT] [--score N]
@@ -176,6 +190,8 @@ jobalerts [-c CONFIG] [-v] {run,poll,discover,test-notify,digest,top,stats,backf
   stats                board health, request rates, detection delay, AI spend
   backfill [--dry-run] [--push]
                        AI-score the matches that were already open at the first poll
+  pay [SALARY LOCATION] [--remote] [--update]
+                       explain the cost-of-living pay index; --update downloads fresh price data
 ```
 
 `-c` defaults to `config/config.yaml` (or `$JOBALERTS_CONFIG`). `$JOBALERTS_DB` overrides the
@@ -277,6 +293,9 @@ docker compose exec jobalerts jobalerts backfill --push      # same, but 75+ are
 - BambooHR and Rippling lists carry no posting date; it is filled in when a keyword match is
   enriched, and `first_seen_at` stands in until then.
 - Workday reports "Posted 3 Days Ago", not an exact time, until a job is enriched.
+- The pay index covers base pay against prices only: no income tax (Oregon's ~9% vs. none in
+  Washington or Texas), bonus, equity or benefits. Prices abroad are country averages, so London,
+  Zurich or Munich look cheaper than they are. Map a location by hand with `pay.locations`.
 - An ATS sometimes reposts an old job with a new ID. Jobs published more than
   `max_age_days` ago are never alerted.
 

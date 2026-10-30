@@ -176,6 +176,22 @@ scoring:
   digest_threshold: 50      # >= this: evening digest; below: stored only
   daily_max_calls: 300
 
+# ---------------------------------------------------------------- cost-of-living pay index
+# Base pay divided by local prices, relative to the reference: $155K in the Portland metro = 1.0,
+# twice the pay at Portland prices = 2.0. US prices: BEA Regional Price Parities by metro area and
+# state. Abroad: World Bank purchasing-power parity / exchange rate, country-wide. See src/jobalerts/col.py.
+# Explain one case: jobalerts pay "$150K-180K" "Austin, TX"
+pay:
+  enabled: true
+  reference_salary: 155000
+  reference_location: "Portland, OR"
+  min_index: 1.0            # hold a match back (status "low") when even the top of its range is under this; 0 = off
+  col_data: col_data.json   # committed seed; refreshed copies go to data/col_data.json
+  refresh_days: 30          # re-download BEA + World Bank data when older than this (checked daily); 0 = never
+  locations: {}             # location text -> metro name, state code, ISO3 country, or "home"
+  #   "Los Alamos": NM
+  #   "Garching": DEU
+
 # ---------------------------------------------------------------- phone notifications (ntfy)
 notify:
   server: https://ntfy.sh

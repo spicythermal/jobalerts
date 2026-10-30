@@ -6,9 +6,10 @@ import logging
 import random
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from . import discover
+from . import col, discover
 from .dashboard import MqttPublisher, ai_cost, top_matches
 from .config import Board, Config
 from .filters import JobFilter
@@ -45,6 +46,9 @@ class Runner:
         self._failure_alerted: set[str] = set()
         self.homeassistant = homeassistant
         self._dashboard_stale = asyncio.Event()  # set after new matches so Home Assistant updates right away
+        self.pay: col.PayIndex | None = None
+        self.pay_problem = ""  # shown in the digest until fixed
+        self.load_pay()
 
     # ------------------------------------------------------------------ pipeline
     async def poll_board(self, board: Board) -> PollResult:
@@ -169,8 +173,14 @@ class Runner:
             status = "digest"
         else:
             status = "low"
+        pay = self.pay_index(job, score)
+        reason = None
+        if pay and pay.high < self.cfg.pay.min_index and status in ("alert", "digest"):
+            status = "low"
+            reason = f"pay index {pay.high:.2f} at the top of the range, under {self.cfg.pay.min_index:g}"
         self.store.update_job(
-            job.key, status=status,
+            job.key, status=status, reason=reason,
+            pay_index=round(pay.index, 3) if pay else None, pay_note=pay.text() if pay else None,
             score=score.score if score else None,
             score_summary=score.summary if score else None,
             red_flags="; ".join(score.red_flags) if score and score.red_flags else None,
@@ -178,9 +188,64 @@ class Runner:
         )
         return status, score
 
-    async def _notify(self, job: Job, score: FitScore | None) -> int:
+    def pay_index(self, job: Job, score: FitScore | None = None) -> col.PayResult | None:
+        """Cost-of-living pay index from the posting's salary field, else from the pay the AI read."""
+        if not self.pay:
+            return None
+        pay = col.parse_salary(job.salary) or (score.pay() if score else None)
+        return self.pay.index(pay, job.location, job.remote)
+
+    # ------------------------------------------------------------------ cost-of-living data
+    def _pay_paths(self) -> tuple[Path, Path]:
+        """(committed seed in the config dir, refreshed copy next to the database)"""
+        return self.cfg.resolve(self.cfg.pay.col_data), Path(self.cfg.database).parent / "col_data.json"
+
+    def load_pay(self) -> None:
+        cfg = self.cfg.pay
+        if not cfg.enabled:
+            return
+        found = col.newest_data(*self._pay_paths())
+        if not found:
+            self.pay_problem = "no cost-of-living data: run `jobalerts pay --update`"
+            log.warning("Pay index off: %s", self.pay_problem)
+            return
+        data, path = found
         try:
-            await self.notifier.job_alert(job, score)
+            self.pay = col.PayIndex(data, cfg.reference_salary, cfg.reference_location, cfg.locations)
+        except (KeyError, ValueError) as e:
+            self.pay_problem = f"cost-of-living data in {path} unusable: {e}"
+            log.warning("Pay index off: %s", self.pay_problem)
+            return
+        log.info("Pay index: %s %s = 1.0; data built %s from %s", f"${cfg.reference_salary:,.0f}",
+                 self.pay.home.label, data.get("built"), path)
+
+    async def refresh_pay_data(self, force: bool = False) -> str:
+        """Rebuild the cost-of-living table when it's older than pay.refresh_days. A download that fails
+        or doesn't pass col.check_data leaves the current table in place. Returns what happened."""
+        cfg = self.cfg.pay
+        if not cfg.enabled or not (force or cfg.refresh_days):
+            return ""
+        age = col.data_age_days(self.pay.data) if self.pay else None
+        if not force and age is not None and age < cfg.refresh_days:
+            return ""
+        try:
+            data = await col.build_data()
+            col.check_data(data, cfg.reference_location)
+        except Exception as e:
+            built = self.pay.data.get("built") if self.pay else "never"
+            self.pay_problem = f"cost-of-living refresh failed ({type(e).__name__}: {e}); using data built {built}"
+            log.warning(self.pay_problem)
+            return self.pay_problem
+        path = self._pay_paths()[1]
+        col.write_data(data, path)
+        self.pay_problem = ""
+        self.load_pay()
+        return f"Cost-of-living data rebuilt into {path}: {data['sources']['us']}; {len(data['countries'])} countries"
+
+    async def _notify(self, job: Job, score: FitScore | None) -> int:
+        pay = self.pay_index(job, score)
+        try:
+            await self.notifier.job_alert(job, score, pay.text() if pay else "")
         except Exception as e:
             log.error("Notification failed for %s: %s (will go in the digest)", job.key, e)
             self.store.update_job(job.key, status="notify_failed")
@@ -209,6 +274,7 @@ class Runner:
                                  priority=2, tags=["eyes"])
         tasks = [asyncio.create_task(self._board_loop(b), name=b.key) for b in boards]
         tasks.append(asyncio.create_task(self._daily_loop(), name="digest"))
+        tasks.append(asyncio.create_task(self.refresh_pay_data(), name="col-refresh"))
         if self.homeassistant:
             tasks.append(asyncio.create_task(self._homeassistant_loop(), name="homeassistant"))
         await asyncio.gather(*tasks)
@@ -255,6 +321,10 @@ class Runner:
                 target += timedelta(days=1)
             await asyncio.sleep((target - now).total_seconds())
             try:
+                await self.refresh_pay_data()
+            except Exception:
+                log.exception("Cost-of-living refresh failed")
+            try:
                 await self.send_digest()
             except Exception:
                 log.exception("Digest failed")
@@ -274,7 +344,7 @@ class Runner:
 
     def top_matches(self, n: int | None = None, days: int | None = None) -> tuple[int, list[dict]]:
         cfg = self.cfg.homeassistant
-        return top_matches(self.store, self.filter, days or cfg.days, n or cfg.top_n)
+        return top_matches(self.store, self.filter, days or cfg.days, n or cfg.top_n, self.pay)
 
     async def publish_dashboard(self) -> int:
         total, jobs = self.top_matches()
@@ -292,6 +362,8 @@ class Runner:
             for r in rows:
                 score = f"[{r['score']}] " if r["score"] is not None else ""
                 lines.append(f"• {score}{r['company']}: {r['title']} ({r['location'] or 'n/a'})\n  {r['url']}")
+                if r["pay_note"]:
+                    lines.append(f"  {r['pay_note']}")
                 if r["best_resume"]:
                     lines.append(f"  apply with: {r['best_resume']}")
         else:
@@ -314,6 +386,8 @@ class Runner:
         lines.append(f"\nLast 24h: {seen} new postings seen, {activity['alerted']} pushed, "
                      f"{activity['digest'] + activity['digested']} for digest, {activity['low']} low-fit. "
                      f"{requests} requests, {limited} rate-limited, {errors} errors.")
+        if self.pay_problem:
+            lines.append(f"Pay index: {self.pay_problem}")
         failing = [b for b in self.store.boards() if b["failures"]]
         if failing:
             lines.append("Failing boards: " + "; ".join(

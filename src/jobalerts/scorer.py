@@ -11,6 +11,7 @@ import logging
 import anthropic
 from pydantic import BaseModel, ValidationError
 
+from .col import Pay
 from .config import Scoring
 from .models import Job
 from .resumes import Resume
@@ -52,9 +53,18 @@ Return:
 - summary: one sentence (at most 25 words) naming the strongest resume overlap or the main gap, \
 written for a phone notification
 - red_flags: concrete concerns such as a must-have the resumes don't show, clearance required, \
-wrong location, pay below the candidate's floor, or contract-only. Use an empty list if there are none.
+wrong location, or contract-only. Use an empty list if there are none.
 - best_resume: the file name of the resume version to apply with, exactly as given in the resumes \
 below (empty string if none are provided)
+- pay_min, pay_max: the posted base salary range as plain numbers (the same number twice if only one \
+figure is given; 0 and 0 if the posting states no pay). Base pay only: no bonus, equity or benefits. \
+If the range differs by location, use the one for the job's location, or for the candidate's home \
+area if the job is remote.
+- pay_currency: ISO code of that pay, such as USD or EUR (empty string if no pay is stated)
+- pay_period: what the pay figures are per: year, month, week, day or hour
+
+Don't let pay move the score. The program compares base pay with the candidate's salary floor \
+itself, adjusted for the local cost of living, so a lower number in a cheaper place isn't a red flag.
 
 {resumes}
 
@@ -69,8 +79,12 @@ SCHEMA = {
         "summary": {"type": "string"},
         "red_flags": {"type": "array", "items": {"type": "string"}},
         "best_resume": {"type": "string"},
+        "pay_min": {"type": "number"},
+        "pay_max": {"type": "number"},
+        "pay_currency": {"type": "string"},
+        "pay_period": {"type": "string", "enum": ["year", "month", "week", "day", "hour"]},
     },
-    "required": ["score", "summary", "red_flags", "best_resume"],
+    "required": ["score", "summary", "red_flags", "best_resume", "pay_min", "pay_max", "pay_currency", "pay_period"],
     "additionalProperties": False,
 }
 
@@ -80,6 +94,17 @@ class FitScore(BaseModel):
     summary: str
     red_flags: list[str] = []
     best_resume: str = ""
+    pay_min: float = 0
+    pay_max: float = 0
+    pay_currency: str = ""
+    pay_period: str = "year"
+
+    def pay(self) -> Pay | None:
+        """The base pay the model read from the posting, if it found any."""
+        high = max(self.pay_min, self.pay_max)
+        if high <= 0:
+            return None
+        return Pay(min(self.pay_min, self.pay_max) or high, high, self.pay_currency.upper().strip(), self.pay_period or "year")
 
 
 def resumes_block(resumes: list[Resume]) -> str:
