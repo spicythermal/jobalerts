@@ -134,6 +134,10 @@ _PERIOD_WORDS = [("hour", r"hour|\bhr\b|/h\b|stunde|heure"), ("month", r"month|/
                  ("week", r"week|/wk\b|woche"), ("day", r"/day|per day|daily|\btag\b")]
 
 
+# pay_note of a scored job with no pay index: the AI found no pay, or the place isn't known.
+NO_PAY = "no pay index: pay not stated, or the place isn't known"
+
+
 @dataclass
 class Pay:
     low: float

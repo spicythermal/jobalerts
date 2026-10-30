@@ -222,12 +222,15 @@ async def cmd_discover(cfg: Config, args) -> int:
 
 def print_repriced(repriced, cfg: Config) -> None:
     priced = [r for r in repriced if r[3]]
-    print(f"Pay index for {len(repriced)} matches already processed: {len(priced)} state pay, "
-          f"{len(repriced) - len(priced)} don't (left as they were).")
-    for job, old, new, pay in sorted(priced, key=lambda r: r[3].index, reverse=True):
+    rescored = sum(1 for r in repriced if r[4])
+    print(f"Pay index for {len(repriced)} matches already processed: {len(priced)} with a pay index, "
+          f"{len(repriced) - len(priced)} without (no pay stated, or the place isn't known)."
+          + (f" {rescored} re-scored by the AI to read their pay." if rescored else ""))
+    for job, old, new, pay, ai in sorted(priced, key=lambda r: r[3].index, reverse=True):
         change = f"{old} -> {new}" if new != old else new
-        print(f"  {pay.index:5.2f} {change:22} {job.company}: {job.title}\n        {pay.text()}")
-    dropped = sum(1 for _, old, new, _ in repriced if new == "low_pay" and old != "low_pay")
+        print(f"  {pay.index:5.2f} {change:22} {job.company}: {job.title}{'  (AI)' if ai else ''}\n"
+              f"        {pay.text()}")
+    dropped = sum(1 for _, old, new, _, _ in repriced if new == "low_pay" and old != "low_pay")
     if dropped:
         print(f"{dropped} now low_pay (top of range under {cfg.pay.min_index:g}): out of `top` and Home Assistant.")
     print()
@@ -237,19 +240,20 @@ async def cmd_backfill(cfg: Config, args) -> int:
     if not Path(cfg.database).is_file():
         print(f"No database at {cfg.database}: run the service first so it records each board's baseline.")
         return 1
+    days = args.days or cfg.criteria.max_age_days
     async with open_runner(cfg, dry_run=args.dry_run) as runner:
         if args.dry_run:
             # Work on an in-memory copy of the baseline so the real database is left exactly as it was.
             real = Store(cfg.database)
             try:
-                rows = real.recent_candidates(utcnow() - timedelta(days=cfg.criteria.max_age_days))
+                rows = real.recent_candidates(utcnow() - timedelta(days=days))
             finally:
                 real.close()
             runner.store.insert_jobs([job_from_row(r) for r in rows if r["status"] == "baseline"], "baseline")
             runner.scorer = make_scorer(cfg, runner.store)
         real = Store(cfg.database) if args.dry_run else None
         try:
-            repriced = await runner.reprice(cfg.boards(), store=real, write=not args.dry_run)
+            repriced = await runner.reprice(cfg.boards(), store=real, write=not args.dry_run, days=days)
         finally:
             if real:
                 real.close()
@@ -258,13 +262,13 @@ async def cmd_backfill(cfg: Config, args) -> int:
         if not runner.scorer:
             print("AI scoring isn't configured: set ANTHROPIC_API_KEY in .env (and scoring.enabled: true).")
             return 0 if repriced else 1
-        results = await runner.backfill(cfg.boards(), push=args.push and not args.dry_run)
+        results = await runner.backfill(cfg.boards(), push=args.push and not args.dry_run, days=days)
         if not results:
-            print(f"No unscored baseline matches posted in the last {cfg.criteria.max_age_days} days.")
+            print(f"No unscored baseline matches posted in the last {days} days.")
             if repriced and runner.homeassistant and not args.dry_run:
                 await runner.publish_dashboard()
             return 0
-        print(f"\n{len(results)} baseline matches posted in the last {cfg.criteria.max_age_days} days:")
+        print(f"\n{len(results)} baseline matches posted in the last {days} days:")
         results.sort(key=lambda r: -1 if r[2] is None else r[2].score, reverse=True)
         for job, status, score in results:
             if status == "alerted":
@@ -323,7 +327,10 @@ async def cmd_top(cfg: Config, args) -> int:
         print(f"{total} matches posted in the last {days} days" + (f"; top {len(jobs)}:" if jobs else "."))
         for i, j in enumerate(jobs, 1):
             score = f"[{j['score']}] " if j["score"] is not None else ""
-            pay = f"pay {j['pay_index']:.2f}" if j["pay_index"] is not None else ""
+            pay = ""
+            if j["pay_index"] is not None:
+                spread = f" ({j['pay_low']:.2f}-{j['pay_high']:.2f})" if j["pay_low"] is not None else ""
+                pay = f"pay {j['pay_index']:.2f}{spread}"
             extra = " · ".join(filter(None, [j["location"], j["salary"], pay, j["age"], "pushed" if j["pushed"] else ""]))
             print(f"{i:3}. {score}{j['company']}: {j['title']} — {extra}\n     {j['url']}")
             if j["summary"]:
@@ -449,6 +456,7 @@ def build_parser() -> argparse.ArgumentParser:
                                         "(once per job, posted within criteria.max_age_days)")
     b.add_argument("--dry-run", action="store_true", help="score and print only: store nothing, send nothing")
     b.add_argument("--push", action="store_true", help="push strong fits to your phone (default: next digest)")
+    b.add_argument("--days", type=int, default=0, help="look back N days (default: criteria.max_age_days)")
     y = sub.add_parser("pay", help="explain the cost-of-living pay index for a salary and location, or "
                                    "--update its data from BEA and the World Bank")
     y.add_argument("salary", nargs="?", help='e.g. "$150K-180K" or "EUR 90,000"')

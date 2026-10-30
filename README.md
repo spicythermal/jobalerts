@@ -117,7 +117,8 @@ Assistant's MQTT broker. It never gets a Home Assistant token, only an MQTT logi
    `.env`, and restart jobalerts.
 3. Run `jobalerts top --push` to check. A "Job alerts" device with `sensor.job_alerts`
    appears (MQTT discovery). Its state is the number of matches, and its `jobs` attribute
-   holds the top 3. It refreshes every 5 minutes and right after new matches. The messages
+   holds the top matches with their AI score (`score`) and pay index (`pay_index`, with the
+   range `pay_low`–`pay_high`). It refreshes every 5 minutes and right after new matches. The messages
    are retained, so the sensor survives Home Assistant restarts. It turns "unavailable" if
    jobalerts stops updating it for 15 minutes.
 4. Add a Markdown card to a dashboard (Edit dashboard → Add card → Manual):
@@ -129,7 +130,8 @@ content: >-
   {% for j in state_attr('sensor.job_alerts', 'jobs') or [] %}
   **[{{ j.title }}]({{ j.url }})**<br>
   {{ j.company }} · {{ j.location }}{% if j.salary %} · {{ j.salary }}{% endif %} · {{ j.age }}
-  {%- if j.score is not none %} · fit {{ j.score }}{% endif %}<br>
+  {%- if j.score is not none %} · fit {{ j.score }}{% endif %}
+  {%- if j.pay_index is not none %} · pay {{ j.pay_index }}{% if j.pay_low is not none %} ({{ j.pay_low }}–{{ j.pay_high }}){% endif %}{% endif %}<br>
   {% if j.best_resume %}<small>Apply with {{ j.best_resume }}</small>{% endif %}
 
   {% else %}
@@ -190,7 +192,7 @@ jobalerts [-c CONFIG] [-v] {run,poll,discover,test-notify,digest,top,stats,backf
   top [-n N] [--days D] [--push]
                        best recent matches; --push also updates the Home Assistant sensor
   stats                board health, request rates, detection delay, AI spend
-  backfill [--dry-run] [--push]
+  backfill [--dry-run] [--push] [--days N]
                        re-check the pay index of processed matches, then AI-score the
                        matches that were already open at the first poll
   pay [SALARY LOCATION] [--remote] [--update]
@@ -274,8 +276,9 @@ scored only once, and any job that can't be scored (wrong key, API down) is left
 on the next run.
 
 Before that, `backfill` re-checks the pay index of matches already processed in that window
-(pushed, in the digest, or held back for pay). It re-fetches each description and makes no AI
-calls. Run it after upgrading to the pay index, or after changing `pay.min_index`. Jobs under
+(pushed, in the digest, or held back for pay). It re-fetches each description. When neither the
+salary field nor the description states pay, it AI-scores the job once more so the AI can read
+the pay (~$0.001 each; `--dry-run` skips this). The new score replaces the old one. Run it after upgrading to the pay index, or after changing `pay.min_index`. Jobs under
 the threshold become `low_pay` and drop out of `top` and Home Assistant. A `low_pay` job that now
 passes goes back to the digest, or to the baseline to be scored if it never was.
 

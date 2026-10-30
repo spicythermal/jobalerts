@@ -331,7 +331,7 @@ def test_reprice_applies_the_index_to_jobs_processed_before_it(pay_env):
         job.salary = salary
         store.insert_job(job, "processing")
         store.update_job(job.key, status=status, score=score)
-    out = {job.job_id: (old, new, pay) for job, old, new, pay in run(runner.reprice([board]))}
+    out = {job.job_id: (old, new, pay) for job, old, new, pay, _ in run(runner.reprice([board]))}
     assert out["7"][:2] == ("alerted", "low_pay") and out["7"][2].high < 1.05
     assert out["8"][:2] == ("digested", "digested") and out["8"][2].index > 1.4
     assert out["9"] == ("digest", "digest", None)
@@ -348,7 +348,7 @@ def test_reprice_restores_low_pay_jobs_that_now_pass(pay_env):
         store.insert_job(job, "processing")
         store.update_job(job.key, status="low_pay", score=score)
     runner.cfg.pay.min_index = 1.0
-    out = {job.job_id: new for job, _, new, _ in run(runner.reprice([board]))}
+    out = {job.job_id: new for job, _, new, _, _ in run(runner.reprice([board]))}
     assert out == {"10": "digest", "11": "baseline"}  # unscored -> baseline, so backfill scores it
 
 
@@ -360,3 +360,41 @@ def test_reprice_dry_run_writes_nothing(pay_env):
     store.update_job(job.key, status="alerted", score=90)
     assert run(runner.reprice([board], write=False))[0][2] == "low_pay"
     assert store.db.execute("SELECT status, pay_index FROM jobs WHERE job_id='12'").fetchone()[:] == ("alerted", None)
+
+
+def test_reprice_asks_the_ai_once_when_no_pay_is_stated(pay_env):
+    fake, runner, board, store, notifier = pay_env
+    runner.scorer = scorer = PayScorer(FitScore(score=88, summary="new", pay_min=190_000, pay_max=250_000,
+                                                pay_currency="USD"))
+    for n in (13, 14):
+        job = make_job(n, location="Portland, OR")
+        store.insert_job(job, "processing")
+        store.update_job(job.key, status="alerted", score=70)
+    out = {job.job_id: (new, pay, ai) for job, _, new, pay, ai in run(runner.reprice([board]))}
+    assert scorer.calls == 2 and out["13"][2] and out["13"][1].low == pytest.approx(190 / 155)
+    row = store.db.execute("SELECT score, score_summary, pay_low, pay_high FROM jobs WHERE job_id='13'").fetchone()
+    assert row[:] == (88, "new", pytest.approx(1.226, abs=1e-3), pytest.approx(1.613, abs=1e-3))
+    top = {j["url"]: j for j in runner.top_matches(10, 7)[1]}["https://x/13"]
+    assert (top["score"], top["pay_low"], top["pay_high"]) == (88, 1.23, 1.61)
+
+    # The AI found no pay for job 14 the second time round: it isn't asked again on the next run.
+    scorer.fit = FitScore(score=60, summary="none")
+    store.db.execute("UPDATE jobs SET pay_index=NULL, pay_note=NULL WHERE job_id='14'")
+    calls = scorer.calls
+    run(runner.reprice([board]))
+    assert scorer.calls == calls + 1  # only job 14; job 13 keeps the pay the AI read
+    run(runner.reprice([board]))
+    assert scorer.calls == calls + 1
+    row = store.db.execute("SELECT pay_note, pay_high FROM jobs WHERE job_id='13'").fetchone()
+    assert row["pay_note"] != col.NO_PAY and row["pay_high"] == pytest.approx(1.613, abs=1e-3)
+    assert runner.top_matches(10, 7)[1][0]["pay"] != col.NO_PAY
+
+
+def test_reprice_dry_run_makes_no_ai_calls(pay_env):
+    fake, runner, board, store, notifier = pay_env
+    runner.scorer = scorer = PayScorer(FitScore(score=88, summary="new"))
+    job = make_job(15, location="Portland, OR")
+    store.insert_job(job, "processing")
+    store.update_job(job.key, status="alerted", score=70)
+    run(runner.reprice([board], write=False))
+    assert scorer.calls == 0

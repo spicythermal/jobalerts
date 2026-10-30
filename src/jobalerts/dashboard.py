@@ -6,7 +6,7 @@ import json
 import logging
 from datetime import timedelta
 
-from .col import parse_salary
+from .col import NO_PAY, parse_salary
 from .config import HomeAssistant, Scoring
 from .filters import JobFilter
 from .models import parse_dt, utcnow
@@ -34,16 +34,19 @@ def top_matches(store: Store, job_filter: JobFilter, days: int, n: int, pay=None
         published = parse_dt(r["published_at"])
         if r["status"] == "baseline" and not job_filter.check_basic(job_from_row(r))[0]:
             continue
-        pay_index, pay_note = r["pay_index"], r["pay_note"] or ""
+        pay_index, low, high = r["pay_index"], r["pay_low"], r["pay_high"]
+        pay_note = "" if r["pay_note"] == NO_PAY else r["pay_note"] or ""
         if pay_index is None and pay and (result := pay.index(parse_salary(r["salary"] or ""), r["location"] or "",
                                                               bool(r["remote"]))):
-            pay_index, pay_note = result.index, result.text()
+            pay_index, low, high, pay_note = result.index, result.low, result.high, result.text()
         matches.append({
             "company": r["company"] or "",
             "title": r["title"] or "",
             "location": r["location"] or "",
             "salary": r["salary"] or "",
             "pay_index": round(pay_index, 2) if pay_index is not None else None,
+            "pay_low": round(low, 2) if low is not None else None,
+            "pay_high": round(high, 2) if high is not None else None,
             "pay": pay_note,
             "url": r["url"] or "",
             "score": r["score"],

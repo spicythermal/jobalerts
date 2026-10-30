@@ -33,6 +33,7 @@ def test_greenhouse_list_and_enrich():
         await http.aclose()
     run(enrich())
     assert "Build & run our global network." in j.description
+    assert j.salary == "$106K-178K/yr"  # pay_input_ranges, lowest zone to highest
     assert "- BGP" in j.description
 
 

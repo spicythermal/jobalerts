@@ -1,2 +1,21 @@
-{"id": 4001, "title": "Senior Network Engineer",
- "content": "&lt;p&gt;Build &amp;amp; run our &lt;strong&gt;global network&lt;/strong&gt;.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;BGP&lt;/li&gt;&lt;/ul&gt;"}
+{
+  "id": 4001,
+  "title": "Senior Network Engineer",
+  "content": "&lt;p&gt;Build &amp;amp; run our &lt;strong&gt;global network&lt;/strong&gt;.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;BGP&lt;/li&gt;&lt;/ul&gt;",
+  "pay_input_ranges": [
+    {
+      "min_cents": 15180000,
+      "max_cents": 17840000,
+      "currency_type": "USD",
+      "title": "Zone 1",
+      "blurb": ""
+    },
+    {
+      "min_cents": 10630000,
+      "max_cents": 12490000,
+      "currency_type": "USD",
+      "title": "Zone 4",
+      "blurb": ""
+    }
+  ]
+}

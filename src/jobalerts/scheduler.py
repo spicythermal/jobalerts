@@ -33,6 +33,20 @@ class PollResult:
     matched: list[Job] = field(default_factory=list)
 
 
+def _pay_cols(pay: col.PayResult | None, score: FitScore | None = None) -> dict:
+    if pay is None:
+        return {"pay_note": col.NO_PAY} if score is not None else {}
+    return {"pay_index": round(pay.index, 3), "pay_low": round(pay.low, 3), "pay_high": round(pay.high, 3),
+            "pay_note": pay.text()}
+
+
+def _score_cols(score: FitScore | None) -> dict:
+    if score is None:
+        return {}
+    return {"score": score.score, "score_summary": score.summary,
+            "red_flags": "; ".join(score.red_flags) or None, "best_resume": score.best_resume or None}
+
+
 class Runner:
     def __init__(self, cfg: Config, store: Store, http: HttpClient, notifier: Notifier,
                  scorer: Scorer | None = None, homeassistant: MqttPublisher | None = None):
@@ -97,13 +111,15 @@ class Runner:
             log.info("%s: %d new, %d matched, %d alerted", board.key, len(new), len(result.matched), result.alerted)
         return result
 
-    async def backfill(self, boards: list[Board], push: bool = False) -> list[tuple[Job, str, FitScore | None]]:
+    async def backfill(self, boards: list[Board], push: bool = False,
+                       days: int | None = None) -> list[tuple[Job, str, FitScore | None]]:
         """Run the jobs that were already open when their board was first polled (the silent baseline)
         through the same filter -> score -> route steps as a job found live. Only jobs posted within
-        max_age_days are considered, and each is done once. Without `push`, strong fits go to the
-        digest instead of the phone."""
+        max_age_days (or `days`) are considered, and each is done once. Without `push`, strong fits go
+        to the digest instead of the phone."""
         by_slug = {(b.source, b.slug): b for b in boards}
-        since = utcnow() - timedelta(days=self.cfg.criteria.max_age_days)
+        days = days or self.cfg.criteria.max_age_days
+        since = utcnow() - timedelta(days=days)
         alerts_left = self.cfg.polling.max_alerts_per_poll
         results = []
         for row in self.store.recent_candidates(since):
@@ -111,7 +127,7 @@ class Runner:
                 continue
             job = job_from_row(row)
             board = by_slug.get((job.source, job.board))
-            if board is None or self.filter.is_stale(job) or not self.filter.check_basic(job)[0]:
+            if board is None or (job.age_days() or 0) > days or not self.filter.check_basic(job)[0]:
                 continue
             try:
                 status, score = await self._process(job, board, SOURCES[job.source])
@@ -135,18 +151,20 @@ class Runner:
             self._dashboard_stale.set()
         return results
 
-    async def reprice(self, boards: list[Board], store: Store | None = None,
-                      write: bool = True) -> list[tuple[Job, str, str, col.PayResult | None]]:
+    async def reprice(self, boards: list[Board], store: Store | None = None, write: bool = True,
+                      days: int | None = None) -> list[tuple[Job, str, str, col.PayResult | None, bool]]:
         """Re-check the pay index of matches that already went through the pipeline, posted within
-        max_age_days (no AI calls: pay comes from the salary field or the re-fetched description).
+        max_age_days (or `days`). Pay comes from the salary field or the re-fetched description; when neither
+        states it, the job is AI-scored again (once: afterwards its pay_note is col.NO_PAY) so the AI
+        can read it, and the new score replaces the old. Only with `write`: a dry run makes no AI calls.
         Under pay.min_index -> low_pay. A low_pay job that now passes goes back to where its AI score
         puts it (digest or low, never pushed), or to baseline for `backfill` to score if it had none.
-        Returns (job, old status, new status, pay index)."""
+        Returns (job, old status, new status, pay index, re-scored)."""
         if not self.pay:
             return []
         store = store or self.store
         by_slug = {(b.source, b.slug): b for b in boards}
-        since = utcnow() - timedelta(days=self.cfg.criteria.max_age_days)
+        since = utcnow() - timedelta(days=days or self.cfg.criteria.max_age_days)
         out = []
         for row in store.processed_since(since):
             job = job_from_row(row)
@@ -157,19 +175,27 @@ class Runner:
                 except Exception as e:
                     log.warning("reprice: couldn't fetch %s: %s", job.key, e)
             pay = self.pay_index(job)
+            fit = None
+            asked = row["pay_index"] is not None or row["pay_note"] == col.NO_PAY  # the AI already read the pay
+            if pay is None and not asked and write and self.scorer:
+                try:
+                    fit = await self.scorer.score(job)
+                except Exception as e:  # e.g. no API key: leave this one for the next run
+                    log.warning("reprice: couldn't AI-score %s: %s", job.key, e)
+                pay = self.pay_index(job, fit) if fit else None
             old = status = row["status"]
-            if pay and pay.high < self.cfg.pay.min_index:
+            score = fit.score if fit else row["score"]
+            high = pay.high if pay else row["pay_high"]  # the pay the AI read earlier, if that's all there is
+            if high is not None and high < self.cfg.pay.min_index:
                 status = "low_pay"
             elif old == "low_pay":
-                score = row["score"]
                 status = ("baseline" if score is None else "digest" if score >= self.cfg.scoring.digest_threshold
                           else "low")
             if write:
-                reason = (f"top of range {pay.high:.2f} < {self.cfg.pay.min_index:g}" if status == "low_pay"
+                reason = (f"top of range {high:.2f} < {self.cfg.pay.min_index:g}" if status == "low_pay"
                           else "repriced" if status != old else None)
-                store.update_job(job.key, status=status, reason=reason, pay_index=round(pay.index, 3) if pay else None,
-                                 pay_note=pay.text() if pay else None)
-            out.append((job, old, status, pay))
+                store.update_job(job.key, status=status, reason=reason, **_pay_cols(pay, fit), **_score_cols(fit))
+            out.append((job, old, status, pay, fit is not None))
         if out and write:
             self._dashboard_stale.set()
         return out
@@ -222,14 +248,7 @@ class Runner:
             pay = self.pay_index(job, score)
             if self._pay_too_low(job, pay, score):
                 return "low_pay", score
-        self.store.update_job(
-            job.key, status=status,
-            pay_index=round(pay.index, 3) if pay else None, pay_note=pay.text() if pay else None,
-            score=score.score if score else None,
-            score_summary=score.summary if score else None,
-            red_flags="; ".join(score.red_flags) if score and score.red_flags else None,
-            best_resume=score.best_resume if score and score.best_resume else None,
-        )
+        self.store.update_job(job.key, status=status, **_pay_cols(pay, score), **_score_cols(score))
         return status, score
 
     def pay_index(self, job: Job, score: FitScore | None = None) -> col.PayResult | None:
@@ -245,12 +264,8 @@ class Runner:
         is under pay.min_index."""
         if pay is None or pay.high >= self.cfg.pay.min_index:
             return False
-        self.store.update_job(
-            job.key, status="low_pay", reason=f"top of range {pay.high:.2f} < {self.cfg.pay.min_index:g}",
-            pay_index=round(pay.index, 3), pay_note=pay.text(),
-            score=score.score if score else None, score_summary=score.summary if score else None,
-            red_flags="; ".join(score.red_flags) if score and score.red_flags else None,
-            best_resume=score.best_resume if score and score.best_resume else None)
+        self.store.update_job(job.key, status="low_pay", reason=f"top of range {pay.high:.2f} < {self.cfg.pay.min_index:g}",
+                              **_pay_cols(pay, score), **_score_cols(score))
         return True
 
     # ------------------------------------------------------------------ cost-of-living data
@@ -420,7 +435,7 @@ class Runner:
             for r in rows:
                 score = f"[{r['score']}] " if r["score"] is not None else ""
                 lines.append(f"• {score}{r['company']}: {r['title']} ({r['location'] or 'n/a'})\n  {r['url']}")
-                if r["pay_note"]:
+                if r["pay_note"] and r["pay_note"] != col.NO_PAY:
                     lines.append(f"  {r['pay_note']}")
                 if r["best_resume"]:
                     lines.append(f"  apply with: {r['best_resume']}")
