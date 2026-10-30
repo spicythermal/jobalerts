@@ -389,20 +389,23 @@ class PayIndex:
         return Place(f"{iso3} (price level {level:.2f}x US)", level, iso3)
 
     def _override(self, text: str) -> Place | None:
+        """pay.locations: whole words of the location -> "home", a metro name, a state code, an ISO3
+        country, or any place the resolver understands ("Palo Alto, CA")."""
         for needle, target in self.overrides.items():
-            if needle in text:
+            if re.search(rf"(?<![a-z0-9]){re.escape(needle)}(?![a-z0-9])", text):
                 if target.lower() == "home":
                     return self.home
                 if target in self.metros:
                     return self._metro(target)
-                return self._state(target) or self._country(target.upper())
+                return (self._state(target) or self._country(target.upper())
+                        or self.resolve(target, use_overrides=False))
         return None
 
-    def resolve(self, location: str, remote: bool = False) -> Place | None:
+    def resolve(self, location: str, remote: bool = False, use_overrides: bool = True) -> Place | None:
         """Best price level for a free-text location. Remote jobs take the home price level unless the
         location names a foreign country (a remote job in Germany means living in Germany)."""
         text = location.lower()
-        if place := self._override(text):
+        if use_overrides and (place := self._override(text)):
             return place
         foreign = self._foreign_country(location)
         if remote or "remote" in text:

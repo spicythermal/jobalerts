@@ -70,3 +70,7 @@ class Workday(Source):
             job.published_at = exact
         if "remote" in (info.get("remoteType") or "").lower():
             job.remote = True
+        # Some employers use site codes ("PAO H 3120"); the country at least gives a price level.
+        country = (info.get("country") or {}).get("descriptor") or ""
+        if country and country.lower() not in job.location.lower():
+            job.location = f"{job.location}, {country}" if job.location else country

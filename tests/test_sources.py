@@ -98,6 +98,26 @@ def test_workday_posted_on_and_url():
     assert 29.9 < old.age_days() < 30.1
 
 
+def test_workday_enrich_adds_the_country_to_site_codes():
+    board = Board("workday", "nv/Ext", "NV", 1800,
+                  {"host": "nv.wd5.myworkdayjobs.com", "tenant": "nv", "site": "Ext", "pages": 2, "search": ""})
+    routes = {"Network-Engineer_JR1": {"jobPostingInfo": {
+                  "jobDescription": "<p>The base pay range for this position is: $160,500 - $220,682</p>",
+                  "location": "PAO H 3120", "startDate": "2026-10-29", "remoteType": "Office Based",
+                  "country": {"descriptor": "United States of America"}}},
+              "/wday/cxs/nv/Ext/jobs": load("workday.json")}
+    job = fetch("workday", board, routes)[0]
+    job.location, job.remote = "PAO H 3120", False
+
+    async def enrich():
+        http = mock_http(json_routes(routes))
+        await SOURCES["workday"].enrich(job, board, http)
+        await http.aclose()
+    run(enrich())
+    assert job.location == "PAO H 3120, United States of America"
+    assert "$160,500 - $220,682" in job.description
+
+
 def test_usajobs(monkeypatch):
     monkeypatch.setenv("USAJOBS_API_KEY", "k")
     monkeypatch.setenv("USAJOBS_EMAIL", "me@example.com")

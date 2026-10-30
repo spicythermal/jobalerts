@@ -189,9 +189,21 @@ pay:
                             # (no stated pay: scored anyway). Skipped jobs are listed in the digest.
   col_data: col_data.json   # committed seed; refreshed copies go to data/col_data.json
   refresh_days: 30          # re-download BEA + World Bank data when older than this (checked daily); 0 = never
-  locations: {}             # location text -> metro name, state code, ISO3 country, or "home"
-  #   "Los Alamos": NM
-  #   "Garching": DEU
+  locations:                # whole words of a location -> a place ("Palo Alto, CA"), state code, ISO3 country or "home"
+    # Siemens Healthineers (Varian) posts site codes instead of cities
+    "PAO H": "Palo Alto, CA"
+    "MLV": "Philadelphia, PA"       # Malvern, PA
+    "CHI WM": "Chicago, IL"
+    "ATL G": "Atlanta, GA"
+    "AUS S": "Austin, TX"
+    "BOS FE": "Boston, MA"
+    "CLT BA": "Charlotte, NC"
+    "YOW B": "Ottawa, Canada"
+    "SEL SD": "Seoul, South Korea"
+    "SHA WH": "Shanghai, China"
+    "PUN MIC": "Pune, India"
+    "HEL AA": "Helsinki, Finland"
+    "Los Alamos": NM
 
 # ---------------------------------------------------------------- phone notifications (ntfy)
 notify:

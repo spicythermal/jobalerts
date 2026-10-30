@@ -398,3 +398,11 @@ def test_reprice_dry_run_makes_no_ai_calls(pay_env):
     store.update_job(job.key, status="alerted", score=70)
     run(runner.reprice([board], write=False))
     assert scorer.calls == 0
+
+
+def test_overrides_match_whole_words_and_take_any_place():
+    pi = PayIndex(DATA, overrides={"PAO H": "San Jose, CA", "AUS S": "Albuquerque, NM"})
+    assert "San Jose" in pi.resolve("PAO H 3120").label
+    assert "San Jose" in pi.resolve("PAO H 3120, United States of America").label
+    assert pi.resolve("Melbourne, AUS") is None  # "AUS S" isn't a whole-word match
+    assert pi.resolve("PAOLO H") is None
