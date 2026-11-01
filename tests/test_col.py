@@ -168,7 +168,8 @@ def _runner(tmp_path, built: str):
     (tmp_path / "config").mkdir()
     seed = dict(DATA, built=built)
     (tmp_path / "config" / "col_data.json").write_text(json.dumps(seed))
-    cfg = Config(database=str(tmp_path / "data" / "jobs.db"), config_dir=tmp_path / "config")
+    cfg = Config(database=str(tmp_path / "data" / "jobs.db"), config_dir=tmp_path / "config",
+                 pay={"taxes": False})  # gross-pay math here; taxes are tested in test_taxes.py
     return Runner(cfg, Store(":memory:"), HttpClient(), Notifier(cfg.notify, dry_run=True))
 
 
@@ -220,7 +221,7 @@ def pay_env(tmp_path, monkeypatch):
     monkeypatch.setattr("jobalerts.scheduler.SOURCES", sources.SOURCES)
     (tmp_path / "col_data.json").write_text(json.dumps(DATA))
     cfg = Config.model_validate({"criteria": {"title_include": ["network engineer"]}, "config_dir": tmp_path,
-                                 "database": str(tmp_path / "db" / "x.db")})
+                                 "database": str(tmp_path / "db" / "x.db"), "pay": {"taxes": False}})
     store = Store(":memory:")
     notifier = Notifier(cfg.notify, dry_run=True)
     runner = Runner(cfg, store, HttpClient(), notifier)

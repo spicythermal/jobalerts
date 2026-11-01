@@ -189,6 +189,9 @@ pay:
                             # (no stated pay: scored anyway). Skipped jobs are listed in the digest.
   col_data: col_data.json   # committed seed; refreshed copies go to data/col_data.json
   refresh_days: 30          # re-download BEA + World Bank data when older than this (checked daily); 0 = never
+  taxes: true               # index on take-home pay: after federal, state, local and payroll taxes where the job is
+  tax_rules: taxes.yaml     # household (married filing jointly, 6% pre-tax 401k), local taxes, rates abroad
+  tax_data: tax_data.json   # US taxes by salary and place; rebuild each January with tools/build_tax_data.py
   locations:                # whole words of a location -> a place ("Palo Alto, CA"), state code, ISO3 country or "home"
     # Siemens Healthineers (Varian) posts site codes instead of cities
     "PAO H": "Palo Alto, CA"

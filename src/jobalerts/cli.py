@@ -395,10 +395,20 @@ async def cmd_pay(cfg: Config, args) -> int:
         if not runner.pay:
             print(runner.pay_problem or "Pay index is off (pay.enabled: false).")
             return 1
-        data, home, ref = runner.pay.data, runner.pay.home, cfg.pay.reference_salary
+        pi = runner.pay
+        data, home, ref = pi.data, pi.home, cfg.pay.reference_salary
         print(f"Reference: ${ref:,.0f} in {home.label} = 1.00")
-        print(f"Data built {data.get('built')} ({col.data_age_days(data)} days ago; refreshed after "
+        print(f"Prices built {data.get('built')} ({col.data_age_days(data)} days ago; refreshed after "
               f"{cfg.pay.refresh_days}):\n  US: {data['sources']['us']}\n  Abroad: {data['sources']['countries']}")
+        if pi.taxes:
+            t = pi.taxes
+            hh = t.household
+            print(f"Taxes: {t.year}, {t.data.get('source')} (built {t.data.get('built')}); married filing jointly, "
+                  f"one earner, {hh['k401_rate']:.0%} pre-tax 401(k); abroad approximate")
+            if problem := t.problem():
+                print(f"  note: {problem}")
+        else:
+            print("Taxes: off (pay.taxes: false), comparing gross pay")
         if not args.salary:
             return 0
         pay = col.parse_salary(args.salary)
@@ -416,7 +426,16 @@ async def cmd_pay(cfg: Config, args) -> int:
         amount = f"{lo:,.0f}" if lo == hi else f"{lo:,.0f}-{hi:,.0f}"
         print(f"  pay:         {result.pay.text()} = {result.pay.currency} {amount} a year")
         print(f"  place:       {place.label}: prices {place.level:.3f}x the US average")
-        print(f"  reference:   ${ref:,.0f} / {home.level:.3f} = ${ref / home.level:,.0f} in US-average prices")
+        top_usd = pi.to_usd(hi, result.pay.currency)
+        ref_th = pi.take_home(ref, home)
+        if ref_th and (th := pi.take_home(top_usd, place)):
+            print(f"  taxes:       {th.where}, at the top of the range (${top_usd:,.0f}):\n"
+                  f"               {th.text()}")
+            print(f"  take-home:   ${th.net:,.0f} / {place.level:.3f} = ${th.net / place.level:,.0f} in US-average prices")
+            print(f"  reference:   ${ref:,.0f} in {ref_th.where}: {ref_th.text()}\n"
+                  f"               take-home ${ref_th.net:,.0f} / {home.level:.3f} = ${ref_th.net / home.level:,.0f}")
+        else:
+            print(f"  reference:   ${ref:,.0f} / {home.level:.3f} = ${ref / home.level:,.0f} in US-average prices")
         print(f"  pay index:   {result.index:.2f} (range {result.low:.2f}-{result.high:.2f})")
     return 0
 

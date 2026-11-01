@@ -63,6 +63,9 @@ class PayConfig(BaseModel):
     col_data: str = "col_data.json"      # committed seed, relative to the config directory
     refresh_days: int = 30               # rebuild from BEA + World Bank when older (0 = never); kept next to the DB
     locations: dict[str, str] = {}       # location text -> US metro name, state code, ISO3 country or "home"
+    taxes: bool = True                   # compare take-home pay (after income and payroll taxes) instead of gross
+    tax_rules: str = "taxes.yaml"        # household, localities, local taxes, rates abroad (config dir)
+    tax_data: str = "tax_data.json"      # US taxes by salary and place, built by tools/build_tax_data.py
 
 
 class Notify(BaseModel):

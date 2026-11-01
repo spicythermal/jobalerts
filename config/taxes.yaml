@@ -1,0 +1,222 @@
+# Taxes for the pay index (see taxes.py). The index compares take-home pay against local prices:
+#
+#   take-home = gross − federal income tax − Social Security/Medicare − state income tax
+#               − state payroll taxes (SDI, paid leave, WA Cares, transit) − local income taxes
+#
+# US taxes come from config/tax_data.json, a table of tax at each salary for every state and the
+# localities below, computed with PolicyEngine-US by tools/build_tax_data.py (rebuild each January:
+# `pip install policyengine-us && python tools/build_tax_data.py`). The household below is baked
+# into that table, so changing it means rebuilding the table.
+#
+# Assumes you live where the job is (local taxes mostly follow where you live). Pre-tax 401(k)
+# money counts as yours: it only lowers income tax. Benefits, bonus and equity are not included.
+year: 2026
+
+household:
+  filing: joint          # married filing jointly, one earner, no dependents
+  k401_rate: 0.06        # pre-tax 401(k) share of base pay (up to the employer match)
+  k401_limit: 24500      # IRS elective deferral limit for the year
+
+# Localities with their own income tax that PolicyEngine models, picked by the job's city.
+# `policyengine` holds the inputs that put the household there ("$wage" = the salary).
+# A state's `default` locality is used for other places in that state (Maryland and Indiana tax
+# every county, so "somewhere in Maryland" is closer to a county rate than to none).
+localities:
+  nyc:
+    label: New York City
+    state: NY
+    cities: [new york, new york city, manhattan, brooklyn, queens, bronx, staten island, long island city]
+    policyengine: {household: {county_str: KINGS_COUNTY_NY}}
+  yonkers:
+    label: Yonkers
+    state: NY
+    cities: [yonkers]
+    policyengine: {household: {county_str: WESTCHESTER_COUNTY_NY, in_yonkers: true}}
+  philadelphia:
+    label: Philadelphia
+    state: PA
+    cities: [philadelphia]
+    policyengine: {household: {county_str: PHILADELPHIA_COUNTY_PA},
+                   person: {pa_philadelphia_wage_tax_resident: true, pa_philadelphia_wage_tax_taxable_wages: $wage}}
+  kansas_city:
+    label: Kansas City, MO
+    state: MO
+    cities: [kansas city]
+    policyengine: {person: {mo_kansas_city_earnings_tax_taxable_earnings: $wage}}
+  st_louis:
+    label: St. Louis
+    state: MO
+    cities: [st. louis, st louis, saint louis]
+    policyengine: {person: {mo_st_louis_earnings_tax_taxable_earnings: $wage}}
+  wilmington:
+    label: Wilmington, DE
+    state: DE
+    cities: [wilmington]
+    policyengine: {household: {county_str: NEW_CASTLE_COUNTY_DE, in_wilmington: true}}
+  denver:
+    label: Denver
+    state: CO
+    cities: [denver]
+    policyengine: {household: {county_str: DENVER_COUNTY_CO}, person: {co_denver_employee_occupational_privilege_tax_months: 12}}
+  multnomah:
+    label: Multnomah County (Portland)
+    state: OR
+    cities: [portland, gresham, troutdale, fairview, wood village]
+    policyengine: {household: {county_str: MULTNOMAH_COUNTY_OR}}
+  # Maryland counties
+  montgomery_md:
+    label: Montgomery County, MD
+    state: MD
+    default: true
+    cities: [rockville, gaithersburg, germantown, bethesda, silver spring, chevy chase, potomac, clarksburg, olney]
+    policyengine: {household: {county_str: MONTGOMERY_COUNTY_MD}}
+  baltimore_city:
+    label: Baltimore City
+    state: MD
+    cities: [baltimore]
+    policyengine: {household: {county_str: BALTIMORE_CITY_MD}}
+  howard_md:
+    label: Howard County, MD
+    state: MD
+    cities: [columbia, ellicott city, laurel, fulton, elkridge, hanover]
+    policyengine: {household: {county_str: HOWARD_COUNTY_MD}}
+  anne_arundel:
+    label: Anne Arundel County, MD
+    state: MD
+    cities: [annapolis, linthicum, linthicum heights, odenton, millersville, glen burnie, fort meade, fort george g. meade, severn]
+    policyengine: {household: {county_str: ANNE_ARUNDEL_COUNTY_MD}}
+  prince_georges:
+    label: Prince George's County, MD
+    state: MD
+    cities: [greenbelt, college park, bowie, beltsville, upper marlboro, lanham, hyattsville, largo, adelphi]
+    policyengine: {household: {county_str: PRINCE_GEORGE_S_COUNTY_MD}}
+  frederick_md:
+    label: Frederick County, MD
+    state: MD
+    cities: [frederick, fort detrick]
+    policyengine: {household: {county_str: FREDERICK_COUNTY_MD}}
+  harford_md:
+    label: Harford County, MD
+    state: MD
+    cities: [aberdeen, aberdeen proving ground, bel air, edgewood]
+    policyengine: {household: {county_str: HARFORD_COUNTY_MD}}
+  st_marys_md:
+    label: St. Mary's County, MD
+    state: MD
+    cities: [lexington park, patuxent river, california]
+    policyengine: {household: {county_str: ST_MARY_S_COUNTY_MD}}
+  # Indiana counties
+  marion_in:
+    label: Marion County, IN (Indianapolis)
+    state: IN
+    default: true
+    cities: [indianapolis]
+    policyengine: {household: {county_str: MARION_COUNTY_IN}}
+  hamilton_in:
+    label: Hamilton County, IN
+    state: IN
+    cities: [carmel, fishers, noblesville, westfield]
+    policyengine: {household: {county_str: HAMILTON_COUNTY_IN}}
+  tippecanoe_in:
+    label: Tippecanoe County, IN
+    state: IN
+    cities: [west lafayette, lafayette]
+    policyengine: {household: {county_str: TIPPECANOE_COUNTY_IN}}
+  monroe_in:
+    label: Monroe County, IN
+    state: IN
+    cities: [bloomington]
+    policyengine: {household: {county_str: MONROE_COUNTY_IN}}
+  allen_in:
+    label: Allen County, IN
+    state: IN
+    cities: [fort wayne]
+    policyengine: {household: {county_str: ALLEN_COUNTY_IN}}
+  st_joseph_in:
+    label: St. Joseph County, IN
+    state: IN
+    cities: [south bend, notre dame, mishawaka]
+    policyengine: {household: {county_str: ST_JOSEPH_COUNTY_IN}}
+  martin_in:
+    label: Martin County, IN (NSWC Crane)
+    state: IN
+    cities: [crane]
+    policyengine: {household: {county_str: MARTIN_COUNTY_IN}}
+
+# Local taxes PolicyEngine doesn't model: flat rates on wages (base: agi = wages − 401(k)), by city,
+# with a state-wide default where nearly every town has one. 2026 resident rates.
+local_extras:
+  - label: Ohio municipal income tax
+    state: OH
+    default: 0.02          # most cities and villages charge 1.5-2.5%
+    cities: {columbus: 0.025, cleveland: 0.025, cincinnati: 0.018, dayton: 0.025, toledo: 0.025,
+             akron: 0.025, kettering: 0.0225, fairborn: 0.015, huber heights: 0.0225, beavercreek: 0.0,
+             mason: 0.0125, dublin: 0.02, westerville: 0.02, hilliard: 0.025}
+  - label: Pennsylvania local earned income tax
+    state: PA
+    default: 0.01          # the usual municipal + school district total
+    cities: {philadelphia: 0.0, pittsburgh: 0.03, scranton: 0.034, reading: 0.036, harrisburg: 0.02,
+             allentown: 0.01975, erie: 0.0118, state college: 0.0185}   # Philadelphia's wage tax is above
+  - label: Michigan city income tax
+    state: MI
+    default: 0.0
+    cities: {detroit: 0.024, grand rapids: 0.015, lansing: 0.01, flint: 0.01, saginaw: 0.015,
+             highland park: 0.02, pontiac: 0.01, battle creek: 0.01, jackson: 0.01, muskegon: 0.01}
+  - label: Kentucky occupational license tax
+    state: KY
+    default: 0.01
+    cities: {louisville: 0.022, lexington: 0.0225, bowling green: 0.0185, covington: 0.0245}
+  - label: Metro supportive housing services tax
+    state: OR
+    default: 0.0
+    over: 200000           # on income above $200K (married filing jointly)
+    base: agi
+    cities: {portland: 0.01, beaverton: 0.01, hillsboro: 0.01, tigard: 0.01, tualatin: 0.01,
+             lake oswego: 0.01, gresham: 0.01, wilsonville: 0.01, milwaukie: 0.01, oregon city: 0.01,
+             west linn: 0.01, happy valley: 0.01, sherwood: 0.01, forest grove: 0.01, troutdale: 0.01}
+
+# Abroad: approximate share of gross pay paid as income tax + employee social insurance, for a
+# married sole earner, at $100K and $250K gross (at market exchange rates; straight line between,
+# flat outside). Mandatory personal retirement accounts (Singapore CPF, Swiss BVG, Chile AFP,
+# Malaysia EPF, India PF) count as yours, like a 401(k). Country-wide: regional taxes (Swiss
+# cantons, Canadian provinces) are taken at the main job hub (Zurich, Ontario, Madrid, Shanghai).
+# Rough (±5 points); good enough to rank a Munich offer against a Portland one, not to file taxes.
+abroad:
+  default: [0.30, 0.38]
+  GBR: [0.28, 0.41]
+  IRL: [0.30, 0.43]
+  DEU: [0.34, 0.39]
+  FRA: [0.28, 0.34]
+  NLD: [0.36, 0.45]
+  BEL: [0.38, 0.51]
+  LUX: [0.25, 0.37]
+  CHE: [0.17, 0.27]
+  AUT: [0.37, 0.41]
+  ITA: [0.42, 0.45]
+  ESP: [0.31, 0.42]
+  PRT: [0.37, 0.45]
+  FIN: [0.36, 0.48]
+  SWE: [0.33, 0.45]
+  NOR: [0.33, 0.41]
+  DNK: [0.38, 0.50]
+  POL: [0.40, 0.42]
+  CZE: [0.27, 0.28]
+  HUN: [0.335, 0.335]
+  ROU: [0.415, 0.415]
+  EST: [0.22, 0.235]
+  GRC: [0.38, 0.45]
+  ISR: [0.32, 0.43]
+  JPN: [0.32, 0.43]
+  KOR: [0.26, 0.36]
+  CHN: [0.25, 0.35]
+  IND: [0.29, 0.37]
+  SGP: [0.06, 0.13]
+  HKG: [0.09, 0.14]
+  AUS: [0.27, 0.38]
+  NZL: [0.28, 0.35]
+  CAN: [0.30, 0.42]
+  MEX: [0.29, 0.33]
+  BRA: [0.27, 0.28]
+  ARG: [0.35, 0.38]
+  CHL: [0.16, 0.28]
+  ARE: [0.0, 0.0]

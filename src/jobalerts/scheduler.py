@@ -19,6 +19,7 @@ from .notify import Notifier
 from .scorer import FitScore, Scorer
 from .sources import SOURCES, Source, SourceConfigError, without_missing_keys
 from .store import Store, job_from_row
+from .taxes import Taxes
 
 log = logging.getLogger(__name__)
 
@@ -283,14 +284,24 @@ class Runner:
             log.warning("Pay index off: %s", self.pay_problem)
             return
         data, path = found
+        taxes = None
+        if cfg.taxes:
+            try:
+                taxes = Taxes.load(self.cfg.resolve(cfg.tax_rules), self.cfg.resolve(cfg.tax_data))
+            except (OSError, KeyError, TypeError, ValueError) as e:
+                self.pay_problem = f"tax tables unusable ({type(e).__name__}: {e}); comparing gross pay"
+                log.warning("Pay index: %s", self.pay_problem)
         try:
-            self.pay = col.PayIndex(data, cfg.reference_salary, cfg.reference_location, cfg.locations)
+            self.pay = col.PayIndex(data, cfg.reference_salary, cfg.reference_location, cfg.locations, taxes)
         except (KeyError, ValueError) as e:
             self.pay_problem = f"cost-of-living data in {path} unusable: {e}"
             log.warning("Pay index off: %s", self.pay_problem)
             return
-        log.info("Pay index: %s %s = 1.0; data built %s from %s", f"${cfg.reference_salary:,.0f}",
-                 self.pay.home.label, data.get("built"), path)
+        log.info("Pay index: %s %s = 1.0 (%s); data built %s from %s", f"${cfg.reference_salary:,.0f}",
+                 self.pay.home.label, f"take-home, {taxes.year} taxes" if taxes else "gross pay",
+                 data.get("built"), path)
+        if taxes and (problem := taxes.problem()):
+            log.warning("Pay index: %s", problem)
 
     async def refresh_pay_data(self, force: bool = False) -> str:
         """Rebuild the cost-of-living table when it's older than pay.refresh_days. A download that fails
@@ -468,6 +479,8 @@ class Runner:
                 lines.append(f"  …and {len(skipped) - 10} more")
         if self.pay_problem:
             lines.append(f"Pay index: {self.pay_problem}")
+        if self.pay and self.pay.taxes and (problem := self.pay.taxes.problem()):
+            lines.append(f"Pay index: {problem}")
         failing = [b for b in self.store.boards() if b["failures"]]
         if failing:
             lines.append("Failing boards: " + "; ".join(

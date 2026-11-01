@@ -1,9 +1,10 @@
 """Cost-of-living pay index: what a base salary buys where the job is, relative to a reference.
 
-    index = (salary in US dollars / local price level) / (reference salary / home price level)
+    index = (take-home pay / local price level) / (reference take-home pay / home price level)
 
-With the defaults, $155K base in the Portland metro is 1.0; $310K in a place with Portland's prices
-is 2.0; $155K somewhere 10% cheaper than Portland is 1.11.
+Take-home pay is the salary in US dollars after income and payroll taxes where the job is (see
+taxes.py; pay.taxes: false compares gross pay instead). With the defaults, $155K base in Portland
+is 1.0; $155K somewhere with Portland's prices but no state income tax is about 1.10.
 
 Price levels are all relative to the US average (= 1.0) and come from `col_data.json`, which
 `jobalerts pay --update` builds from two free, official sources:
@@ -15,7 +16,7 @@ Price levels are all relative to the US average (= 1.0) and come from `col_data.
   divided by the official exchange rate (PA.NUS.FCRF). That ratio is the country's price level
   against the US. Country-wide only: there is no free official city-level series outside the US.
 
-Taxes, benefits, bonus and equity are not included; this is base pay against prices.
+Benefits, bonus and equity are not included; this is base pay against prices.
 """
 from __future__ import annotations
 
@@ -30,6 +31,8 @@ from datetime import date
 from pathlib import Path
 
 import httpx
+
+from .taxes import Taxes, TakeHome
 
 log = logging.getLogger(__name__)
 
@@ -162,6 +165,8 @@ class Place:
     label: str
     level: float          # price level, US average = 1.0
     country: str = "USA"  # ISO3
+    state: str = ""       # US state code, when known (for state and local taxes)
+    city: str = ""        # lower case, when known (for city taxes)
 
 
 @dataclass
@@ -347,8 +352,9 @@ async def build_data(client: httpx.AsyncClient | None = None) -> dict:
 # ---------------------------------------------------------------------------- the index
 class PayIndex:
     def __init__(self, data: dict, reference_salary: float = 155_000, reference_location: str = "Portland, OR",
-                 overrides: dict[str, str] | None = None):
+                 overrides: dict[str, str] | None = None, taxes: Taxes | None = None):
         self.data = data
+        self.taxes = taxes
         self.metros: dict[str, float] = data["us_metros"]
         self.states: dict[str, float] = data["us_states"]
         self.countries: dict[str, dict] = data["countries"]
@@ -371,13 +377,14 @@ class PayIndex:
         return cls(json.loads(path.read_text(encoding="utf-8")), **kwargs)
 
     # -- places
-    def _metro(self, name: str) -> Place:
-        return Place(f"{name} metro (RPP {self.metros[name]:.1f})", self.metros[name] / 100)
+    def _metro(self, name: str, state: str = "", city: str = "") -> Place:
+        state = state or name.rpartition(", ")[2].split("-")[0]  # the metro's first state
+        return Place(f"{name} metro (RPP {self.metros[name]:.1f})", self.metros[name] / 100, "USA", state, city)
 
-    def _state(self, st: str) -> Place | None:
+    def _state(self, st: str, city: str = "") -> Place | None:
         if st not in self.states:
             return None
-        return Place(f"{STATES[st]} (state RPP {self.states[st]:.1f})", self.states[st] / 100)
+        return Place(f"{STATES[st]} (state RPP {self.states[st]:.1f})", self.states[st] / 100, "USA", st, city)
 
     def _country(self, iso3: str) -> Place | None:
         if iso3 == "USA":
@@ -423,14 +430,15 @@ class PayIndex:
                   for (city, st) in self._cities if city == c.strip().lower()][:1]
         parts = _parts(location)  # "US > Arizona > Phoenix"
         pairs += [(c, _STATE_BY_NAME[s]) for s in parts if s in _STATE_BY_NAME for c in parts if c != s]
+        pairs = [(re.sub(r"^.*\b(?:hybrid|onsite|on-site|usa?)\b[\s\-:]*", "", c.strip(), flags=re.I).lower(), st)
+                 for c, st in pairs]
         for city, st in pairs:
-            city = re.sub(r"^.*\b(?:hybrid|onsite|on-site|usa?)\b[\s\-:]*", "", city.strip(), flags=re.I).lower()
             if name := self._cities.get((SUBURBS.get((city, st), city), st)):
-                return self._metro(name)
+                return self._metro(name, st, city)
         if foreign and foreign != "USA":
             return self._country(foreign)
-        for _, st in pairs:
-            if place := self._state(st):
+        for city, st in pairs:
+            if place := self._state(st, city):
                 return place
         if foreign == "USA":
             return self._country("USA")
@@ -448,6 +456,16 @@ class PayIndex:
         return None
 
     # -- the index
+    def take_home(self, gross_usd: float, place: Place) -> TakeHome | None:
+        """Pay after taxes where the place is; None with taxes off."""
+        if not self.taxes:
+            return None
+        return self.taxes.take_home(gross_usd, place.country, place.state, place.city)
+
+    def _net(self, gross_usd: float, place: Place) -> float:
+        th = self.take_home(gross_usd, place)
+        return th.net if th else gross_usd
+
     def to_usd(self, amount: float, currency: str) -> float | None:
         if currency == "USD":
             return amount
@@ -468,8 +486,9 @@ class PayIndex:
         lo_usd, hi_usd = self.to_usd(lo, currency), self.to_usd(hi, currency)
         if lo_usd is None or hi_usd is None:
             return None
-        reference = self.reference_salary / self.home.level
-        low, high = lo_usd / place.level / reference, hi_usd / place.level / reference
+        reference = self._net(self.reference_salary, self.home) / self.home.level
+        low, high = (self._net(lo_usd, place) / place.level / reference,
+                     self._net(hi_usd, place) / place.level / reference)
         return PayResult((low + high) / 2, low, high, Pay(pay.low, pay.high, currency, pay.period), place)
 
 

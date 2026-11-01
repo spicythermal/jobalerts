@@ -89,9 +89,19 @@ still pushed. Preview scores before turning it on:
 jobalerts poll --dry-run --score 5
 ```
 
-**Cost-of-living pay index:** every match gets a pay index: base pay divided by local prices,
-relative to `pay.reference_salary` at `pay.reference_location` ($155K in the Portland metro = 1.00;
-twice the pay at Portland prices = 2.00; the same pay somewhere 20% cheaper = 1.25). US prices come
+**Cost-of-living pay index:** every match gets a pay index: take-home pay divided by local prices,
+relative to `pay.reference_salary` at `pay.reference_location` ($155K in Portland = 1.00; $155K in
+Austin = 1.18, from no state income tax and slightly lower prices; $155K in New York City = 0.93).
+Take-home pay is base pay after federal income tax, Social Security and Medicare, state income tax,
+state payroll taxes (California SDI, paid-leave programs, WA Cares, Oregon transit) and city or
+county income taxes where the job is. The household is set in `config/taxes.yaml`: married filing
+jointly, one earner, 6% pre-tax 401(k) (that money counts as yours; it only lowers income tax).
+US taxes come from `config/tax_data.json`, a table of 2026 taxes by salary for every state and the
+localities in `taxes.yaml`, computed with PolicyEngine-US. City taxes PolicyEngine doesn't model
+(Ohio, Pennsylvania, Michigan and Kentucky cities, Portland Metro's housing tax) and approximate
+rates abroad are in `taxes.yaml` too. Rebuild the table each January (the digest reminds you):
+`pip install policyengine-us && python tools/build_tax_data.py`. `pay.taxes: false` compares gross
+pay instead. US prices come
 from the BEA's Regional Price Parities (by metro area, else by state). Prices abroad come from the
 World Bank's purchasing-power parity divided by the exchange rate (country-wide). Remote jobs use
 your home prices. The pay comes from the posting's salary field, or else from a salary range stated
@@ -305,9 +315,10 @@ docker compose exec jobalerts jobalerts backfill --push      # same, but 75+ are
 - BambooHR and Rippling lists carry no posting date; it is filled in when a keyword match is
   enriched, and `first_seen_at` stands in until then.
 - Workday reports "Posted 3 Days Ago", not an exact time, until a job is enriched.
-- The pay index covers base pay against prices only: no income tax (Oregon's ~9% vs. none in
-  Washington or Texas), bonus, equity or benefits. Prices abroad are country averages, so London,
-  Zurich or Munich look cheaper than they are. Map a location by hand with `pay.locations`.
+- The pay index covers base pay after taxes against prices: no bonus, equity or benefits. Taxes
+  assume you live in the job's city. Tax rates abroad are rough (±5 points) and prices abroad are
+  country averages, so London, Zurich or Munich look cheaper than they are. Map a location by hand
+  with `pay.locations`.
 - An ATS sometimes reposts an old job with a new ID. Jobs published more than
   `max_age_days` ago are never alerted.
 
