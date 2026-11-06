@@ -56,6 +56,15 @@ class Scoring(BaseModel):
     daily_max_calls: int = 300
 
 
+class Prescreen(BaseModel):
+    """AI second look at jobs the keywords turned down (no hard exclude): see prescreen.py."""
+    enabled: bool = False               # needs scoring on (same key, model and daily cap)
+    interval: int = 3600                # seconds between runs over the waiting jobs
+    title_batch: int = 50               # titles per pass-1 call
+    posting_batch: int = 8              # postings per pass-2 call
+    excerpt_chars: int = 3000           # description characters shown per posting in pass 2
+
+
 class PayConfig(BaseModel):
     """Cost-of-living pay index (see col.py): reference_salary at reference_location scores 1.0."""
     enabled: bool = True
@@ -176,6 +185,7 @@ class Config(BaseModel):
     criteria: Criteria = Criteria()
     polling: Polling = Polling()
     scoring: Scoring = Scoring()
+    prescreen: Prescreen = Prescreen()
     pay: PayConfig = PayConfig()
     notify: Notify = Notify()
     homeassistant: HomeAssistant = HomeAssistant()

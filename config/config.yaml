@@ -227,7 +227,19 @@ scoring:
   resume_dir: ../resume_reference   # every PDF/.md/.txt resume here is compared against each posting
   push_threshold: 75        # >= this: phone alert now
   digest_threshold: 50      # >= this: evening digest; below: stored only
-  daily_max_calls: 300
+  daily_max_calls: 500      # all Claude calls a day: scoring + pre-screen (~75 scored + ~50 pre-screen calls typical)
+
+# ---------------------------------------------------------------- AI second look at rejected titles
+# Jobs the keywords turn down (but no title_exclude / seniority_exclude did) wait here and get a cheap
+# Claude look every `interval`: clear misfits by title go, then clear misfits by description excerpt;
+# the rest get the full score above. Tested 2026-11-06 on a week of real postings: kept both rejected
+# postings the full score rated 75+ and two thirds of those rated 50+, ~17% passed on; ~$1/month.
+prescreen:
+  enabled: true             # needs scoring (above); off without ANTHROPIC_API_KEY
+  interval: 3600            # seconds between runs
+  title_batch: 50           # titles per pass-1 call
+  posting_batch: 8          # postings per pass-2 call
+  excerpt_chars: 3000       # description characters per posting in pass 2
 
 # ---------------------------------------------------------------- cost-of-living pay index
 # Base pay divided by local prices, relative to the reference: $155K in the Portland metro = 1.0,

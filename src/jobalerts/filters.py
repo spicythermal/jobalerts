@@ -43,6 +43,11 @@ class JobFilter:
         self.description_exclude = _compile(criteria.description_exclude)
         self.locations = _compile(criteria.locations)
 
+    def hard_exclude(self, job: Job) -> str | None:
+        """The title_exclude / seniority_exclude phrase in the title, if any (these always drop a job;
+        a job turned down for anything else can get the AI pre-screen's second look)."""
+        return _first_hit(self.title_exclude, _normalize(job.title))
+
     def check_basic(self, job: Job) -> tuple[bool, str]:
         """Title + location. Returns (passed, reason)."""
         title = _normalize(job.title)

@@ -98,6 +98,16 @@ still pushed. Preview scores before turning it on:
 jobalerts poll --dry-run --score 5
 ```
 
+**AI second look at rejected titles** (`prescreen` in `config.yaml`, on whenever scoring is):
+keyword lists miss good jobs with unexpected titles ("Manager, Generator Operations" at a fusion
+company). A job the keywords turn down, but no `title_exclude` / `seniority_exclude` phrase did, waits
+in a queue. Every hour two cheap Claude calls go through the queue: clear misfits by title are dropped,
+then clear misfits by title, company and the start of the description; the rest get the normal
+0–100 score and are pushed or digested like any match. If Claude can't be reached they keep waiting.
+Tested on a week of real postings: it kept both rejected jobs the full score rated 75+, and two
+thirds of those rated 50+; about 17% go on to full scoring, roughly $1 a month. `jobalerts poll`
+runs it at the end too.
+
 **Cost-of-living pay index:** every match gets a pay index: take-home pay divided by local prices,
 relative to `pay.reference_salary` at `pay.reference_location` ($155K in Portland = 1.00; $155K in
 Austin = 1.18, from no state income tax and slightly lower prices; $155K in New York City = 0.93).

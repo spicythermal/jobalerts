@@ -33,7 +33,8 @@ CREATE TABLE IF NOT EXISTS jobs (
     pay_low       REAL,
     pay_high      REAL,
     pay_note      TEXT,
-    notified_at   TEXT
+    notified_at   TEXT,
+    description   TEXT              -- kept only while status='prescreen' (list APIs give it once)
 );
 CREATE INDEX IF NOT EXISTS jobs_fingerprint ON jobs(fingerprint);
 CREATE INDEX IF NOT EXISTS jobs_status ON jobs(status);
@@ -84,10 +85,11 @@ def _iso(dt: datetime | None) -> str | None:
 
 
 def job_from_row(r: sqlite3.Row) -> Job:
-    """A stored job back as a Job (the description isn't stored; sources re-fetch it when needed)."""
+    """A stored job back as a Job (the description is stored only while it waits for the pre-screen;
+    otherwise sources re-fetch it when needed)."""
     return Job(r["source"], r["board"], r["job_id"], r["company"] or "", r["title"] or "", r["url"] or "",
                location=r["location"] or "", remote=bool(r["remote"]), published_at=parse_dt(r["published_at"]),
-               salary=r["salary"] or "")
+               salary=r["salary"] or "", description=r["description"] or "")
 
 
 class Store:
@@ -107,6 +109,8 @@ class Store:
         if "pay_low" not in columns:  # databases from the first day of the pay index
             self.db.execute("ALTER TABLE jobs ADD COLUMN pay_low REAL")
             self.db.execute("ALTER TABLE jobs ADD COLUMN pay_high REAL")
+        if "description" not in columns:  # databases created before the AI pre-screen
+            self.db.execute("ALTER TABLE jobs ADD COLUMN description TEXT")
         usage_columns = {r["name"] for r in self.db.execute("PRAGMA table_info(ai_usage)")}
         for col in ("cache_read_tokens", "cache_write_tokens"):  # databases created before the AI cost sensor
             if col not in usage_columns:
@@ -171,6 +175,17 @@ class Store:
              status, reason),
         )
 
+    def hold_for_prescreen(self, job: Job, reason: str) -> None:
+        self.insert_job(job, "prescreen", reason)
+        self.db.execute("UPDATE jobs SET description=? WHERE key=?", (job.description or None, job.key))
+
+    def prescreen_queue(self) -> list[sqlite3.Row]:
+        return self.db.execute("SELECT * FROM jobs WHERE status='prescreen' ORDER BY first_seen_at").fetchall()
+
+    def drop_prescreen_queue(self) -> int:
+        """Pre-screen turned off: the waiting jobs count as filtered, as they would have been without it."""
+        return self.db.execute("UPDATE jobs SET status='filtered', description=NULL WHERE status='prescreen'").rowcount
+
     def insert_jobs(self, jobs: list[Job], status: str) -> None:
         self.db.execute("BEGIN")
         try:
@@ -191,9 +206,10 @@ class Store:
                    score_summary=COALESCE(?, score_summary), red_flags=COALESCE(?, red_flags),
                    best_resume=COALESCE(?, best_resume), pay_index=COALESCE(?, pay_index),
                    pay_low=COALESCE(?, pay_low), pay_high=COALESCE(?, pay_high),
-                   pay_note=COALESCE(?, pay_note) WHERE key=?""",
+                   pay_note=COALESCE(?, pay_note),
+                   description=CASE WHEN ?='prescreen' THEN description END WHERE key=?""",
             (status, reason, score, score_summary, red_flags, best_resume, pay_index, pay_low, pay_high,
-             pay_note, key),
+             pay_note, status, key),
         )
 
     def mark_notified(self, key: str, status: str = "alerted") -> None:

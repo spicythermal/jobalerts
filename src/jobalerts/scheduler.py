@@ -16,6 +16,7 @@ from .filters import JobFilter
 from .http import HttpClient
 from .models import Job, normalize_company, utcnow
 from .notify import Notifier
+from .prescreen import Prescreener
 from .scorer import FitScore, Scorer
 from .sources import SOURCES, Source, SourceConfigError, without_missing_keys
 from .store import Store, job_from_row
@@ -50,12 +51,14 @@ def _score_cols(score: FitScore | None) -> dict:
 
 class Runner:
     def __init__(self, cfg: Config, store: Store, http: HttpClient, notifier: Notifier,
-                 scorer: Scorer | None = None, homeassistant: MqttPublisher | None = None):
+                 scorer: Scorer | None = None, homeassistant: MqttPublisher | None = None,
+                 prescreener: Prescreener | None = None):
         self.cfg = cfg
         self.store = store
         self.http = http
         self.notifier = notifier
         self.scorer = scorer
+        self.prescreener = prescreener if scorer else None  # its "yes" jobs need the full score
         self.filter = JobFilter(cfg.criteria)
         self.watched = {normalize_company(name) for name in cfg.watched_companies()}
         self._failure_alerted: set[str] = set()
@@ -210,10 +213,17 @@ class Runner:
             return "stale", None
         ok, why = self.filter.check_basic(job)
         if not ok:
+            if self.prescreener and not self.filter.hard_exclude(job):
+                self.store.hold_for_prescreen(job, why)  # the AI pre-screen takes a second look
+                return "prescreen", None
             self.store.insert_job(job, "filtered", why)
             return "filtered", None
 
         self.store.insert_job(job, "processing", why)
+        return await self._finish(job, board, source)
+
+    async def _finish(self, job: Job, board: Board, source: Source) -> tuple[str, FitScore | None]:
+        """Everything after the title check: description, pay gate, AI score, routing. The job's row exists."""
         if not board.watched and normalize_company(job.company) not in self.watched:
             self.store.add_suggestion(job.company)
 
@@ -251,6 +261,90 @@ class Runner:
                 return "low_pay", score
         self.store.update_job(job.key, status=status, **_pay_cols(pay, score), **_score_cols(score))
         return status, score
+
+    async def run_prescreen(self, boards: list[Board]) -> dict[str, int]:
+        """Second look at the jobs waiting in the pre-screen queue (see prescreen.py). Clear misfits by
+        title, then by description excerpt, are filtered; the rest go through the normal scoring and routing.
+        If Claude can't be reached the jobs keep waiting for the next run. Returns counts per outcome."""
+        counts: dict[str, int] = {}
+
+        def count(what: str, n: int = 1) -> None:
+            counts[what] = counts.get(what, 0) + n
+
+        if not self.prescreener:
+            return counts
+        by_slug = {(b.source, b.slug): b for b in boards}
+        waiting = []
+        for row in self.store.prescreen_queue():
+            job = job_from_row(row)
+            if self.filter.is_stale(job):
+                self.store.update_job(job.key, status="stale", reason="waited too long for the pre-screen")
+                count("stale")
+            else:
+                waiting.append(job)
+        if not waiting:
+            return counts
+
+        cfg = self.cfg.prescreen
+        closer: list[Job] = []
+        for i in range(0, len(waiting), cfg.title_batch):
+            group = waiting[i:i + cfg.title_batch]
+            misfits = await self.prescreener.clear_misfits(group)
+            if misfits is None:
+                count("waiting", len(waiting) - i)
+                waiting = waiting[:i]
+                break
+            for n, job in enumerate(group):
+                if n in misfits:
+                    self.store.update_job(job.key, status="filtered", reason="pre-screen: title")
+                    count("title_no")
+                else:
+                    closer.append(job)
+
+        for job in closer:
+            board = by_slug.get((job.source, job.board))
+            if not job.description and board is not None:
+                try:
+                    await SOURCES[job.source].enrich(job, board, self.http)
+                except Exception as e:
+                    log.warning("pre-screen: couldn't fetch the description of %s: %s", job.key, e)
+
+        alerts_left = self.cfg.polling.max_alerts_per_poll
+        for i in range(0, len(closer), cfg.posting_batch):
+            group = closer[i:i + cfg.posting_batch]
+            verdicts = await self.prescreener.judge(group)
+            if verdicts is None:
+                count("waiting", len(closer) - i)
+                break
+            for n, job in enumerate(group):
+                v = verdicts[n]
+                if v.verdict == "no":
+                    self.store.update_job(job.key, status="filtered", reason=f"pre-screen: {v.reason}"[:200])
+                    count("posting_no")
+                    continue
+                board = by_slug.get((job.source, job.board))
+                if board is None:  # board removed from the config since the job was queued
+                    self.store.update_job(job.key, status="filtered", reason="pre-screen: board no longer watched")
+                    continue
+                self.store.update_job(job.key, status="processing", reason=f"pre-screen: {v.reason}"[:200])
+                try:
+                    status, score = await self._finish(job, board, SOURCES[job.source])
+                except Exception as e:
+                    log.exception("pre-screen: failed processing %s", job.key)
+                    self.store.update_job(job.key, status="error", reason=str(e)[:200])
+                    continue
+                count(status)
+                if status == "alert":
+                    if alerts_left > 0:
+                        alerts_left -= 1
+                        await self._notify(job, score)
+                    else:
+                        self.store.update_job(job.key, status="digest", reason="per-run alert cap reached")
+        if any(counts.get(s) for s in ("alert", "digest", "low")):
+            self._dashboard_stale.set()
+        if counts:
+            log.info("pre-screen: %s", ", ".join(f"{n} {k}" for k, n in sorted(counts.items())))
+        return counts
 
     def pay_index(self, job: Job, score: FitScore | None = None) -> col.PayResult | None:
         """Cost-of-living pay index from the posting's salary field, else the pay stated in its description,
@@ -353,11 +447,15 @@ class Runner:
             note = " Not running (no API key in .env): " + ", ".join(sorted(skipped)) + "."
             for source, keys in sorted(skipped.items()):
                 log.info("%s is enabled but skipped until %s is set in .env", source, " and ".join(keys))
+        if not self.prescreener and (n := self.store.drop_prescreen_queue()):
+            log.info("AI pre-screen off: %d waiting jobs marked filtered", n)
         log.info("Watching %d boards", len(boards))
         await self.notifier.send("Job alerts running", f"Watching {len(boards)} boards.{note}",
                                  priority=2, tags=["eyes"])
         tasks = [asyncio.create_task(self._board_loop(b), name=b.key) for b in boards]
         tasks.append(asyncio.create_task(self._daily_loop(), name="digest"))
+        if self.prescreener:
+            tasks.append(asyncio.create_task(self._prescreen_loop(boards), name="prescreen"))
         tasks.append(asyncio.create_task(self.refresh_pay_data(), name="col-refresh"))
         if self.homeassistant:
             tasks.append(asyncio.create_task(self._homeassistant_loop(), name="homeassistant"))
@@ -394,6 +492,14 @@ class Runner:
             finally:
                 self.store.add_host_stats(self.http.drain_stats())
             await asyncio.sleep(delay * random.uniform(1 - jitter, 1 + jitter))
+
+    async def _prescreen_loop(self, boards: list[Board]) -> None:
+        while True:
+            await asyncio.sleep(self.cfg.prescreen.interval)
+            try:
+                await self.run_prescreen(boards)
+            except Exception:
+                log.exception("Pre-screen run failed")
 
     async def _daily_loop(self) -> None:
         tz = ZoneInfo(self.cfg.notify.timezone)

@@ -17,6 +17,7 @@ from .dashboard import MqttPublisher, ai_cost
 from .http import HttpClient
 from .models import utcnow
 from .notify import Notifier
+from .prescreen import Prescreener
 from .resumes import load_resumes
 from .scheduler import Runner
 from .scorer import Scorer, ai_cost_usd
@@ -26,13 +27,27 @@ from .store import Store, job_from_row
 log = logging.getLogger("jobalerts")
 
 
+def _profile_and_resumes(cfg: Config):
+    profile_path = cfg.resolve(cfg.scoring.profile_path)
+    profile = profile_path.read_text(encoding="utf-8") if profile_path.is_file() else ""
+    return profile_path, profile, load_resumes(cfg.resolve(cfg.scoring.resume_dir))
+
+
+def make_prescreener(cfg: Config, store: Store, scorer: Scorer | None) -> Prescreener | None:
+    """The AI second look at jobs the keywords turned down; needs scoring, since its picks get scored."""
+    if not cfg.prescreen.enabled or scorer is None:
+        return None
+    _, profile, resumes = _profile_and_resumes(cfg)
+    log.info("AI pre-screen on: jobs the keywords turn down get a second look every %d min",
+             cfg.prescreen.interval // 60)
+    return Prescreener(cfg.prescreen, cfg.scoring, store, profile, resumes, client=scorer.client)
+
+
 def make_scorer(cfg: Config, store: Store) -> Scorer | None:
     if not cfg.scoring.enabled:
         log.info("AI scoring off (scoring.enabled: false); alerts use keywords only")
         return None
-    profile_path = cfg.resolve(cfg.scoring.profile_path)
-    profile = profile_path.read_text(encoding="utf-8") if profile_path.is_file() else ""
-    resumes = load_resumes(cfg.resolve(cfg.scoring.resume_dir))
+    profile_path, profile, resumes = _profile_and_resumes(cfg)
     if not profile and not resumes:
         log.warning("Scoring enabled but there's no %s and no resumes in %s; alerts will use keywords only",
                     profile_path, cfg.resolve(cfg.scoring.resume_dir))
@@ -62,7 +77,8 @@ async def open_runner(cfg: Config, *, dry_run: bool = False, memory_store: bool 
     notifier = Notifier(cfg.notify, dry_run=dry_run)
     homeassistant = None if dry_run else make_homeassistant(cfg)
     try:
-        yield Runner(cfg, store, http, notifier, None if dry_run else make_scorer(cfg, store), homeassistant)
+        scorer = None if dry_run else make_scorer(cfg, store)
+        yield Runner(cfg, store, http, notifier, scorer, homeassistant, make_prescreener(cfg, store, scorer))
     finally:
         store.add_host_stats(http.drain_stats())
         await http.aclose()
@@ -109,6 +125,11 @@ async def cmd_poll(cfg: Config, args) -> int:
             else:
                 note = "baseline (silent)" if res.baseline else f"{res.new} new, {len(res.matched)} matched, {res.alerted} alerted"
                 print(f"{board.key:45} {res.fetched:5} jobs  {note}")
+        if not args.dry_run and runner.prescreener:
+            counts = await runner.run_prescreen(boards)
+            if counts:
+                print("\nAI pre-screen of jobs the keywords turned down: "
+                      + ", ".join(f"{n} {k}" for k, n in sorted(counts.items())))
         if args.dry_run and all_matches:
             print(f"\nMatches published in the last {cfg.criteria.max_age_days} days (would alert if new):")
             for j in sorted(all_matches, key=lambda j: j.published_at or utcnow(), reverse=True):
