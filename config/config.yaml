@@ -248,7 +248,8 @@ aggregators:
       - {keyword: "systems engineer", location: "Oregon"}
   adzuna:                   # free key: https://developer.adzuna.com/signup
     enabled: true           # skipped until ADZUNA_APP_ID and ADZUNA_APP_KEY are set in .env
-    # Free plan is ~2500 calls/month: 12 searches every 4 h = ~2200. Searches only look 2 days back.
+    # Free key is a 25-call trial (user saw this on the dashboard 2026-11-06), enough for one test, not
+    # for polling: 12 searches every 4 h = ~2200 calls/month needs a paid plan from Adzuna. Searches look 2 days back.
     interval: 14400
     country: us             # default; a search can set its own: gb de fr nl ch at it es pl in sg br mx ca au
     searches:
