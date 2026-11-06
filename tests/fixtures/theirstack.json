@@ -1,0 +1,15 @@
+{"metadata": {"total_results": null, "total_companies": null, "truncated_results": 0, "truncated_companies": 0},
+ "data": [
+  {"id": 7712345, "job_title": "Accelerator Physicist ", "url": "https://www.linkedin.com/jobs/view/111",
+   "final_url": "https://boards.example.com/acme/jobs/42", "source_url": "https://www.linkedin.com/jobs/view/111",
+   "date_posted": "2026-11-05", "discovered_at": "2026-11-05T14:02:11.123456", "company": "Acme Beams",
+   "company_object": {"name": "Acme Beams Inc", "domain": "acmebeams.example"},
+   "location": "Livermore, CA", "long_location": "Livermore, California, United States", "remote": false, "hybrid": false,
+   "salary_string": "$150,000 - $190,000", "min_salary": 150000, "max_salary": 190000, "salary_currency": "USD",
+   "salary_period": "year", "description": "<p>Design <b>RF</b> linac beamlines.</p>", "employment_statuses": ["full_time"]},
+  {"id": 7712399, "job_title": "Plasma Physicist", "url": "https://jobs.example.org/p/9", "final_url": null,
+   "source_url": "https://jobs.example.org/p/9", "date_posted": "2026-11-04", "discovered_at": "2026-11-05T09:00:00",
+   "company": "Fusion Co", "company_object": {"name": null}, "location": null, "long_location": null, "remote": true,
+   "salary_string": "$70/hour", "min_salary": null, "max_salary": null, "salary_currency": null, "salary_period": null,
+   "description": null, "employment_statuses": []}
+ ]}

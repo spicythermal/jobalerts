@@ -16,13 +16,15 @@ def test_shipped_config_loads(monkeypatch):
     assert all(b.interval in cfg.polling.tiers.values() for b in boards if b.watched)
     # Everything ships enabled; aggregators without API keys in .env are skipped, not failed.
     assert cfg.scoring.enabled and cfg.homeassistant.enabled
-    assert {b.source for b in boards if not b.watched} == {"usajobs", "adzuna", "jsearch"}
-    for key in ("USAJOBS_API_KEY", "USAJOBS_EMAIL", "ADZUNA_APP_ID", "ADZUNA_APP_KEY", "RAPIDAPI_KEY"):
+    assert {b.source for b in boards if not b.watched} == {"usajobs", "adzuna", "jsearch", "theirstack"}
+    for key in ("USAJOBS_API_KEY", "USAJOBS_EMAIL", "ADZUNA_APP_ID", "ADZUNA_APP_KEY", "RAPIDAPI_KEY",
+                "THEIRSTACK_API_KEY"):
         monkeypatch.delenv(key, raising=False)
     kept, skipped = without_missing_keys(boards)
     assert len(kept) == sum(c.enabled for c in cfg.companies)
     assert skipped == {"usajobs": ["USAJOBS_API_KEY", "USAJOBS_EMAIL"], "adzuna": ["ADZUNA_APP_ID", "ADZUNA_APP_KEY"],
-                       "jsearch": ["RAPIDAPI_KEY"]}
+                       "jsearch": ["RAPIDAPI_KEY"], "theirstack": ["THEIRSTACK_API_KEY"]}
+    assert [b.key for b in boards if b.source == "theirstack"] == ["theirstack:physics"]
     monkeypatch.setenv("RAPIDAPI_KEY", "k")
     assert {b.source for b in without_missing_keys(boards)[0] if not b.watched} == {"jsearch"}
 

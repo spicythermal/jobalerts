@@ -13,7 +13,7 @@ from pydantic import BaseModel, model_validator
 
 ATS = Literal["greenhouse", "lever", "ashby", "smartrecruiters", "workday", "ultipro",
               "personio", "workable", "bamboohr", "rippling", "breezy", "successfactors"]
-AGGREGATORS = ("usajobs", "adzuna", "jsearch")
+AGGREGATORS = ("usajobs", "adzuna", "jsearch", "theirstack")
 
 _ENV_REF = re.compile(r"\$\{(\w+)\}")
 _LOCALE = re.compile(r"^[a-z]{2}-[A-Z]{2}$")
@@ -103,6 +103,7 @@ class Aggregators(BaseModel):
     usajobs: AggregatorConfig = AggregatorConfig(interval=1800)
     adzuna: AggregatorConfig = AggregatorConfig(interval=3600)
     jsearch: AggregatorConfig = AggregatorConfig(interval=14400)
+    theirstack: AggregatorConfig = AggregatorConfig(interval=86400)
 
 
 class Company(BaseModel):

@@ -19,7 +19,7 @@ poll board ─► new job IDs? ─► keyword filter ─► (optional) Claude fi
   never scraped.
 - **Quiet:** the first poll of a board records what's already open without alerting. A board
   that suddenly lists many new matches sends at most 5 pushes; the rest go to the digest.
-- **Broad net:** USAJobs, Adzuna and JSearch searches catch companies you don't
+- **Broad net:** USAJobs, Adzuna, JSearch and TheirStack searches catch companies you don't
   watch. Each runs once its API key is in `.env` and is skipped until then. Their matches also feed "hiring for your search, not on your watch list"
   suggestions in the digest.
 
@@ -71,11 +71,16 @@ read through their RSS feed, which holds the newest 20 postings.
 `ntfy.sh`. Pick a long random topic name, since anyone who knows it can read it.
 A self-hosted ntfy works too: set `notify.server` and `NTFY_TOKEN`.
 
-**Features switch on from `.env`.** AI scoring, the Home Assistant sensor and the three
+**Features switch on from `.env`.** AI scoring, the Home Assistant sensor and the four
 aggregators are all `enabled: true` in the shipped `config.yaml`, and each one stays idle
 until its keys are in `.env`. So the server needs no edits to tracked files, and `git pull`
 never overwrites a setting. To turn something off for good, set `enabled: false` on your PC,
 commit and push.
+
+**Aggregator budgets.** Adzuna's free key is a 25-call trial; polling needs its £8/month plan
+(500 calls a day). TheirStack charges one credit per job returned (free plan: 200 a month), so
+each TheirStack poll only asks for jobs found since the last poll, and `limit` caps a poll's cost.
+When the credits run out the board reports "out of API credits (402)" and backs off until they refill.
 
 **AI scoring:** put your resumes in `resume_reference/`, fill in `config/profile.md`, and set
 `ANTHROPIC_API_KEY`. Keyword matches are scored 0–100 by

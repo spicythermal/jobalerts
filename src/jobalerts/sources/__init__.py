@@ -11,6 +11,7 @@ from .personio import Personio
 from .rippling import Rippling
 from .smartrecruiters import SmartRecruiters
 from .successfactors import SuccessFactors
+from .theirstack import TheirStack
 from .ultipro import UltiPro
 from .usajobs import USAJobs
 from .workable import Workable
@@ -18,7 +19,7 @@ from .workday import Workday
 
 SOURCES: dict[str, Source] = {s.name: s for s in (
     Greenhouse(), Lever(), Ashby(), SmartRecruiters(), Workday(), UltiPro(), Personio(), Workable(),
-    BambooHR(), Rippling(), Breezy(), SuccessFactors(), USAJobs(), Adzuna(), JSearch())}
+    BambooHR(), Rippling(), Breezy(), SuccessFactors(), USAJobs(), Adzuna(), JSearch(), TheirStack())}
 
 
 def without_missing_keys(boards):

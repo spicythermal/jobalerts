@@ -161,6 +161,7 @@ polling:
     default: 1.0
     boards-api.greenhouse.io: 1.0
     myworkdayjobs.com: 5.0
+    api.theirstack.com: 6.0  # free plan: 10 calls a minute
   failure_alert_threshold: 5   # push a health alert after this many failures in a row
   max_backoff: 3600            # failing boards back off up to this many seconds
   max_alerts_per_poll: 5       # more matches than this from one board -> digest instead
@@ -270,3 +271,16 @@ aggregators:
     interval: 14400
     searches:
       - {query: "physicist R&D manager"}
+  theirstack:               # free key: https://app.theirstack.com (Settings > API Keys)
+    enabled: true           # skipped until THEIRSTACK_API_KEY is set in .env
+    # Each job returned costs 1 credit; the free plan has 200 a month, 25 jobs per call, 10 calls/min.
+    # A poll only asks for jobs TheirStack found since the last poll, newest first, at most `limit`.
+    # 1 search x 6 jobs x once a day = at most ~180 credits a month. Recruiting agencies are left out.
+    interval: 86400
+    searches:
+      - name: physics
+        titles: [physicist, plasma, ion beam, electron beam, charged particle, pulsed power, accelerator physicist]
+        exclude_titles: [intern, internship]
+        countries: [US]     # ISO codes; add more (GB, DE, NL, CH...) only if you raise the credit budget
+        max_age_days: 7     # posted in the last week (the API needs a posted-date filter)
+        limit: 6

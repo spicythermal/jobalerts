@@ -262,3 +262,82 @@ def test_successfactors_rss():
     j = jobs[1]
     assert j.job_id == "1434475900" and "?" not in j.url and j.url.endswith("/1434475900/")
     assert j.published_at.isoformat() == "2026-10-27T07:00:00+00:00" and "BWX Technologies" in j.description
+
+
+def _theirstack(monkeypatch, status=200):
+    """TheirStack source on a mock transport that records each request body."""
+    import json
+    from jobalerts.sources.theirstack import TheirStack
+    monkeypatch.setenv("THEIRSTACK_API_KEY", "ts-key")
+    bodies = []
+
+    def handler(request):
+        assert request.method == "POST" and request.headers["Authorization"] == "Bearer ts-key"
+        bodies.append(json.loads(request.content))
+        return httpx.Response(status, json=load("theirstack.json") if status == 200 else {"detail": "no credits"})
+
+    source = TheirStack()  # fresh instance: the since-window lives on the instance
+    board = Board("theirstack", "physics", "theirstack 'physics'", 86400, {
+        "name": "physics", "titles": ["physicist", "ion beam"], "exclude_titles": ["intern"],
+        "countries": ["US"], "max_age_days": 7, "limit": 40})
+
+    def poll():
+        async def go():
+            http = mock_http(handler)
+            try:
+                return await source.fetch(board, http)
+            finally:
+                await http.aclose()
+        return run(go())
+    return poll, bodies
+
+
+def test_theirstack_request_and_parsing(monkeypatch):
+    poll, bodies = _theirstack(monkeypatch)
+    a, b = poll()
+    body = bodies[0]
+    assert body["job_title_or"] == ["physicist", "ion beam"] and body["job_title_not"] == ["intern"]
+    assert body["job_country_code_or"] == ["US"] and body["posted_at_max_age_days"] == 7
+    assert body["limit"] == 25  # capped at the free plan's page size
+    assert body["company_type"] == "direct_employer" and "job_description_contains_or" not in body
+
+    assert a.key == "theirstack::7712345" and a.title == "Accelerator Physicist"
+    assert a.company == "Acme Beams Inc"
+    assert a.url == "https://boards.example.com/acme/jobs/42"  # employer page, not the LinkedIn listing
+    assert a.location == "Livermore, California, United States" and not a.remote
+    assert a.published_at.isoformat() == "2026-11-05T00:00:00+00:00"
+    assert a.salary == "$150K-190K/yr" and a.description == "Design RF linac beamlines."
+
+    assert b.company == "Fusion Co" and b.url == "https://jobs.example.org/p/9"
+    assert b.remote and b.location == "Remote" and b.description == ""
+    assert b.salary == "$70/hour"  # no numbers: falls back to salary_string
+
+
+def test_theirstack_only_asks_for_jobs_found_since_last_poll(monkeypatch):
+    from datetime import datetime, timedelta, timezone
+    poll, bodies = _theirstack(monkeypatch)
+    before = datetime.now(timezone.utc)
+    poll()
+    poll()
+    first, second = (datetime.fromisoformat(b["discovered_at_gte"].replace("Z", "+00:00")) for b in bodies)
+    # first poll after a start looks back one interval; the next one starts where the first began
+    assert abs((before - timedelta(seconds=86400)) - first) < timedelta(seconds=5)
+    assert before - timedelta(seconds=1) <= second <= datetime.now(timezone.utc)
+
+
+def test_theirstack_out_of_credits(monkeypatch):
+    poll, bodies = _theirstack(monkeypatch, status=402)
+    with pytest.raises(RuntimeError, match="out of API credits"):
+        poll()
+    with pytest.raises(RuntimeError):
+        poll()
+    # a failed poll doesn't move the window, so the jobs are asked for again once credits are back
+    assert bodies[0]["discovered_at_gte"] == bodies[1]["discovered_at_gte"]
+
+
+def test_theirstack_needs_key(monkeypatch):
+    from jobalerts.sources.theirstack import TheirStack
+    monkeypatch.delenv("THEIRSTACK_API_KEY", raising=False)
+    assert TheirStack().missing_keys() == ["THEIRSTACK_API_KEY"]
+    with pytest.raises(SourceConfigError):
+        fetch("theirstack", Board("theirstack", "x", "x", 86400, {"titles": ["physicist"]}), {})
