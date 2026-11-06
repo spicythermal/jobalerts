@@ -21,8 +21,10 @@ _ULTIPRO = re.compile(r"https?://(recruiting\d*\.ultipro\.com)/([A-Za-z0-9]+)/Jo
 
 
 class Criteria(BaseModel):
-    title_include: list[str] = []        # any phrase must appear in the title (empty = everything)
+    title_field: list[str] = []          # field words: pass the title and override title_exclude_soft
+    title_include: list[str] = []        # role words: pass the title (field + include empty = everything)
     title_exclude: list[str] = []        # any phrase rejects the job
+    title_exclude_soft: list[str] = []   # rejects the job unless the title also has a field word
     seniority_exclude: list[str] = []    # e.g. intern, junior, principal - matched against the title
     description_exclude: list[str] = []  # e.g. "security clearance" - matched against the description
     locations: list[str] = []            # any phrase must appear in the location (empty = anywhere)

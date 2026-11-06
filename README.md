@@ -45,9 +45,13 @@ Then edit the config (next section), and run `jobalerts test-notify` to check yo
 | `resume_reference/` | Your resumes (PDF, `.md` or `.txt`). AI scoring compares every posting against all of them. Committed (private repo) and mounted read-only into the container. |
 | `config/profile.md` | What the resumes don't say: target roles, location, salary floor, deal-breakers. |
 
-**Criteria** (`config.yaml` → `criteria`) are case-insensitive whole-word phrases.
-`title_include` must match. `title_exclude`, `seniority_exclude` and `description_exclude`
-reject a job. `locations` must match unless the job is remote and `allow_remote: true`; an
+**Criteria** (`config.yaml` → `criteria`) are case-insensitive whole-word phrases that also
+match plurals ("beam" matches "Beams"); a `*` at either end lets a phrase run into a longer word
+("*physicist" matches "Cryophysicist", "research*" matches "Researcher"). A title passes with a
+`title_field` word (the work: plasma, ion beam, laser…) or a `title_include` word (the role:
+scientist, systems engineer, group lead…). `title_exclude`, `seniority_exclude` and
+`description_exclude` always reject a job; `title_exclude_soft` rejects it unless the title has a
+field word ("Applied Plasma Data Scientist" stays, "Data Scientist, Marketing" goes). `locations` must match unless the job is remote and `allow_remote: true`; an
 empty list (the shipped default) means anywhere, and the AI score ranks by `profile.md`.
 
 **Adding companies:**

@@ -59,11 +59,51 @@ def test_empty_criteria_passes_everything():
     assert JobFilter(Criteria()).check_basic(job("Anything", "Mars"))[0]
 
 
+def test_plurals_wildcards_and_spacing():
+    f = JobFilter(Criteria(title_include=["beam", "*physicist", "research*", "group lead*"]))
+    assert f.check_basic(job("Design Engineer - Neutral Beams"))[0]
+    assert f.check_basic(job("Cryophysicist"))[0] and f.check_basic(job("Physicists wanted"))[0]
+    assert f.check_basic(job("QEC Researcher"))[0]
+    assert f.check_basic(job("Group  Leader,   Ion Optics"))[0]  # runs of spaces don't matter
+    assert not f.check_basic(job("Beamforming Engineer"))[0]     # no * at the end: whole word only
+
+
+def test_field_words_beat_soft_excludes_only():
+    f = JobFilter(Criteria(title_field=["plasma"], title_include=["engineer"], title_exclude=["intern"],
+                           title_exclude_soft=["data scientist"]))
+    assert f.check_basic(job("Senior Applied Plasma Data Scientist"))[0]
+    ok, why = f.check_basic(job("Data Scientist, Marketing"))
+    assert not ok and "data scientist" in why
+    assert not f.check_basic(job("Plasma Engineering Intern"))[0]  # a hard exclude still wins
+    assert f.check_basic(job("Plasma Physicist"))[1] == "title matched 'plasma'"
+
+
+def test_shipped_config_catches_measured_misses():
+    """Titles the old filter dropped in a replay of all watched boards (2026-11-06)."""
+    from conftest import REPO
+    from jobalerts.config import load_config
+    f = JobFilter(load_config(REPO / "config" / "config.yaml").criteria)
+    for title in ["Cryophysicist", "Laser Diagnostician", "Senior Design Engineer - Neutral Beams", "Researcher",
+                  "Control Software Engineer - Particle Accelerators", "Principal Applied Plasma Data Scientist",
+                  "Process Engineer - Ion Implant", "Neutronics Engineer", "Technical Project Manager - Implosion",
+                  "Applied Engineering Mechanics Group Leader"]:
+        assert f.check_basic(job(title))[0], title
+    for title in ["Clinical Support Specialist - West", "Nuclear Welder (GTAW, SMAW)", "Working Student - Laser PMO",
+                  "Sourcing Manager, Mechanical & Optical Commodities", "Master Thesis - Plasma Simulation"]:
+        assert not f.check_basic(job(title))[0], title
+
+
 def test_shipped_config_drops_non_english_internships():
     from conftest import REPO
     from jobalerts.config import load_config
     f = JobFilter(load_config(REPO / "config" / "config.yaml").criteria)
     assert not f.check_basic(job("Stage Bac+5 - Pilotage par IA d'une chaîne de simulation F/H", "Elancourt"))[0]
     assert not f.check_basic(job("Werkstudent Physik (m/w/d)", "München"))[0]
+    for title in ["STAGE - Ingénieure / Ingénieur GNC", "STAGE- Ingénieur Matériaux", "STAGE  –  Ingénieur Optique",
+                  "STAGE 2027 - Ingénieur Métrologie", "Stage Ingénieur Laser (H/F)"]:
+        assert not f.check_basic(job(title, "Toulouse"))[0], title
+    # a rocket stage is not a French internship
+    assert f.check_basic(job("Stage Test Engineer - Plasma Thrusters"))[0]
+    assert f.check_basic(job("Physicist, Stage-Gate R&D"))[0]
     assert f.check_basic(job("Physiker für Beschleunigertechnik (m/w/d)", "Darmstadt"))[0]
     assert f.check_basic(job("Accelerator Physicist", "Lund, Sweden"))[0]  # no location filter any more

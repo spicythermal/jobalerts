@@ -53,6 +53,9 @@ class TheirStack(Source):
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 402:
                 raise RuntimeError("TheirStack is out of API credits (402); the free plan refills monthly") from e
+            if e.response.status_code in (401, 403):
+                raise SourceConfigError(f"TheirStack refused the key ({e.response.status_code}): check "
+                                        "THEIRSTACK_API_KEY in .env (the whole key, three dot-separated parts)") from e
             raise
         self._since[board.key] = started
         return [self._job(d) for d in data.get("data", [])]

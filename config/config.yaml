@@ -8,16 +8,21 @@ companies_file: companies.yaml      # relative to this file
 # ---------------------------------------------------------------- what to match
 # An example for R&D leadership roles (ion/electron/plasma physics,
 # systems engineering, simulation/HPC). A wide net on purpose: AI scoring ranks what gets through.
-# Phrases are case-insensitive whole words.
 criteria:
-  title_include:            # a job must match at least one (empty = every title)
+  # Phrases are case-insensitive whole words, plurals included ("beam" matches "Beams").
+  # A * at either end lets the phrase run into a longer word: "*physicist" matches
+  # "Cryophysicist", "diagnostic*" matches "Diagnostician", "research*" matches "Researcher".
+  #
+  # A title passes when it has a field word or a role word, and no exclude word.
+  title_field:              # the work itself; also overrides title_exclude_soft
     # physics and beam/plasma domain
-    - physicist
+    - "*physicist"
     - physics
     - plasma
     - ion beam
     - ion optics
     - ion source
+    - ion implant
     - electron beam
     - e-beam
     - electron optics
@@ -26,20 +31,52 @@ criteria:
     - fib
     - accelerator
     - beam
+    - beamline
     - fusion
+    - implosion
+    - neutronics
     - pulsed power
     - high voltage
     - vacuum
     - rf
     - microwave
-    - microscopy
+    - "microscop*"          # microscopy, microscopist, microscope
+    - "diagnostic*"         # diagnostics, diagnostician
+    - "spectroscop*"
+    - "spectromet*"
+    - detector
+    - x-ray
+    - radiation
+    - nuclear
+    - reactor
+    - magnet
+    - "superconduct*"
+    - "cryogenic*"
+    # optics, photonics and semiconductor process
+    - laser
+    - photonics
+    - optics
+    - optical
+    - "electro-optic*"
+    - light source
+    - euv
     - lithography
     - metrology
-    - optics
-    - diagnostics
+    - etch
+    - deposition
+    - thin film
+    # common non-English titles (DE, FR, ES/PT, NL)
+    - "physiker*"
+    - "physicien*"
+    - físico
+    - física
+    - fysicus
+    - "beschleuniger*"
+  title_include:            # the kind of role
     # science and R&D roles
     - scientist
-    - research
+    - "research*"           # research, researcher
+    - scientific
     - r&d
     - rd&e
     - technology development
@@ -56,13 +93,13 @@ criteria:
     - chief engineer
     - technical lead
     - technologist
+    - member of technical staff
+    - distinguished engineer
     # leadership
-    - group leader
-    - group lead
-    - team lead
+    - "group lead*"         # group lead, group leader
+    - "team lead*"
     - engineering manager
     - manager, engineering
-    - r&d manager
     - research manager
     - director of engineering
     - director, engineering
@@ -83,21 +120,13 @@ criteria:
     - scientific computing
     - research software
     # common non-English titles (DE, FR, ES/PT, NL)
-    - physiker
-    - physikerin
-    - physicien
-    - physicienne
-    - físico
-    - física
-    - fysicus
-    - wissenschaftler
-    - entwicklungsingenieur
-    - beschleuniger
+    - "wissenschaftler*"
+    - "entwicklungsingenieur*"
     - ingénieur de recherche
-    - chercheur
-    - pesquisador
-    - investigador
-  title_exclude:
+    - "chercheur*"
+    - "pesquisador*"
+    - "investigador*"
+  title_exclude:            # always drops the job, whatever else the title says
     - sales
     - account executive
     - account manager
@@ -109,17 +138,26 @@ criteria:
     - field service
     - service engineer
     - technician
+    - welder               # trades: "Nuclear Welder" is not a physics job
+    - machinist
+    - assembler
+    - inspector
+    - toolmaker
     - postdoc
     - postdoctoral
-    - clinical
-    - data scientist
-    - market research
-    - user research
-    - ux research
     - legal
     - counsel
     - finance
     - accounting
+    - sourcing
+    - procurement
+    - buyer
+  title_exclude_soft:       # drops the job unless the title also has a title_field word
+    - clinical              # "Clinical Specialist" goes, "Clinical Physicist" stays
+    - data scientist        # "Applied Plasma Data Scientist" stays
+    - market research
+    - user research
+    - ux research
   seniority_exclude:        # checked against the title, like title_exclude
     - intern
     - internship
@@ -127,15 +165,29 @@ criteria:
     - junior
     - entry level
     - new grad
+    - recent graduate
     - graduate program
+    - early career
     - trainee
     - apprentice
-    # internships and student jobs in DE, FR, ES/PT
+    - student               # working student, summer student
+    - thesis
+    # internships and student jobs in DE, FR, ES/PT. French internships start with
+    # "Stage -", "Stage 2027", "Stage Ingénieur"...; a rocket "Stage Test Engineer" is not one.
     - praktikum
-    - praktikant
-    - werkstudent
+    - "praktikant*"
+    - "werkstudent*"
     - abschlussarbeit
-    - stage
+    - masterarbeit
+    - bachelorarbeit
+    - stage -
+    - stage-
+    - stage –
+    - "stage 20*"
+    - stage de
+    - stage en
+    - "stage ingénieur*"
+    - "stage bac*"
     - stagiaire
     - alternance
     - apprenti

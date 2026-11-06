@@ -341,3 +341,9 @@ def test_theirstack_needs_key(monkeypatch):
     assert TheirStack().missing_keys() == ["THEIRSTACK_API_KEY"]
     with pytest.raises(SourceConfigError):
         fetch("theirstack", Board("theirstack", "x", "x", 86400, {"titles": ["physicist"]}), {})
+
+
+def test_theirstack_bad_key(monkeypatch):
+    poll, _ = _theirstack(monkeypatch, status=401)
+    with pytest.raises(SourceConfigError, match="THEIRSTACK_API_KEY"):
+        poll()
