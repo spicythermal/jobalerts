@@ -30,6 +30,18 @@ the median ratio of RPP housing + utilities to 4-bedroom FMR across metros. Plac
 (states) use RPP housing + utilities. The weights that combine the RPP parts are fitted to the
 all-items RPP when the data is built. Countries abroad keep the World Bank price level.
 
+Renting or buying (pay.buy): every US place gets a second price level for a family that buys. The
+housing share is then priced at the monthly cost of owning a typical 4-bedroom home there instead
+of the 4-bedroom FMR, on the same dollar scale:
+
+    own cost / month = (loan x mortgage rate + price x (property tax + upkeep)) / 12 + utilities
+
+with the price from Zillow's 4-bedroom Home Value Index (metro, else state), the loan the price less
+the down payment, and the 30-year rate from Freddie Mac's weekly survey (PMMS). Paying
+down principal is saving, not cost, so it's left out; so are the mortgage-interest deduction and
+what the down payment would have earned. The buy index compares buying there with buying at the
+reference location at today's prices and rates.
+
 Benefits, bonus and equity are not included; this is base pay against prices.
 """
 from __future__ import annotations
@@ -40,7 +52,7 @@ import json
 import logging
 import re
 import zipfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 
@@ -56,6 +68,12 @@ BEA_PARTS = {"2": "goods", "3": "housing", "4": "utilities", "5": "other"}  # RP
 FMR_URL = "https://services.arcgis.com/VTyQ9soqVukalItT/arcgis/rest/services/Fair_Market_Rents/FeatureServer/0"
 WB_URL = "https://api.worldbank.org/v2/country/all/indicator/{}?format=json&date={}:{}&per_page=20000"
 WB_PPP, WB_FX = "PA.NUS.PRVT.PP", "PA.NUS.FCRF"
+# Zillow Home Value Index, 4 bedrooms, middle tier (free research data; attribution to Zillow required).
+ZILLOW_URLS = {
+    "msa": "https://files.zillowstatic.com/research/public_csvs/zhvi/Metro_zhvi_bdrmcnt_4_uc_sfrcondo_tier_0.33_0.67_sm_sa_month.csv",
+    "state": "https://files.zillowstatic.com/research/public_csvs/zhvi/State_zhvi_bdrmcnt_4_uc_sfrcondo_tier_0.33_0.67_sm_sa_month.csv",
+}
+PMMS_URL = "https://www.freddiemac.com/pmms/docs/PMMS_history.csv"  # Freddie Mac's weekly mortgage survey
 
 STATES = {
     "AL": "Alabama", "AK": "Alaska", "AZ": "Arizona", "AR": "Arkansas", "CA": "California", "CO": "Colorado",
@@ -178,26 +196,65 @@ class Pay:
 
 
 @dataclass
+class Ownership:
+    """What buying a home costs besides the price (pay.buy in config.yaml)."""
+    down_payment: float = 0.20               # share of the price
+    property_tax: float = 0.011              # a year, share of the price, where the state isn't listed
+    property_tax_by_state: dict[str, float] = field(default_factory=dict)
+    upkeep: float = 0.0075                   # insurance and maintenance a year, share of the price
+    utilities: float = 350.0                 # $/month at US-average utility prices (scaled by the RPP's)
+
+    def monthly(self, price: float, rate_pct: float, state: str, utilities_rpp: float = 100.0) -> float:
+        tax = self.property_tax_by_state.get(state, self.property_tax)
+        yearly = price * (1 - self.down_payment) * rate_pct / 100 + price * (tax + self.upkeep)
+        return yearly / 12 + self.utilities * utilities_rpp / 100
+
+
+@dataclass
 class Place:
     label: str
-    level: float          # price level, US average = 1.0
+    level: float          # price level, US average = 1.0 (renting, with family housing on)
     country: str = "USA"  # ISO3
     state: str = ""       # US state code, when known (for state and local taxes)
     city: str = ""        # lower case, when known (for city taxes)
+    buy_level: float | None = None  # price level for a family that buys a 4-bedroom home (US places only)
+    buy_note: str = ""    # "own $1.87M 4-bed: $12.4K/mo, $374K down"
+
+
+def _money(v: float) -> str:
+    return f"${v / 1e6:.2f}M" if v >= 1e6 else f"${v / 1000:.0f}K" if v >= 10_000 else f"${v / 1000:.1f}K"
 
 
 @dataclass
 class PayResult:
-    index: float          # midpoint of the range
+    index: float          # midpoint of the range (renting)
     low: float
     high: float
     pay: Pay
     place: Place
+    buy_low: float | None = None   # the same with the family buying (None: no home prices for the place)
+    buy_high: float | None = None
+
+    @property
+    def buy_index(self) -> float | None:
+        return None if self.buy_low is None else (self.buy_low + self.buy_high) / 2
+
+    @property
+    def best_high(self) -> float:
+        """Top of the range, renting or buying, whichever is higher: what pay.min_index is checked against."""
+        return max(self.high, self.buy_high or 0.0)
 
     def text(self) -> str:
         """Short form for phone alerts and listings."""
-        spread = f" ({self.low:.2f}-{self.high:.2f})" if round(self.low, 2) != round(self.high, 2) else ""
-        return f"pay index {self.index:.2f}{spread}: {self.pay.text()} in {self.place.label}"
+        def spread(lo: float, hi: float) -> str:
+            return f"{lo:.2f}-{hi:.2f}" if round(lo, 2) != round(hi, 2) else ""
+        if self.buy_low is None:
+            s = spread(self.low, self.high)
+            return f"pay index {self.index:.2f}{f' ({s})' if s else ''}: {self.pay.text()} in {self.place.label}"
+        ranges = ", ".join(f"{k} {v}" for k, v in (("rent", spread(self.low, self.high)),
+                                                    ("buy", spread(self.buy_low, self.buy_high))) if v)
+        return (f"pay index {self.index:.2f} rent · {self.buy_index:.2f} buy{f' ({ranges})' if ranges else ''}: "
+                f"{self.pay.text()} in {self.place.label}; {self.place.buy_note}")
 
 
 def _parts(location: str) -> list[str]:
@@ -389,6 +446,55 @@ def family_level(parts: dict[str, float], weights: dict[str, float], fmr_scale: 
     return ((1 - share) * other + share * housing) / 100
 
 
+def own_level(parts: dict[str, float], weights: dict[str, float], fmr_scale: float, share: float,
+              own_monthly: float) -> float:
+    """Price level with housing at `share` of spending priced at the monthly cost of owning, on the
+    same dollar-to-index scale as the FMR."""
+    return family_level(dict(parts, fmr4=own_monthly), weights, fmr_scale, share)
+
+
+def _zillow_rows(text: str) -> tuple[str, list[tuple[str, str, float]]]:
+    """(latest month, [(region name, state, value)]) from a Zillow ZHVI CSV, latest value per region."""
+    reader = csv.DictReader(io.StringIO(text))
+    months = [h for h in reader.fieldnames or [] if re.fullmatch(r"\d{4}-\d{2}-\d{2}", h)]
+    if not months:
+        raise ValueError("Zillow CSV has no monthly columns")
+    rows, latest = [], ""
+    for r in reader:
+        month = next((m for m in reversed(months) if r.get(m)), None)
+        if month:
+            latest = max(latest, month)
+            rows.append((r["RegionName"], r.get("StateName") or "", float(r[month])))
+    return latest[:7], rows
+
+
+def _metro_home(metro: str, homes: dict[tuple[str, str], float]) -> float | None:
+    """Zillow names a metro by its first city ("San Jose, CA"); BEA lists the principal cities. Try each."""
+    cities, _, states = re.sub(r"\s*\*$|\s*Metropolitan Statistical Area$", "", metro).rpartition(", ")
+    for city in re.split(r"[-/]", cities):
+        for st in states.split("-"):
+            if (v := homes.get((city.strip().lower(), st.strip()))) is not None:
+                return v
+    return None
+
+
+def _pmms_rate(text: str) -> tuple[str, float]:
+    """(ISO date, percent) of the latest 30-year fixed rate in Freddie Mac's PMMS history CSV."""
+    latest = None
+    for r in csv.DictReader(io.StringIO(text)):
+        try:
+            month, day, year = (int(x) for x in r["date"].split("/"))
+            rate = float(r["pmms30"])
+        except (KeyError, ValueError, AttributeError):
+            continue
+        when = date(year, month, day)
+        if latest is None or when > latest[0]:
+            latest = (when, rate)
+    if latest is None:
+        raise ValueError("no 30-year rate in the Freddie Mac PMMS CSV")
+    return latest[0].isoformat(), latest[1]
+
+
 def _wb_values(payload: list) -> dict[str, dict[int, float]]:
     out: dict[str, dict[int, float]] = {}
     for r in payload[1] or []:
@@ -414,6 +520,14 @@ async def build_data(client: httpx.AsyncClient | None = None) -> dict:
             r.raise_for_status()
             wb[code] = _wb_values(r.json())
         fmr_updated, fmr_rows = await _fmr_rows(client)
+        zillow = {}
+        for key, url in ZILLOW_URLS.items():
+            r = await client.get(url)
+            r.raise_for_status()
+            zillow[key] = _zillow_rows(r.text)
+        r = await client.get(PMMS_URL)
+        r.raise_for_status()
+        rate_day, rate = _pmms_rate(r.text)
     finally:
         if own:
             await client.aclose()
@@ -425,6 +539,11 @@ async def build_data(client: httpx.AsyncClient | None = None) -> dict:
     for row in fmr_rows:
         if m := re.match(r"METRO(\d{5})", row.get("FMR_CODE") or ""):
             fmr_areas.setdefault(m.group(1), []).append(row)
+    zillow_month, zillow_metros = zillow["msa"]
+    homes = {}
+    for region, _, value in zillow_metros:
+        city, _, st = region.rpartition(", ")
+        homes[(city.lower(), st)] = value
     for fips, n, v in msa_rows:
         if fips in ("00000", "00999"):
             continue
@@ -434,6 +553,8 @@ async def build_data(client: httpx.AsyncClient | None = None) -> dict:
             metro_parts[name] = dict(msa_parts[fips])
             if fmr := _metro_fmr(fips, name, fmr_areas.get(fips, [])):
                 metro_parts[name]["fmr4"] = fmr
+            if home := _metro_home(name, homes):
+                metro_parts[name]["home4"] = round(home)
     nonmetro = next((v for fips, _, v in msa_rows if fips == "00999"), None)
     states, state_part_map = {}, {}
     for fips, n, v in state_rows:
@@ -441,7 +562,11 @@ async def build_data(client: httpx.AsyncClient | None = None) -> dict:
             st = _STATE_BY_NAME[n.lower()]
             states[st] = v
             if set(BEA_PARTS.values()) <= set(state_parts.get(fips, {})):
-                state_part_map[st] = state_parts[fips]
+                state_part_map[st] = dict(state_parts[fips])
+    state_homes = {_STATE_BY_NAME[name.lower()]: v for name, _, v in zillow["state"][1] if name.lower() in _STATE_BY_NAME}
+    for st, value in state_homes.items():
+        if st in state_part_map:
+            state_part_map[st]["home4"] = round(value)
     fitted = [(metro_parts[k], metros[k]) for k in metro_parts]
     weights = _fit_weights([p for p, _ in fitted], [t for _, t in fitted]) if len(fitted) >= 10 else {}
     ratios = sorted(_housing_rpp(p, weights) / p["fmr4"] for p, _ in fitted if p.get("fmr4")) if weights else []
@@ -459,7 +584,11 @@ async def build_data(client: httpx.AsyncClient | None = None) -> dict:
             "us": f"BEA Regional Price Parities, all items, {msa_year} (MARPP, SARPP)",
             "countries": f"World Bank {WB_PPP} / {WB_FX}, latest year with both, per country",
             "housing": f"HUD Fair Market Rents, 4 bedrooms, metro areas (layer updated {fmr_updated})",
+            "homes": f"Zillow Home Value Index (ZHVI), 4 bedrooms, metro and state, {zillow_month}; "
+                     f"data by Zillow Group",
+            "mortgage": f"Freddie Mac PMMS 30-year fixed rate, week of {rate_day}",
         },
+        "mortgage_rate": rate,
         "us_metros": metros, "us_nonmetro": nonmetro, "us_states": states, "countries": countries,
         "us_metro_parts": metro_parts, "us_state_parts": state_part_map,
         "rpp_weights": weights, "fmr_scale": round(fmr_scale, 6),
@@ -469,7 +598,8 @@ async def build_data(client: httpx.AsyncClient | None = None) -> dict:
 # ---------------------------------------------------------------------------- the index
 class PayIndex:
     def __init__(self, data: dict, reference_salary: float = 155_000, reference_location: str = "Portland, OR",
-                 overrides: dict[str, str] | None = None, taxes: Taxes | None = None, housing_share: float = 0.0):
+                 overrides: dict[str, str] | None = None, taxes: Taxes | None = None, housing_share: float = 0.0,
+                 ownership: Ownership | None = None):
         self.data = data
         self.taxes = taxes
         self.metros: dict[str, float] = data["us_metros"]
@@ -477,6 +607,8 @@ class PayIndex:
         self.countries: dict[str, dict] = data["countries"]
         # Family housing needs the RPP parts and fitted weights (tables built before 2026-11 lack them).
         self.housing_share = housing_share if housing_share > 0 and data.get("rpp_weights") else 0.0
+        # Buying needs family housing on and home prices plus a mortgage rate (tables built before 2026-11-08 lack them).
+        self.ownership = ownership if self.housing_share and data.get("mortgage_rate") else None
         self.overrides = {k.lower(): v for k, v in (overrides or {}).items()}
         self._cities: dict[tuple[str, str], str] = {}
         for name in self.metros:
@@ -490,6 +622,9 @@ class PayIndex:
         if home is None:
             raise ValueError(f"pay.reference_location {reference_location!r} isn't a known place")
         self.home = home
+        if self.ownership and home.buy_level is None:
+            log.warning("Buy index off: no home price for %s", home.label)
+            self.ownership = None
 
     @classmethod
     def load(cls, path: Path, **kwargs) -> PayIndex:
@@ -504,16 +639,39 @@ class PayIndex:
         rent = f"4-bedroom FMR ${parts['fmr4']:,}" if parts.get("fmr4") else "RPP rents"
         return level, f"RPP {rpp:.1f}; family {level * 100:.1f} with {self.housing_share:.0%} housing at {rent}"
 
+    def own_monthly(self, parts: dict | None, state: str) -> float | None:
+        """Monthly cost of owning the place's typical 4-bedroom home; None without home prices."""
+        if not self.ownership or not parts or not parts.get("home4"):
+            return None
+        return self.ownership.monthly(parts["home4"], self.data["mortgage_rate"], state, parts.get("utilities", 100.0))
+
+    def _buy(self, parts: dict | None, state: str) -> tuple[float | None, str]:
+        """(price level when buying, note) for a US metro or state."""
+        own = self.own_monthly(parts, state)
+        if own is None:
+            return None, ""
+        level = own_level(parts, self.data["rpp_weights"], self.data["fmr_scale"], self.housing_share, own)
+        price = parts["home4"]
+        return level, (f"own {_money(price)} 4-bed at {self.data['mortgage_rate']:.2f}%: "
+                       f"{_money(own)}/mo, {_money(price * self.ownership.down_payment)} down")
+
     def _metro(self, name: str, state: str = "", city: str = "") -> Place:
         state = state or name.rpartition(", ")[2].split("-")[0]  # the metro's first state
-        level, how = self._level(self.metros[name], (self.data.get("us_metro_parts") or {}).get(name))
-        return Place(f"{name} metro ({how})", level, "USA", state, city)
+        parts = (self.data.get("us_metro_parts") or {}).get(name)
+        level, how = self._level(self.metros[name], parts)
+        state_home = ((self.data.get("us_state_parts") or {}).get(state) or {}).get("home4")
+        if parts and not parts.get("home4") and state_home:  # Zillow doesn't list every metro: the state's value
+            parts = dict(parts, home4=state_home)
+        buy, note = self._buy(parts, state)
+        return Place(f"{name} metro ({how})", level, "USA", state, city, buy, note)
 
     def _state(self, st: str, city: str = "") -> Place | None:
         if st not in self.states:
             return None
-        level, how = self._level(self.states[st], (self.data.get("us_state_parts") or {}).get(st))
-        return Place(f"{STATES[st]} (state {how})", level, "USA", st, city)
+        parts = (self.data.get("us_state_parts") or {}).get(st)
+        level, how = self._level(self.states[st], parts)
+        buy, note = self._buy(parts, st)
+        return Place(f"{STATES[st]} (state {how})", level, "USA", st, city, buy, note)
 
     def _country(self, iso3: str) -> Place | None:
         if iso3 == "USA":
@@ -615,10 +773,15 @@ class PayIndex:
         lo_usd, hi_usd = self.to_usd(lo, currency), self.to_usd(hi, currency)
         if lo_usd is None or hi_usd is None:
             return None
-        reference = self._net(self.reference_salary, self.home) / self.home.level
-        low, high = (self._net(lo_usd, place) / place.level / reference,
-                     self._net(hi_usd, place) / place.level / reference)
-        return PayResult((low + high) / 2, low, high, Pay(pay.low, pay.high, currency, pay.period), place)
+        ref_net, net_lo, net_hi = self._net(self.reference_salary, self.home), self._net(lo_usd, place), self._net(hi_usd, place)
+        reference = ref_net / self.home.level
+        low, high = net_lo / place.level / reference, net_hi / place.level / reference
+        buy_low = buy_high = None
+        if self.ownership and place.buy_level:
+            buy_ref = ref_net / self.home.buy_level
+            buy_low, buy_high = net_lo / place.buy_level / buy_ref, net_hi / place.buy_level / buy_ref
+        return PayResult((low + high) / 2, low, high, Pay(pay.low, pay.high, currency, pay.period), place,
+                         buy_low, buy_high)
 
 
 # ---------------------------------------------------------------------------- keeping the data current
@@ -629,7 +792,7 @@ class PayIndex:
 MIN_METROS, MIN_STATES, MIN_COUNTRIES = 300, 50, 30
 
 
-def check_data(data: dict, reference_location: str, housing_share: float = 0.4) -> None:
+def check_data(data: dict, reference_location: str, housing_share: float = 0.4, buy: bool = False) -> None:
     """Raises ValueError if a freshly built table looks broken."""
     if len(data.get("us_metros") or {}) < MIN_METROS:
         raise ValueError(f"only {len(data.get('us_metros') or {})} US metro areas")
@@ -650,6 +813,14 @@ def check_data(data: dict, reference_location: str, housing_share: float = 0.4) 
         levels = [family_level(p, weights, data["fmr_scale"], housing_share) for p in parts.values()]
         if not all(0.5 < v < 2.5 for v in levels):
             raise ValueError("a family price level is outside 0.5-2.5")
+    if buy and housing_share:
+        homes = [p["home4"] for p in (data.get("us_metro_parts") or {}).values() if p.get("home4")]
+        if len(homes) < MIN_METROS:
+            raise ValueError(f"only {len(homes)} metros with a Zillow home value")
+        if not all(50_000 < v < 10_000_000 for v in homes):
+            raise ValueError("a metro home value is outside $50K-10M")
+        if not 1 < (data.get("mortgage_rate") or 0) < 20:
+            raise ValueError(f"mortgage rate {data.get('mortgage_rate')} is outside 1-20%")
     PayIndex(data, reference_location=reference_location, housing_share=housing_share)  # home must still resolve
 
 

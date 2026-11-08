@@ -34,7 +34,8 @@ missing a good one costs a lot. Be inclusive when in doubt.
 Say no to roles plainly outside the candidate's field or level: HR, finance, legal, sales, marketing, \
 facilities, trades and technicians, entry-level, and software or IT work unrelated to physics, \
 hardware or scientific computing. Generic engineering titles (for example "Principal Electrical \
-Engineer") at companies in the candidate's industries deserve a closer look.
+Engineer") at companies in the candidate's industries deserve a closer look, and so do stretch roles \
+a level or two above the candidate's current one (manager of managers, director, head of a function).
 
 {resumes}
 

@@ -130,3 +130,22 @@ def test_old_ai_usage_table_gets_cache_columns(tmp_path):
     store.record_ai_call(100, 10, cache_read_tokens=50)
     rows = store.ai_usage_since("2026-10-01")
     assert [(r["calls"], r["cache_read_tokens"]) for r in rows] == [(3, 0), (1, 50)]
+
+
+def test_top_step_ups_rank_by_the_step_up_score():
+    store = Store(":memory:")
+    for n, (score, step_up) in enumerate([(90, 20), (55, 85), (70, 60)], 1):
+        store.insert_job(job(n), "processing")
+        store.update_job(f"greenhouse:acme:{n}", status="digest", score=score, step_up=step_up,
+                         step_up_note=f"note {n}")
+    store.insert_job(job(4), "alert")                                      # no AI score: not a step-up candidate
+    flt = JobFilter(Config.model_validate({"criteria": CRITERIA}).criteria)
+    assert [j["url"] for j in top_matches(store, flt, 7, 10)[1]][:3] == ["https://x/1", "https://x/3", "https://x/2"]
+    total, ups = top_matches(store, flt, 7, 2, by="step_up")
+    assert total == 4 and [(j["url"], j["step_up_note"]) for j in ups] == [("https://x/2", "note 2"), ("https://x/3", "note 3")]
+
+
+def test_sensor_attributes_carry_the_step_ups():
+    pub = MqttPublisher(HomeAssistant(mqtt_host="h"))
+    attrs = json.loads(pub.messages(1, [{"company": "A", "title": "T"}], None, [{"title": "Director"}])[1][1])
+    assert attrs["step_ups"] == [{"title": "Director"}]

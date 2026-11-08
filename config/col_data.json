@@ -248,6 +248,7 @@
   }
  },
  "fmr_scale": 0.039419,
+ "mortgage_rate": 7.18,
  "rpp_weights": {
   "goods": 0.2977,
   "housing": 0.17,
@@ -256,13 +257,16 @@
  },
  "sources": {
   "countries": "World Bank PA.NUS.PRVT.PP / PA.NUS.FCRF, latest year with both, per country",
+  "homes": "Zillow Home Value Index (ZHVI), 4 bedrooms, metro and state, 2026-09; data by Zillow Group",
   "housing": "HUD Fair Market Rents, 4 bedrooms, metro areas (layer updated 2025-09-30)",
+  "mortgage": "Freddie Mac PMMS 30-year fixed rate, week of 2026-11-05",
   "us": "BEA Regional Price Parities, all items, 2024 (MARPP, SARPP)"
  },
  "us_metro_parts": {
   "Abilene, TX": {
    "fmr4": 1987,
    "goods": 93.757,
+   "home4": 372016,
    "housing": 73.791,
    "other": 96.24,
    "utilities": 81.162
@@ -270,6 +274,7 @@
   "Akron, OH": {
    "fmr4": 1681,
    "goods": 93.628,
+   "home4": 384522,
    "housing": 76.785,
    "other": 98.939,
    "utilities": 96.448
@@ -277,6 +282,7 @@
   "Albany, GA": {
    "fmr4": 1858,
    "goods": 96.269,
+   "home4": 290938,
    "housing": 54.626,
    "other": 98.667,
    "utilities": 88.272
@@ -284,6 +290,7 @@
   "Albany, OR": {
    "fmr4": 2356,
    "goods": 105.261,
+   "home4": 509233,
    "housing": 101.059,
    "other": 100.298,
    "utilities": 104.816
@@ -291,6 +298,7 @@
   "Albany-Schenectady-Troy, NY": {
    "fmr4": 2253,
    "goods": 99.693,
+   "home4": 478859,
    "housing": 102.582,
    "other": 97.754,
    "utilities": 134.048
@@ -298,6 +306,7 @@
   "Albuquerque, NM": {
    "fmr4": 2399,
    "goods": 96.144,
+   "home4": 441656,
    "housing": 89.153,
    "other": 98.54,
    "utilities": 77.852
@@ -305,6 +314,7 @@
   "Alexandria, LA": {
    "fmr4": 1523,
    "goods": 93.691,
+   "home4": 311017,
    "housing": 53.684,
    "other": 95.705,
    "utilities": 71.076
@@ -312,6 +322,7 @@
   "Allentown-Bethlehem-Easton, PA-NJ": {
    "fmr4": 2195,
    "goods": 100.569,
+   "home4": 508816,
    "housing": 105.52,
    "other": 97.752,
    "utilities": 107.591
@@ -319,6 +330,7 @@
   "Altoona, PA": {
    "fmr4": 1705,
    "goods": 100.684,
+   "home4": 233646,
    "housing": 54.978,
    "other": 97.726,
    "utilities": 107.673
@@ -326,6 +338,7 @@
   "Amarillo, TX": {
    "fmr4": 1742,
    "goods": 93.757,
+   "home4": 366485,
    "housing": 78.38,
    "other": 96.24,
    "utilities": 83.474
@@ -333,6 +346,7 @@
   "Ames, IA": {
    "fmr4": 1934,
    "goods": 93.73,
+   "home4": 351522,
    "housing": 69.163,
    "other": 92.927,
    "utilities": 83.004
@@ -347,6 +361,7 @@
   "Anchorage, AK": {
    "fmr4": 2736,
    "goods": 107.34,
+   "home4": 545215,
    "housing": 109.905,
    "other": 103.342,
    "utilities": 111.772
@@ -354,6 +369,7 @@
   "Ann Arbor, MI": {
    "fmr4": 2193,
    "goods": 93.711,
+   "home4": 552249,
    "housing": 125.3,
    "other": 99.561,
    "utilities": 98.184
@@ -361,6 +377,7 @@
   "Anniston-Oxford, AL": {
    "fmr4": 1361,
    "goods": 96.397,
+   "home4": 276208,
    "housing": 54.705,
    "other": 96.693,
    "utilities": 87.127
@@ -368,6 +385,7 @@
   "Appleton, WI": {
    "fmr4": 1776,
    "goods": 93.787,
+   "home4": 393451,
    "housing": 70.785,
    "other": 99.411,
    "utilities": 90.588
@@ -375,6 +393,7 @@
   "Asheville, NC": {
    "fmr4": 2629,
    "goods": 96.621,
+   "home4": 628780,
    "housing": 93.371,
    "other": 98.186,
    "utilities": 88.63
@@ -382,6 +401,7 @@
   "Athens-Clarke County, GA": {
    "fmr4": 1831,
    "goods": 96.269,
+   "home4": 471563,
    "housing": 76.759,
    "other": 98.667,
    "utilities": 89.257
@@ -389,6 +409,7 @@
   "Atlanta-Sandy Springs-Roswell, GA": {
    "fmr4": 2605,
    "goods": 100.416,
+   "home4": 440404,
    "housing": 111.022,
    "other": 96.701,
    "utilities": 96.239
@@ -396,6 +417,7 @@
   "Atlantic City-Hammonton, NJ": {
    "fmr4": 2851,
    "goods": 99.79,
+   "home4": 532623,
    "housing": 98.673,
    "other": 97.925,
    "utilities": 109.204
@@ -403,6 +425,7 @@
   "Auburn-Opelika, AL": {
    "fmr4": 1699,
    "goods": 96.397,
+   "home4": 439418,
    "housing": 62.078,
    "other": 96.693,
    "utilities": 83.889
@@ -410,6 +433,7 @@
   "Augusta-Richmond County, GA-SC": {
    "fmr4": 1984,
    "goods": 96.293,
+   "home4": 343651,
    "housing": 70.603,
    "other": 98.54,
    "utilities": 89.473
@@ -417,6 +441,7 @@
   "Austin-Round Rock-San Marcos, TX": {
    "fmr4": 2760,
    "goods": 93.757,
+   "home4": 477277,
    "housing": 120.361,
    "other": 96.24,
    "utilities": 82.044
@@ -424,6 +449,7 @@
   "Bakersfield-Delano, CA": {
    "fmr4": 2488,
    "goods": 105.168,
+   "home4": 434910,
    "housing": 90.291,
    "other": 100.267,
    "utilities": 158.257
@@ -431,6 +457,7 @@
   "Baltimore-Columbia-Towson, MD": {
    "fmr4": 2611,
    "goods": 102.353,
+   "home4": 553174,
    "housing": 118.194,
    "other": 101.496,
    "utilities": 110.215
@@ -438,6 +465,7 @@
   "Bangor, ME": {
    "fmr4": 2242,
    "goods": 97.171,
+   "home4": 343055,
    "housing": 77.688,
    "other": 103.191,
    "utilities": 134.759
@@ -445,6 +473,7 @@
   "Barnstable Town, MA": {
    "fmr4": 3428,
    "goods": 97.015,
+   "home4": 1063427,
    "housing": 90.012,
    "other": 101.197,
    "utilities": 158.45
@@ -452,6 +481,7 @@
   "Baton Rouge, LA": {
    "fmr4": 1943,
    "goods": 93.691,
+   "home4": 357843,
    "housing": 74.183,
    "other": 95.705,
    "utilities": 71.185
@@ -459,6 +489,7 @@
   "Battle Creek, MI": {
    "fmr4": 1565,
    "goods": 93.711,
+   "home4": 259665,
    "housing": 61.045,
    "other": 99.561,
    "utilities": 95.003
@@ -466,6 +497,7 @@
   "Bay City, MI": {
    "fmr4": 1518,
    "goods": 93.711,
+   "home4": 201536,
    "housing": 66.684,
    "other": 99.561,
    "utilities": 95.219
@@ -473,6 +505,7 @@
   "Beaumont-Port Arthur, TX": {
    "fmr4": 1732,
    "goods": 93.757,
+   "home4": 308908,
    "housing": 70.939,
    "other": 96.24,
    "utilities": 83.098
@@ -480,6 +513,7 @@
   "Beckley, WV": {
    "fmr4": 1535,
    "goods": 96.27,
+   "home4": 241091,
    "housing": 52.246,
    "other": 99.806,
    "utilities": 91.774
@@ -487,6 +521,7 @@
   "Bellingham, WA": {
    "fmr4": 3010,
    "goods": 105.028,
+   "home4": 762732,
    "housing": 112.946,
    "other": 99.472,
    "utilities": 99.878
@@ -494,6 +529,7 @@
   "Bend, OR": {
    "fmr4": 2993,
    "goods": 105.261,
+   "home4": 854757,
    "housing": 109.958,
    "other": 100.298,
    "utilities": 104.992
@@ -501,6 +537,7 @@
   "Billings, MT": {
    "fmr4": 2216,
    "goods": 96.006,
+   "home4": 454764,
    "housing": 77.364,
    "other": 98.715,
    "utilities": 72.437
@@ -508,6 +545,7 @@
   "Binghamton, NY": {
    "fmr4": 1622,
    "goods": 99.693,
+   "home4": 263028,
    "housing": 69.694,
    "other": 97.754,
    "utilities": 131.567
@@ -515,6 +553,7 @@
   "Birmingham, AL": {
    "fmr4": 1801,
    "goods": 96.397,
+   "home4": 401928,
    "housing": 71.851,
    "other": 96.693,
    "utilities": 83.803
@@ -522,6 +561,7 @@
   "Bismarck, ND": {
    "fmr4": 1884,
    "goods": 95.701,
+   "home4": 397828,
    "housing": 84.013,
    "other": 91.158,
    "utilities": 74.999
@@ -529,6 +569,7 @@
   "Blacksburg-Christiansburg-Radford, VA": {
    "fmr4": 2132,
    "goods": 96.773,
+   "home4": 419588,
    "housing": 74.371,
    "other": 98.612,
    "utilities": 88.097
@@ -536,6 +577,7 @@
   "Bloomington, IL": {
    "fmr4": 1724,
    "goods": 93.643,
+   "home4": 340659,
    "housing": 74.715,
    "other": 99.59,
    "utilities": 89.591
@@ -543,6 +585,7 @@
   "Bloomington, IN": {
    "fmr4": 1906,
    "goods": 94.318,
+   "home4": 416420,
    "housing": 85.59,
    "other": 99.141,
    "utilities": 86.518
@@ -550,6 +593,7 @@
   "Boise City, ID": {
    "fmr4": 2772,
    "goods": 96.179,
+   "home4": 569532,
    "housing": 105.58,
    "other": 98.974,
    "utilities": 70.695
@@ -557,6 +601,7 @@
   "Boston-Cambridge-Newton, MA-NH": {
    "fmr4": 3894,
    "goods": 99.651,
+   "home4": 949446,
    "housing": 148.424,
    "other": 103.603,
    "utilities": 148.768
@@ -564,6 +609,7 @@
   "Boulder, CO": {
    "fmr4": 3239,
    "goods": 96.052,
+   "home4": 897619,
    "housing": 157.02,
    "other": 99.822,
    "utilities": 82.741
@@ -571,6 +617,7 @@
   "Bowling Green, KY": {
    "fmr4": 1806,
    "goods": 96.246,
+   "home4": 384501,
    "housing": 63.395,
    "other": 96.892,
    "utilities": 75.2
@@ -578,6 +625,7 @@
   "Bozeman, MT": {
    "fmr4": 3537,
    "goods": 96.006,
+   "home4": 902449,
    "housing": 139.188,
    "other": 98.715,
    "utilities": 73.637
@@ -585,6 +633,7 @@
   "Bremerton-Silverdale-Port Orchard, WA": {
    "fmr4": 2941,
    "goods": 105.028,
+   "home4": 662712,
    "housing": 129.641,
    "other": 99.472,
    "utilities": 92.038
@@ -592,6 +641,7 @@
   "Bridgeport-Stamford-Danbury, CT Metropolitan Statistical Area": {
    "fmr4": 3598,
    "goods": 97.33,
+   "home4": 975979,
    "housing": 150.453,
    "other": 102.658,
    "utilities": 147.074
@@ -599,6 +649,7 @@
   "Brownsville-Harlingen, TX": {
    "fmr4": 1479,
    "goods": 93.757,
+   "home4": 310362,
    "housing": 57.72,
    "other": 96.24,
    "utilities": 81.15
@@ -606,6 +657,7 @@
   "Brunswick-St. Simons, GA": {
    "fmr4": 1906,
    "goods": 96.269,
+   "home4": 505520,
    "housing": 56.34,
    "other": 98.667,
    "utilities": 87.264
@@ -613,6 +665,7 @@
   "Buffalo-Cheektowaga, NY": {
    "fmr4": 1869,
    "goods": 99.693,
+   "home4": 379580,
    "housing": 80.989,
    "other": 97.754,
    "utilities": 129.489
@@ -620,6 +673,7 @@
   "Burlington, NC": {
    "fmr4": 1972,
    "goods": 96.621,
+   "home4": 388547,
    "housing": 77.88,
    "other": 98.186,
    "utilities": 89.234
@@ -627,6 +681,7 @@
   "Burlington-South Burlington, VT": {
    "fmr4": 2833,
    "goods": 97.274,
+   "home4": 613838,
    "housing": 103.842,
    "other": 101.586,
    "utilities": 125.55
@@ -634,6 +689,7 @@
   "Canton-Massillon, OH": {
    "fmr4": 1451,
    "goods": 93.628,
+   "home4": 325755,
    "housing": 58.143,
    "other": 98.939,
    "utilities": 96.945
@@ -641,6 +697,7 @@
   "Cape Coral-Fort Myers, FL": {
    "fmr4": 2836,
    "goods": 96.24,
+   "home4": 433533,
    "housing": 125.113,
    "other": 98.864,
    "utilities": 86.901
@@ -648,6 +705,7 @@
   "Cape Girardeau, MO-IL": {
    "fmr4": 1664,
    "goods": 94.222,
+   "home4": 318272,
    "housing": 56.422,
    "other": 93.088,
    "utilities": 85.609
@@ -655,6 +713,7 @@
   "Carson City, NV": {
    "fmr4": 2593,
    "goods": 96.271,
+   "home4": 617192,
    "housing": 101.176,
    "other": 98.744,
    "utilities": 92.674
@@ -662,6 +721,7 @@
   "Casper, WY": {
    "fmr4": 1815,
    "goods": 95.368,
+   "home4": 371774,
    "housing": 74.189,
    "other": 100.428,
    "utilities": 78.876
@@ -669,6 +729,7 @@
   "Cedar Rapids, IA": {
    "fmr4": 1797,
    "goods": 93.73,
+   "home4": 334223,
    "housing": 71.447,
    "other": 92.927,
    "utilities": 83.981
@@ -676,6 +737,7 @@
   "Chambersburg, PA": {
    "fmr4": 1991,
    "goods": 100.684,
+   "home4": 380762,
    "housing": 71.914,
    "other": 97.726,
    "utilities": 108.348
@@ -683,6 +745,7 @@
   "Champaign-Urbana, IL": {
    "fmr4": 1486,
    "goods": 93.643,
+   "home4": 348967,
    "housing": 71.604,
    "other": 99.59,
    "utilities": 90.467
@@ -690,6 +753,7 @@
   "Charleston, WV": {
    "fmr4": 1372,
    "goods": 96.27,
+   "home4": 243145,
    "housing": 51.394,
    "other": 99.806,
    "utilities": 91.712
@@ -697,6 +761,7 @@
   "Charleston-North Charleston, SC": {
    "fmr4": 2562,
    "goods": 96.339,
+   "home4": 562273,
    "housing": 119.77,
    "other": 98.284,
    "utilities": 88.212
@@ -704,6 +769,7 @@
   "Charlotte-Concord-Gastonia, NC-SC": {
    "fmr4": 2637,
    "goods": 96.58,
+   "home4": 524905,
    "housing": 97.635,
    "other": 98.2,
    "utilities": 89.164
@@ -711,6 +777,7 @@
   "Charlottesville, VA": {
    "fmr4": 2731,
    "goods": 96.773,
+   "home4": 629092,
    "housing": 107.041,
    "other": 98.612,
    "utilities": 88.973
@@ -718,6 +785,7 @@
   "Chattanooga, TN-GA": {
    "fmr4": 1853,
    "goods": 95.994,
+   "home4": 455690,
    "housing": 76.55,
    "other": 95.311,
    "utilities": 74.209
@@ -725,6 +793,7 @@
   "Cheyenne, WY": {
    "fmr4": 1969,
    "goods": 95.368,
+   "home4": 421797,
    "housing": 89.828,
    "other": 100.428,
    "utilities": 77.961
@@ -732,6 +801,7 @@
   "Chicago-Naperville-Elgin, IL-IN": {
    "fmr4": 2653,
    "goods": 107.258,
+   "home4": 491095,
    "housing": 112.01,
    "other": 100.492,
    "utilities": 83.581
@@ -739,6 +809,7 @@
   "Chico, CA": {
    "fmr4": 2726,
    "goods": 105.168,
+   "home4": 546869,
    "housing": 91.946,
    "other": 100.267,
    "utilities": 158.837
@@ -746,6 +817,7 @@
   "Cincinnati, OH-KY-IN": {
    "fmr4": 1976,
    "goods": 93.751,
+   "home4": 435622,
    "housing": 87.608,
    "other": 99.04,
    "utilities": 90.954
@@ -753,6 +825,7 @@
   "Clarksville, TN-KY": {
    "fmr4": 2258,
    "goods": 96.247,
+   "home4": 379837,
    "housing": 73.801,
    "other": 95.52,
    "utilities": 72.546
@@ -760,6 +833,7 @@
   "Cleveland, OH": {
    "fmr4": 1760,
    "goods": 93.628,
+   "home4": 375476,
    "housing": 79.434,
    "other": 98.939,
    "utilities": 95.967
@@ -767,6 +841,7 @@
   "Cleveland, TN": {
    "fmr4": 1633,
    "goods": 96.247,
+   "home4": 427458,
    "housing": 60.327,
    "other": 95.142,
    "utilities": 72.32
@@ -774,6 +849,7 @@
   "Coeur d'Alene, ID": {
    "fmr4": 2595,
    "goods": 96.179,
+   "home4": 692471,
    "housing": 105.597,
    "other": 98.974,
    "utilities": 70.763
@@ -781,6 +857,7 @@
   "College Station-Bryan, TX": {
    "fmr4": 1928,
    "goods": 93.757,
+   "home4": 392265,
    "housing": 75.088,
    "other": 96.24,
    "utilities": 84.39
@@ -788,6 +865,7 @@
   "Colorado Springs, CO": {
    "fmr4": 2744,
    "goods": 96.052,
+   "home4": 505198,
    "housing": 116.207,
    "other": 99.822,
    "utilities": 83.195
@@ -795,6 +873,7 @@
   "Columbia, MO": {
    "fmr4": 1861,
    "goods": 94.193,
+   "home4": 396741,
    "housing": 69.248,
    "other": 93.026,
    "utilities": 85.966
@@ -802,6 +881,7 @@
   "Columbia, SC": {
    "fmr4": 1911,
    "goods": 96.339,
+   "home4": 334391,
    "housing": 79.455,
    "other": 98.284,
    "utilities": 88.306
@@ -809,6 +889,7 @@
   "Columbus, GA-AL": {
    "fmr4": 1703,
    "goods": 96.332,
+   "home4": 334811,
    "housing": 61.185,
    "other": 98.578,
    "utilities": 89.666
@@ -816,6 +897,7 @@
   "Columbus, IN": {
    "fmr4": 2000,
    "goods": 94.318,
+   "home4": 376622,
    "housing": 75.468,
    "other": 99.141,
    "utilities": 86.577
@@ -823,6 +905,7 @@
   "Columbus, OH": {
    "fmr4": 1927,
    "goods": 93.628,
+   "home4": 465047,
    "housing": 87.945,
    "other": 98.939,
    "utilities": 95.523
@@ -830,6 +913,7 @@
   "Corpus Christi, TX": {
    "fmr4": 2054,
    "goods": 93.757,
+   "home4": 343037,
    "housing": 84.905,
    "other": 96.24,
    "utilities": 80.991
@@ -837,6 +921,7 @@
   "Corvallis, OR": {
    "fmr4": 2545,
    "goods": 105.261,
+   "home4": 638673,
    "housing": 114.437,
    "other": 100.298,
    "utilities": 108.649
@@ -844,6 +929,7 @@
   "Crestview-Fort Walton Beach-Destin, FL": {
    "fmr4": 2979,
    "goods": 96.24,
+   "home4": 565585,
    "housing": 94.934,
    "other": 98.864,
    "utilities": 89.046
@@ -851,6 +937,7 @@
   "Dallas-Fort Worth-Arlington, TX": {
    "fmr4": 3091,
    "goods": 102.838,
+   "home4": 455384,
    "housing": 117.874,
    "other": 99.673,
    "utilities": 90.711
@@ -858,6 +945,7 @@
   "Dalton, GA": {
    "fmr4": 1876,
    "goods": 96.269,
+   "home4": 340647,
    "housing": 63.342,
    "other": 98.667,
    "utilities": 88.76
@@ -865,6 +953,7 @@
   "Daphne-Fairhope-Foley, AL": {
    "fmr4": 2171,
    "goods": 96.397,
+   "home4": 446825,
    "housing": 89.15,
    "other": 96.693,
    "utilities": 83.286
@@ -872,6 +961,7 @@
   "Davenport-Moline-Rock Island, IA-IL": {
    "fmr4": 1819,
    "goods": 94.2,
+   "home4": 310750,
    "housing": 68.346,
    "other": 93.53,
    "utilities": 89.945
@@ -886,6 +976,7 @@
   "Decatur, AL": {
    "fmr4": 1550,
    "goods": 96.397,
+   "home4": 348768,
    "housing": 58.067,
    "other": 96.693,
    "utilities": 84.745
@@ -893,6 +984,7 @@
   "Decatur, IL": {
    "fmr4": 1706,
    "goods": 93.643,
+   "home4": 221855,
    "housing": 56.186,
    "other": 99.59,
    "utilities": 91.095
@@ -900,6 +992,7 @@
   "Deltona-Daytona Beach-Ormond Beach, FL": {
    "fmr4": 2429,
    "goods": 96.24,
+   "home4": 408347,
    "housing": 108.375,
    "other": 98.864,
    "utilities": 87.566
@@ -907,6 +1000,7 @@
   "Denver-Aurora-Centennial, CO": {
    "fmr4": 3049,
    "goods": 100.957,
+   "home4": 664972,
    "housing": 146.919,
    "other": 99.448,
    "utilities": 87.856
@@ -914,6 +1008,7 @@
   "Des Moines-West Des Moines, IA": {
    "fmr4": 1841,
    "goods": 93.73,
+   "home4": 395992,
    "housing": 84.741,
    "other": 92.927,
    "utilities": 84.585
@@ -921,6 +1016,7 @@
   "Detroit-Warren-Dearborn, MI": {
    "fmr4": 1868,
    "goods": 98.817,
+   "home4": 464940,
    "housing": 94.69,
    "other": 102.591,
    "utilities": 106.988
@@ -928,6 +1024,7 @@
   "Dothan, AL": {
    "fmr4": 1428,
    "goods": 96.397,
+   "home4": 331596,
    "housing": 46.872,
    "other": 96.693,
    "utilities": 84.319
@@ -935,6 +1032,7 @@
   "Dover, DE": {
    "fmr4": 2285,
    "goods": 96.372,
+   "home4": 441781,
    "housing": 95.899,
    "other": 98.774,
    "utilities": 97.183
@@ -942,6 +1040,7 @@
   "Dubuque, IA": {
    "fmr4": 1807,
    "goods": 93.73,
+   "home4": 376876,
    "housing": 64.046,
    "other": 92.927,
    "utilities": 81.196
@@ -949,6 +1048,7 @@
   "Duluth, MN-WI": {
    "fmr4": 2067,
    "goods": 95.3,
+   "home4": 362149,
    "housing": 71.147,
    "other": 92.187,
    "utilities": 87.25
@@ -956,6 +1056,7 @@
   "Durham-Chapel Hill, NC": {
    "fmr4": 2527,
    "goods": 96.621,
+   "home4": 587913,
    "housing": 98.934,
    "other": 98.186,
    "utilities": 89.317
@@ -970,6 +1071,7 @@
   "Eau Claire, WI": {
    "fmr4": 1588,
    "goods": 93.787,
+   "home4": 372488,
    "housing": 72.85,
    "other": 99.411,
    "utilities": 90.935
@@ -977,6 +1079,7 @@
   "El Centro, CA": {
    "fmr4": 2285,
    "goods": 105.168,
+   "home4": 438695,
    "housing": 66.274,
    "other": 100.267,
    "utilities": 157.195
@@ -984,6 +1087,7 @@
   "El Paso, TX": {
    "fmr4": 1998,
    "goods": 93.757,
+   "home4": 294809,
    "housing": 71.248,
    "other": 96.24,
    "utilities": 82.585
@@ -991,6 +1095,7 @@
   "Elizabethtown, KY": {
    "fmr4": 1771,
    "goods": 96.246,
+   "home4": 336669,
    "housing": 66.669,
    "other": 96.892,
    "utilities": 74.599
@@ -998,6 +1103,7 @@
   "Elkhart-Goshen, IN": {
    "fmr4": 1581,
    "goods": 94.318,
+   "home4": 336855,
    "housing": 64.327,
    "other": 99.141,
    "utilities": 86.359
@@ -1005,6 +1111,7 @@
   "Elmira, NY": {
    "fmr4": 1713,
    "goods": 99.693,
+   "home4": 223137,
    "housing": 76.357,
    "other": 97.754,
    "utilities": 131.583
@@ -1012,6 +1119,7 @@
   "Enid, OK *": {
    "fmr4": 1360,
    "goods": 93.778,
+   "home4": 290681,
    "housing": 51.389,
    "other": 95.458,
    "utilities": 74.37
@@ -1019,6 +1127,7 @@
   "Erie, PA": {
    "fmr4": 1683,
    "goods": 100.684,
+   "home4": 296268,
    "housing": 56.83,
    "other": 97.726,
    "utilities": 106.806
@@ -1026,6 +1135,7 @@
   "Eugene-Springfield, OR": {
    "fmr4": 2832,
    "goods": 105.261,
+   "home4": 554397,
    "housing": 98.35,
    "other": 100.298,
    "utilities": 102.531
@@ -1033,6 +1143,7 @@
   "Evansville, IN": {
    "fmr4": 1539,
    "goods": 94.318,
+   "home4": 344173,
    "housing": 66.735,
    "other": 99.141,
    "utilities": 86.717
@@ -1040,6 +1151,7 @@
   "Fairbanks-College, AK": {
    "fmr4": 2812,
    "goods": 107.34,
+   "home4": 435825,
    "housing": 92.562,
    "other": 103.342,
    "utilities": 119.776
@@ -1047,6 +1159,7 @@
   "Fargo, ND-MN": {
    "fmr4": 1865,
    "goods": 95.654,
+   "home4": 373549,
    "housing": 81.142,
    "other": 91.334,
    "utilities": 77.324
@@ -1054,6 +1167,7 @@
   "Farmington, NM": {
    "fmr4": 1630,
    "goods": 96.144,
+   "home4": 378574,
    "housing": 56.552,
    "other": 98.54,
    "utilities": 77.865
@@ -1061,6 +1175,7 @@
   "Fayetteville, NC": {
    "fmr4": 2068,
    "goods": 96.621,
+   "home4": 342019,
    "housing": 73.081,
    "other": 98.186,
    "utilities": 87.779
@@ -1068,6 +1183,7 @@
   "Fayetteville-Springdale-Rogers, AR": {
    "fmr4": 2213,
    "goods": 93.577,
+   "home4": 488300,
    "housing": 76.886,
    "other": 95.295,
    "utilities": 75.109
@@ -1075,6 +1191,7 @@
   "Flagstaff, AZ": {
    "fmr4": 2568,
    "goods": 96.237,
+   "home4": 825311,
    "housing": 108.961,
    "other": 99.838,
    "utilities": 93.825
@@ -1082,6 +1199,7 @@
   "Flint, MI": {
    "fmr4": 1497,
    "goods": 93.711,
+   "home4": 290459,
    "housing": 74.039,
    "other": 99.561,
    "utilities": 97.067
@@ -1089,6 +1207,7 @@
   "Florence, SC": {
    "fmr4": 1588,
    "goods": 96.339,
+   "home4": 328231,
    "housing": 52.425,
    "other": 98.284,
    "utilities": 87.731
@@ -1096,6 +1215,7 @@
   "Florence-Muscle Shoals, AL": {
    "fmr4": 1409,
    "goods": 96.397,
+   "home4": 340575,
    "housing": 47.677,
    "other": 96.693,
    "utilities": 85.771
@@ -1103,6 +1223,7 @@
   "Fond du Lac, WI": {
    "fmr4": 1665,
    "goods": 93.787,
+   "home4": 312264,
    "housing": 67.317,
    "other": 99.411,
    "utilities": 91.108
@@ -1110,6 +1231,7 @@
   "Fort Collins-Loveland, CO": {
    "fmr4": 2540,
    "goods": 96.052,
+   "home4": 632574,
    "housing": 120.592,
    "other": 99.822,
    "utilities": 82.156
@@ -1117,6 +1239,7 @@
   "Fort Smith, AR-OK": {
    "fmr4": 1532,
    "goods": 93.606,
+   "home4": 321330,
    "housing": 53.443,
    "other": 95.319,
    "utilities": 73.797
@@ -1124,6 +1247,7 @@
   "Fort Wayne, IN": {
    "fmr4": 1512,
    "goods": 94.318,
+   "home4": 337700,
    "housing": 72.277,
    "other": 99.141,
    "utilities": 86.247
@@ -1131,6 +1255,7 @@
   "Fresno, CA": {
    "fmr4": 2660,
    "goods": 105.168,
+   "home4": 499336,
    "housing": 95.725,
    "other": 100.267,
    "utilities": 161.01
@@ -1138,6 +1263,7 @@
   "Gadsden, AL": {
    "fmr4": 1304,
    "goods": 96.397,
+   "home4": 317967,
    "housing": 53.696,
    "other": 96.693,
    "utilities": 86.712
@@ -1145,6 +1271,7 @@
   "Gainesville, FL": {
    "fmr4": 1977,
    "goods": 96.24,
+   "home4": 424827,
    "housing": 92.982,
    "other": 98.864,
    "utilities": 88.155
@@ -1152,6 +1279,7 @@
   "Gainesville, GA": {
    "fmr4": 2127,
    "goods": 96.269,
+   "home4": 462565,
    "housing": 93.488,
    "other": 98.667,
    "utilities": 89.587
@@ -1159,6 +1287,7 @@
   "Gettysburg, PA": {
    "fmr4": 1939,
    "goods": 100.684,
+   "home4": 419337,
    "housing": 73.865,
    "other": 97.726,
    "utilities": 107.003
@@ -1166,6 +1295,7 @@
   "Glens Falls, NY": {
    "fmr4": 1785,
    "goods": 99.693,
+   "home4": 404642,
    "housing": 76.231,
    "other": 97.754,
    "utilities": 133.827
@@ -1173,6 +1303,7 @@
   "Goldsboro, NC": {
    "fmr4": 2021,
    "goods": 96.621,
+   "home4": 326640,
    "housing": 57.684,
    "other": 98.186,
    "utilities": 87.888
@@ -1180,6 +1311,7 @@
   "Grand Forks, ND-MN": {
    "fmr4": 1827,
    "goods": 95.632,
+   "home4": 329983,
    "housing": 59.664,
    "other": 91.417,
    "utilities": 77.088
@@ -1187,6 +1319,7 @@
   "Grand Island, NE": {
    "fmr4": 2005,
    "goods": 94.101,
+   "home4": 320190,
    "housing": 61.748,
    "other": 92.98,
    "utilities": 74.241
@@ -1194,6 +1327,7 @@
   "Grand Junction, CO": {
    "fmr4": 2095,
    "goods": 96.052,
+   "home4": 554882,
    "housing": 86.367,
    "other": 99.822,
    "utilities": 83.286
@@ -1201,6 +1335,7 @@
   "Grand Rapids-Wyoming-Kentwood, MI": {
    "fmr4": 2189,
    "goods": 93.711,
+   "home4": 434308,
    "housing": 86.596,
    "other": 99.561,
    "utilities": 93.775
@@ -1208,6 +1343,7 @@
   "Grants Pass, OR": {
    "fmr4": 2014,
    "goods": 105.261,
+   "home4": 505833,
    "housing": 79.911,
    "other": 100.298,
    "utilities": 103.562
@@ -1215,6 +1351,7 @@
   "Great Falls, MT": {
    "fmr4": 2035,
    "goods": 96.006,
+   "home4": 372507,
    "housing": 97.115,
    "other": 98.715,
    "utilities": 73.048
@@ -1222,6 +1359,7 @@
   "Greeley, CO": {
    "fmr4": 2590,
    "goods": 96.052,
+   "home4": 528956,
    "housing": 112.599,
    "other": 99.822,
    "utilities": 81.997
@@ -1229,6 +1367,7 @@
   "Green Bay, WI": {
    "fmr4": 1618,
    "goods": 93.787,
+   "home4": 404313,
    "housing": 74.696,
    "other": 99.411,
    "utilities": 90.041
@@ -1236,6 +1375,7 @@
   "Greensboro-High Point, NC": {
    "fmr4": 1960,
    "goods": 96.621,
+   "home4": 411606,
    "housing": 74.519,
    "other": 98.186,
    "utilities": 89.065
@@ -1243,6 +1383,7 @@
   "Greenville, NC": {
    "fmr4": 1837,
    "goods": 96.621,
+   "home4": 373942,
    "housing": 57.326,
    "other": 98.186,
    "utilities": 87.286
@@ -1250,6 +1391,7 @@
   "Greenville-Anderson-Greer, SC": {
    "fmr4": 1943,
    "goods": 96.339,
+   "home4": 438662,
    "housing": 76.836,
    "other": 98.284,
    "utilities": 88.762
@@ -1257,6 +1399,7 @@
   "Gulfport-Biloxi, MS": {
    "fmr4": 1612,
    "goods": 96.219,
+   "home4": 308763,
    "housing": 67.906,
    "other": 96.09,
    "utilities": 76.34
@@ -1264,6 +1407,7 @@
   "Hagerstown-Martinsburg, MD-WV": {
    "fmr4": 1901,
    "goods": 96.399,
+   "home4": 409158,
    "housing": 75.737,
    "other": 99.48,
    "utilities": 95.694
@@ -1271,6 +1415,7 @@
   "Hammond, LA": {
    "fmr4": 1455,
    "goods": 93.691,
+   "home4": 301612,
    "housing": 48.16,
    "other": 95.705,
    "utilities": 71.002
@@ -1278,6 +1423,7 @@
   "Hanford-Corcoran, CA": {
    "fmr4": 2451,
    "goods": 105.168,
+   "home4": 420344,
    "housing": 93.497,
    "other": 100.267,
    "utilities": 157.378
@@ -1285,6 +1431,7 @@
   "Harrisburg-Carlisle, PA": {
    "fmr4": 1977,
    "goods": 100.684,
+   "home4": 440355,
    "housing": 96.28,
    "other": 97.726,
    "utilities": 108.078
@@ -1292,6 +1439,7 @@
   "Harrisonburg, VA": {
    "fmr4": 2125,
    "goods": 96.773,
+   "home4": 449667,
    "housing": 82.272,
    "other": 98.612,
    "utilities": 88.549
@@ -1299,6 +1447,7 @@
   "Hartford-West Hartford-East Hartford, CT": {
    "fmr4": 2537,
    "goods": 97.33,
+   "home4": 541053,
    "housing": 110.234,
    "other": 102.658,
    "utilities": 144.854
@@ -1306,6 +1455,7 @@
   "Hattiesburg, MS": {
    "fmr4": 1386,
    "goods": 96.219,
+   "home4": 331096,
    "housing": 60.059,
    "other": 96.09,
    "utilities": 76.88
@@ -1313,6 +1463,7 @@
   "Helena, MT": {
    "fmr4": 2856,
    "goods": 96.006,
+   "home4": 544115,
    "housing": 90.141,
    "other": 98.715,
    "utilities": 72.646
@@ -1320,6 +1471,7 @@
   "Hickory-Lenoir-Morganton, NC": {
    "fmr4": 1660,
    "goods": 96.621,
+   "home4": 435792,
    "housing": 59.578,
    "other": 98.186,
    "utilities": 87.81
@@ -1327,6 +1479,7 @@
   "Hilton Head Island-Bluffton-Port Royal, SC": {
    "fmr4": 2720,
    "goods": 96.339,
+   "home4": 808240,
    "housing": 101.235,
    "other": 98.284,
    "utilities": 88.087
@@ -1334,6 +1487,7 @@
   "Hinesville, GA": {
    "fmr4": 2359,
    "goods": 96.269,
+   "home4": 298565,
    "housing": 79.46,
    "other": 98.667,
    "utilities": 86.837
@@ -1341,6 +1495,7 @@
   "Homosassa Springs, FL": {
    "fmr4": 2016,
    "goods": 96.24,
+   "home4": 369435,
    "housing": 78.427,
    "other": 98.864,
    "utilities": 87.328
@@ -1348,6 +1503,7 @@
   "Hot Springs, AR": {
    "fmr4": 1670,
    "goods": 93.577,
+   "home4": 413860,
    "housing": 57.281,
    "other": 95.295,
    "utilities": 74.255
@@ -1355,6 +1511,7 @@
   "Houma-Bayou Cane-Thibodaux, LA": {
    "fmr4": 1459,
    "goods": 93.691,
+   "home4": 300667,
    "housing": 51.311,
    "other": 95.705,
    "utilities": 71.298
@@ -1362,6 +1519,7 @@
   "Houston-Pasadena-The Woodlands, TX": {
    "fmr4": 2639,
    "goods": 100.639,
+   "home4": 365164,
    "housing": 104.51,
    "other": 95.595,
    "utilities": 95.288
@@ -1369,6 +1527,7 @@
   "Huntington-Ashland, WV-KY-OH": {
    "fmr4": 1410,
    "goods": 96.316,
+   "home4": 279721,
    "housing": 51.257,
    "other": 99.409,
    "utilities": 87.852
@@ -1376,6 +1535,7 @@
   "Huntsville, AL": {
    "fmr4": 2109,
    "goods": 96.397,
+   "home4": 403196,
    "housing": 77.946,
    "other": 96.693,
    "utilities": 83.931
@@ -1383,6 +1543,7 @@
   "Idaho Falls, ID": {
    "fmr4": 2189,
    "goods": 96.179,
+   "home4": 400969,
    "housing": 83.985,
    "other": 98.974,
    "utilities": 69.651
@@ -1390,6 +1551,7 @@
   "Indianapolis-Carmel-Greenwood, IN": {
    "fmr4": 2338,
    "goods": 94.318,
+   "home4": 398974,
    "housing": 88.917,
    "other": 99.141,
    "utilities": 86.358
@@ -1397,6 +1559,7 @@
   "Iowa City, IA": {
    "fmr4": 1914,
    "goods": 93.73,
+   "home4": 392852,
    "housing": 83.99,
    "other": 92.927,
    "utilities": 83.667
@@ -1404,6 +1567,7 @@
   "Ithaca, NY": {
    "fmr4": 2624,
    "goods": 99.693,
+   "home4": 458970,
    "housing": 128.377,
    "other": 97.754,
    "utilities": 131.638
@@ -1411,6 +1575,7 @@
   "Jackson, MI": {
    "fmr4": 1626,
    "goods": 93.711,
+   "home4": 303833,
    "housing": 67.092,
    "other": 99.561,
    "utilities": 97.845
@@ -1418,6 +1583,7 @@
   "Jackson, MS": {
    "fmr4": 1705,
    "goods": 96.219,
+   "home4": 361239,
    "housing": 64.768,
    "other": 96.09,
    "utilities": 78.137
@@ -1425,6 +1591,7 @@
   "Jackson, TN": {
    "fmr4": 1758,
    "goods": 96.247,
+   "home4": 343124,
    "housing": 56.567,
    "other": 95.142,
    "utilities": 72.619
@@ -1432,6 +1599,7 @@
   "Jacksonville, FL": {
    "fmr4": 2561,
    "goods": 96.24,
+   "home4": 447361,
    "housing": 109.777,
    "other": 98.864,
    "utilities": 87.514
@@ -1439,6 +1607,7 @@
   "Jacksonville, NC": {
    "fmr4": 1968,
    "goods": 96.621,
+   "home4": 364500,
    "housing": 72.118,
    "other": 98.186,
    "utilities": 87.243
@@ -1446,6 +1615,7 @@
   "Janesville-Beloit, WI": {
    "fmr4": 1650,
    "goods": 93.787,
+   "home4": 343777,
    "housing": 79.552,
    "other": 99.411,
    "utilities": 90.357
@@ -1453,6 +1623,7 @@
   "Jefferson City, MO": {
    "fmr4": 1379,
    "goods": 94.193,
+   "home4": 354225,
    "housing": 62.123,
    "other": 93.026,
    "utilities": 85.497
@@ -1460,6 +1631,7 @@
   "Johnson City, TN": {
    "fmr4": 1548,
    "goods": 96.247,
+   "home4": 426960,
    "housing": 63.176,
    "other": 95.142,
    "utilities": 71.934
@@ -1467,6 +1639,7 @@
   "Johnstown, PA": {
    "fmr4": 1484,
    "goods": 100.684,
+   "home4": 172240,
    "housing": 42.333,
    "other": 97.726,
    "utilities": 108.869
@@ -1474,6 +1647,7 @@
   "Jonesboro, AR": {
    "fmr4": 1480,
    "goods": 93.577,
+   "home4": 301038,
    "housing": 53.848,
    "other": 95.295,
    "utilities": 74.971
@@ -1481,6 +1655,7 @@
   "Joplin, MO-KS": {
    "fmr4": 1285,
    "goods": 94.179,
+   "home4": 308423,
    "housing": 53.976,
    "other": 93.091,
    "utilities": 85.872
@@ -1488,6 +1663,7 @@
   "Kahului-Wailuku, HI": {
    "fmr4": 4236,
    "goods": 111.562,
+   "home4": 1286153,
    "housing": 119.179,
    "other": 102.898,
    "utilities": 190.585
@@ -1495,6 +1671,7 @@
   "Kalamazoo-Portage, MI": {
    "fmr4": 1571,
    "goods": 93.711,
+   "home4": 349617,
    "housing": 81.59,
    "other": 99.561,
    "utilities": 99.271
@@ -1502,6 +1679,7 @@
   "Kankakee, IL": {
    "fmr4": 1774,
    "goods": 93.643,
+   "home4": 311203,
    "housing": 92.856,
    "other": 99.59,
    "utilities": 89.419
@@ -1509,6 +1687,7 @@
   "Kansas City, MO-KS": {
    "fmr4": 2103,
    "goods": 94.12,
+   "home4": 459989,
    "housing": 86.642,
    "other": 93.373,
    "utilities": 89.034
@@ -1516,6 +1695,7 @@
   "Kennewick-Richland, WA": {
    "fmr4": 2385,
    "goods": 105.028,
+   "home4": 504591,
    "housing": 94.824,
    "other": 99.472,
    "utilities": 93.555
@@ -1530,6 +1710,7 @@
   "Killeen-Temple, TX": {
    "fmr4": 2068,
    "goods": 93.757,
+   "home4": 290543,
    "housing": 77.884,
    "other": 96.24,
    "utilities": 81.242
@@ -1537,6 +1718,7 @@
   "Kingsport-Bristol, TN-VA": {
    "fmr4": 1464,
    "goods": 96.235,
+   "home4": 367991,
    "housing": 56.496,
    "other": 95.809,
    "utilities": 75.908
@@ -1544,6 +1726,7 @@
   "Kingston, NY": {
    "fmr4": 2407,
    "goods": 99.693,
+   "home4": 575619,
    "housing": 110.173,
    "other": 97.754,
    "utilities": 133.595
@@ -1558,6 +1741,7 @@
   "Knoxville, TN": {
    "fmr4": 2172,
    "goods": 96.247,
+   "home4": 537782,
    "housing": 82.783,
    "other": 95.142,
    "utilities": 71.869
@@ -1565,6 +1749,7 @@
   "Kokomo, IN": {
    "fmr4": 1567,
    "goods": 94.318,
+   "home4": 271993,
    "housing": 59.252,
    "other": 99.141,
    "utilities": 86.257
@@ -1572,6 +1757,7 @@
   "La Crosse-Onalaska, WI-MN": {
    "fmr4": 1903,
    "goods": 93.8,
+   "home4": 377383,
    "housing": 69.386,
    "other": 99.446,
    "utilities": 89.528
@@ -1579,6 +1765,7 @@
   "Lafayette, LA": {
    "fmr4": 1581,
    "goods": 93.691,
+   "home4": 317762,
    "housing": 58.845,
    "other": 95.705,
    "utilities": 71.215
@@ -1586,6 +1773,7 @@
   "Lafayette-West Lafayette, IN": {
    "fmr4": 1992,
    "goods": 94.318,
+   "home4": 375409,
    "housing": 76.442,
    "other": 99.141,
    "utilities": 86.38
@@ -1593,6 +1781,7 @@
   "Lake Charles, LA": {
    "fmr4": 1611,
    "goods": 93.691,
+   "home4": 277311,
    "housing": 51.752,
    "other": 95.705,
    "utilities": 71.742
@@ -1600,6 +1789,7 @@
   "Lake Havasu City-Kingman, AZ": {
    "fmr4": 2090,
    "goods": 96.237,
+   "home4": 459840,
    "housing": 79.773,
    "other": 99.838,
    "utilities": 88.723
@@ -1607,6 +1797,7 @@
   "Lakeland-Winter Haven, FL": {
    "fmr4": 2511,
    "goods": 96.24,
+   "home4": 343829,
    "housing": 95.942,
    "other": 98.864,
    "utilities": 86.883
@@ -1614,6 +1805,7 @@
   "Lancaster, PA": {
    "fmr4": 2020,
    "goods": 100.684,
+   "home4": 494124,
    "housing": 93.815,
    "other": 97.726,
    "utilities": 107.265
@@ -1621,6 +1813,7 @@
   "Lansing-East Lansing, MI": {
    "fmr4": 1679,
    "goods": 93.711,
+   "home4": 336658,
    "housing": 83.472,
    "other": 99.561,
    "utilities": 95.519
@@ -1628,6 +1821,7 @@
   "Laredo, TX": {
    "fmr4": 1551,
    "goods": 93.757,
+   "home4": 312153,
    "housing": 59.746,
    "other": 96.24,
    "utilities": 80.614
@@ -1635,6 +1829,7 @@
   "Las Cruces, NM": {
    "fmr4": 1580,
    "goods": 96.144,
+   "home4": 344370,
    "housing": 62.982,
    "other": 98.54,
    "utilities": 77.918
@@ -1642,6 +1837,7 @@
   "Las Vegas-Henderson-North Las Vegas, NV": {
    "fmr4": 2764,
    "goods": 96.271,
+   "home4": 499786,
    "housing": 115.538,
    "other": 98.744,
    "utilities": 90.646
@@ -1649,6 +1845,7 @@
   "Lawrence, KS": {
    "fmr4": 1983,
    "goods": 94.027,
+   "home4": 412274,
    "housing": 71.636,
    "other": 93.816,
    "utilities": 89.291
@@ -1656,6 +1853,7 @@
   "Lawton, OK": {
    "fmr4": 1679,
    "goods": 93.778,
+   "home4": 291839,
    "housing": 57.389,
    "other": 95.458,
    "utilities": 72.982
@@ -1663,6 +1861,7 @@
   "Lebanon, PA": {
    "fmr4": 1959,
    "goods": 100.684,
+   "home4": 445104,
    "housing": 66.039,
    "other": 97.726,
    "utilities": 108.444
@@ -1670,6 +1869,7 @@
   "Lewiston, ID-WA": {
    "fmr4": 2037,
    "goods": 96.217,
+   "home4": 423536,
    "housing": 71.925,
    "other": 99.363,
    "utilities": 72.591
@@ -1677,6 +1877,7 @@
   "Lewiston-Auburn, ME": {
    "fmr4": 2305,
    "goods": 97.171,
+   "home4": 378602,
    "housing": 69.003,
    "other": 103.191,
    "utilities": 134.381
@@ -1691,6 +1892,7 @@
   "Lexington-Fayette, KY": {
    "fmr4": 1940,
    "goods": 96.246,
+   "home4": 438980,
    "housing": 77.093,
    "other": 96.892,
    "utilities": 74.587
@@ -1698,6 +1900,7 @@
   "Lima, OH": {
    "fmr4": 1493,
    "goods": 93.628,
+   "home4": 263409,
    "housing": 57.275,
    "other": 98.939,
    "utilities": 95.814
@@ -1705,6 +1908,7 @@
   "Lincoln, NE": {
    "fmr4": 1712,
    "goods": 94.101,
+   "home4": 398461,
    "housing": 84.208,
    "other": 92.98,
    "utilities": 76.817
@@ -1712,6 +1916,7 @@
   "Little Rock-North Little Rock-Conway, AR": {
    "fmr4": 1822,
    "goods": 93.577,
+   "home4": 340307,
    "housing": 68.295,
    "other": 95.295,
    "utilities": 74.635
@@ -1719,6 +1924,7 @@
   "Logan, UT-ID": {
    "fmr4": 2082,
    "goods": 96.43,
+   "home4": 477808,
    "housing": 90.959,
    "other": 98.96,
    "utilities": 77.857
@@ -1726,6 +1932,7 @@
   "Longview, TX": {
    "fmr4": 1694,
    "goods": 93.757,
+   "home4": 359447,
    "housing": 66.749,
    "other": 96.24,
    "utilities": 83.464
@@ -1733,6 +1940,7 @@
   "Longview-Kelso, WA": {
    "fmr4": 2434,
    "goods": 105.028,
+   "home4": 498688,
    "housing": 82.536,
    "other": 99.472,
    "utilities": 98.455
@@ -1740,6 +1948,7 @@
   "Los Angeles-Long Beach-Anaheim, CA": {
    "fmr4": 3672,
    "goods": 106.623,
+   "home4": 1198185,
    "housing": 170.433,
    "other": 104.362,
    "utilities": 158.589
@@ -1747,6 +1956,7 @@
   "Louisville/Jefferson County, KY-IN": {
    "fmr4": 1891,
    "goods": 96.23,
+   "home4": 406399,
    "housing": 78.558,
    "other": 96.796,
    "utilities": 74.957
@@ -1754,6 +1964,7 @@
   "Lubbock, TX": {
    "fmr4": 1940,
    "goods": 93.757,
+   "home4": 355860,
    "housing": 76.357,
    "other": 96.24,
    "utilities": 82.768
@@ -1761,6 +1972,7 @@
   "Lynchburg, VA": {
    "fmr4": 1750,
    "goods": 96.773,
+   "home4": 400684,
    "housing": 63.912,
    "other": 98.612,
    "utilities": 87.774
@@ -1768,6 +1980,7 @@
   "Macon-Bibb County, GA": {
    "fmr4": 1731,
    "goods": 96.269,
+   "home4": 301893,
    "housing": 58.916,
    "other": 98.667,
    "utilities": 89.482
@@ -1775,6 +1988,7 @@
   "Madison, WI": {
    "fmr4": 2509,
    "goods": 93.787,
+   "home4": 555896,
    "housing": 99.748,
    "other": 99.411,
    "utilities": 89.825
@@ -1782,6 +1996,7 @@
   "Manchester-Nashua, NH": {
    "fmr4": 2697,
    "goods": 97.687,
+   "home4": 677781,
    "housing": 134.22,
    "other": 103.687,
    "utilities": 133.535
@@ -1789,6 +2004,7 @@
   "Manhattan, KS": {
    "fmr4": 1792,
    "goods": 94.027,
+   "home4": 313807,
    "housing": 71.971,
    "other": 93.816,
    "utilities": 88.365
@@ -1796,6 +2012,7 @@
   "Mankato, MN": {
    "fmr4": 1916,
    "goods": 95.433,
+   "home4": 344585,
    "housing": 79.884,
    "other": 92.193,
    "utilities": 87.05
@@ -1803,6 +2020,7 @@
   "Mansfield, OH": {
    "fmr4": 1530,
    "goods": 93.628,
+   "home4": 289425,
    "housing": 54.919,
    "other": 98.939,
    "utilities": 96.245
@@ -1810,6 +2028,7 @@
   "McAllen-Edinburg-Mission, TX": {
    "fmr4": 1522,
    "goods": 93.757,
+   "home4": 298320,
    "housing": 55.892,
    "other": 96.24,
    "utilities": 81.186
@@ -1817,6 +2036,7 @@
   "Medford, OR": {
    "fmr4": 2514,
    "goods": 105.261,
+   "home4": 574347,
    "housing": 97.658,
    "other": 100.298,
    "utilities": 102.266
@@ -1824,6 +2044,7 @@
   "Memphis, TN-MS-AR": {
    "fmr4": 1959,
    "goods": 96.221,
+   "home4": 356061,
    "housing": 79.807,
    "other": 95.372,
    "utilities": 74.097
@@ -1831,6 +2052,7 @@
   "Merced, CA": {
    "fmr4": 2503,
    "goods": 105.168,
+   "home4": 458426,
    "housing": 78.63,
    "other": 100.267,
    "utilities": 158.338
@@ -1838,6 +2060,7 @@
   "Miami-Fort Lauderdale-West Palm Beach, FL": {
    "fmr4": 3613,
    "goods": 103.556,
+   "home4": 740585,
    "housing": 155.551,
    "other": 109.113,
    "utilities": 97.235
@@ -1845,6 +2068,7 @@
   "Michigan City-La Porte, IN": {
    "fmr4": 1680,
    "goods": 94.318,
+   "home4": 349361,
    "housing": 68.451,
    "other": 99.141,
    "utilities": 86.422
@@ -1852,6 +2076,7 @@
   "Midland, MI": {
    "fmr4": 1682,
    "goods": 93.711,
+   "home4": 345192,
    "housing": 66.684,
    "other": 99.561,
    "utilities": 95.219
@@ -1859,6 +2084,7 @@
   "Midland, TX": {
    "fmr4": 2667,
    "goods": 93.757,
+   "home4": 449530,
    "housing": 101.497,
    "other": 96.24,
    "utilities": 83.24
@@ -1866,6 +2092,7 @@
   "Milwaukee-Waukesha, WI": {
    "fmr4": 1784,
    "goods": 93.787,
+   "home4": 481251,
    "housing": 97.111,
    "other": 99.411,
    "utilities": 91.59
@@ -1873,6 +2100,7 @@
   "Minneapolis-St. Paul-Bloomington, MN-WI": {
    "fmr4": 2531,
    "goods": 103.065,
+   "home4": 472425,
    "housing": 111.838,
    "other": 104.419,
    "utilities": 93.493
@@ -1880,6 +2108,7 @@
   "Minot, ND": {
    "fmr4": 1678,
    "goods": 95.701,
+   "home4": 336461,
    "housing": 63.234,
    "other": 91.158,
    "utilities": 72.897
@@ -1887,6 +2116,7 @@
   "Missoula, MT": {
    "fmr4": 2776,
    "goods": 96.006,
+   "home4": 694058,
    "housing": 94.945,
    "other": 98.715,
    "utilities": 72.081
@@ -1894,6 +2124,7 @@
   "Mobile, AL": {
    "fmr4": 1445,
    "goods": 96.397,
+   "home4": 302408,
    "housing": 60.116,
    "other": 96.693,
    "utilities": 84.185
@@ -1901,6 +2132,7 @@
   "Modesto, CA": {
    "fmr4": 2823,
    "goods": 105.168,
+   "home4": 532659,
    "housing": 108.476,
    "other": 100.267,
    "utilities": 152.259
@@ -1908,6 +2140,7 @@
   "Monroe, LA": {
    "fmr4": 1358,
    "goods": 93.691,
+   "home4": 288876,
    "housing": 42.815,
    "other": 95.705,
    "utilities": 72.215
@@ -1915,6 +2148,7 @@
   "Monroe, MI": {
    "fmr4": 2147,
    "goods": 93.711,
+   "home4": 343777,
    "housing": 74.641,
    "other": 99.561,
    "utilities": 93.681
@@ -1922,6 +2156,7 @@
   "Montgomery, AL": {
    "fmr4": 1537,
    "goods": 96.397,
+   "home4": 320092,
    "housing": 64.347,
    "other": 96.693,
    "utilities": 84.907
@@ -1929,6 +2164,7 @@
   "Morgantown, WV": {
    "fmr4": 1657,
    "goods": 96.27,
+   "home4": 375603,
    "housing": 69.126,
    "other": 99.806,
    "utilities": 92.528
@@ -1936,6 +2172,7 @@
   "Morristown, TN": {
    "fmr4": 1827,
    "goods": 96.247,
+   "home4": 394176,
    "housing": 59.024,
    "other": 95.142,
    "utilities": 72.433
@@ -1943,6 +2180,7 @@
   "Mount Vernon-Anacortes, WA": {
    "fmr4": 2599,
    "goods": 105.028,
+   "home4": 702360,
    "housing": 108.165,
    "other": 99.472,
    "utilities": 96.008
@@ -1950,6 +2188,7 @@
   "Muncie, IN": {
    "fmr4": 1685,
    "goods": 94.318,
+   "home4": 247349,
    "housing": 57.474,
    "other": 99.141,
    "utilities": 86.435
@@ -1957,6 +2196,7 @@
   "Muskegon-Norton Shores, MI": {
    "fmr4": 1636,
    "goods": 93.711,
+   "home4": 329658,
    "housing": 74.228,
    "other": 99.561,
    "utilities": 92.808
@@ -1964,6 +2204,7 @@
   "Myrtle Beach-Conway-North Myrtle Beach, SC": {
    "fmr4": 2111,
    "goods": 96.339,
+   "home4": 472157,
    "housing": 83.129,
    "other": 98.284,
    "utilities": 87.986
@@ -1971,6 +2212,7 @@
   "Napa, CA": {
    "fmr4": 4134,
    "goods": 105.168,
+   "home4": 1006261,
    "housing": 197.44,
    "other": 100.267,
    "utilities": 156.536
@@ -1978,6 +2220,7 @@
   "Naples-Marco Island, FL": {
    "fmr4": 2805,
    "goods": 96.24,
+   "home4": 1097292,
    "housing": 129.441,
    "other": 98.864,
    "utilities": 87.761
@@ -1985,6 +2228,7 @@
   "Nashville-Davidson--Murfreesboro--Franklin, TN": {
    "fmr4": 2696,
    "goods": 96.247,
+   "home4": 634819,
    "housing": 104.626,
    "other": 95.142,
    "utilities": 71.95
@@ -1992,6 +2236,7 @@
   "New Haven, CT": {
    "fmr4": 2872,
    "goods": 97.33,
+   "home4": 582547,
    "housing": 124.293,
    "other": 102.658,
    "utilities": 144.848
@@ -1999,6 +2244,7 @@
   "New Orleans-Metairie, LA": {
    "fmr4": 1996,
    "goods": 93.691,
+   "home4": 338519,
    "housing": 86.009,
    "other": 95.705,
    "utilities": 71.231
@@ -2006,6 +2252,7 @@
   "New York-Newark-Jersey City, NY-NJ": {
    "fmr4": 3959,
    "goods": 110.261,
+   "home4": 886051,
    "housing": 148.616,
    "other": 105.836,
    "utilities": 127.018
@@ -2013,6 +2260,7 @@
   "Niles, MI": {
    "fmr4": 1568,
    "goods": 93.711,
+   "home4": 403486,
    "housing": 71.599,
    "other": 99.561,
    "utilities": 95.957
@@ -2020,6 +2268,7 @@
   "North Port-Bradenton-Sarasota, FL": {
    "fmr4": 3027,
    "goods": 96.24,
+   "home4": 593108,
    "housing": 127.95,
    "other": 98.864,
    "utilities": 88.171
@@ -2027,6 +2276,7 @@
   "Norwich-New London-Willimantic, CT": {
    "fmr4": 2988,
    "goods": 97.33,
+   "home4": 552482,
    "housing": 93.662,
    "other": 102.658,
    "utilities": 148.557
@@ -2034,6 +2284,7 @@
   "Ocala, FL": {
    "fmr4": 1905,
    "goods": 96.24,
+   "home4": 336703,
    "housing": 86.23,
    "other": 98.864,
    "utilities": 87.109
@@ -2041,6 +2292,7 @@
   "Odessa, TX": {
    "fmr4": 2213,
    "goods": 93.757,
+   "home4": 348938,
    "housing": 89.709,
    "other": 96.24,
    "utilities": 82.86
@@ -2048,6 +2300,7 @@
   "Ogden, UT": {
    "fmr4": 2612,
    "goods": 96.446,
+   "home4": 517599,
    "housing": 117.903,
    "other": 98.959,
    "utilities": 78.778
@@ -2055,6 +2308,7 @@
   "Oklahoma City, OK": {
    "fmr4": 1857,
    "goods": 93.778,
+   "home4": 358931,
    "housing": 73.885,
    "other": 95.458,
    "utilities": 74.067
@@ -2062,6 +2316,7 @@
   "Olympia-Lacey-Tumwater, WA": {
    "fmr4": 3288,
    "goods": 105.028,
+   "home4": 589358,
    "housing": 116.675,
    "other": 99.472,
    "utilities": 91.705
@@ -2069,6 +2324,7 @@
   "Omaha, NE-IA": {
    "fmr4": 2046,
    "goods": 94.063,
+   "home4": 417499,
    "housing": 86.404,
    "other": 92.975,
    "utilities": 76.378
@@ -2076,6 +2332,7 @@
   "Orlando-Kissimmee-Sanford, FL": {
    "fmr4": 2924,
    "goods": 96.24,
+   "home4": 476292,
    "housing": 123.374,
    "other": 98.864,
    "utilities": 87.196
@@ -2083,6 +2340,7 @@
   "Oshkosh-Neenah, WI": {
    "fmr4": 1651,
    "goods": 93.787,
+   "home4": 364805,
    "housing": 74.442,
    "other": 99.411,
    "utilities": 90.614
@@ -2090,6 +2348,7 @@
   "Owensboro, KY": {
    "fmr4": 1470,
    "goods": 96.246,
+   "home4": 332293,
    "housing": 55.698,
    "other": 96.892,
    "utilities": 75.172
@@ -2097,6 +2356,7 @@
   "Oxnard-Thousand Oaks-Ventura, CA": {
    "fmr4": 4240,
    "goods": 105.168,
+   "home4": 978381,
    "housing": 171.096,
    "other": 100.267,
    "utilities": 152.925
@@ -2104,6 +2364,7 @@
   "Paducah, KY-IL": {
    "fmr4": 1415,
    "goods": 96.025,
+   "home4": 327377,
    "housing": 48.794,
    "other": 96.897,
    "utilities": 76.873
@@ -2111,6 +2372,7 @@
   "Palm Bay-Melbourne-Titusville, FL": {
    "fmr4": 2645,
    "goods": 96.24,
+   "home4": 452841,
    "housing": 111.731,
    "other": 98.864,
    "utilities": 88.064
@@ -2118,6 +2380,7 @@
   "Panama City-Panama City Beach, FL": {
    "fmr4": 2689,
    "goods": 96.24,
+   "home4": 415547,
    "housing": 96.424,
    "other": 98.864,
    "utilities": 88.088
@@ -2125,6 +2388,7 @@
   "Parkersburg-Vienna, WV": {
    "fmr4": 1253,
    "goods": 96.27,
+   "home4": 257494,
    "housing": 45.884,
    "other": 99.806,
    "utilities": 92.898
@@ -2132,6 +2396,7 @@
   "Pensacola-Ferry Pass-Brent, FL": {
    "fmr4": 2380,
    "goods": 96.24,
+   "home4": 405666,
    "housing": 98.77,
    "other": 98.864,
    "utilities": 88.477
@@ -2139,6 +2404,7 @@
   "Peoria, IL": {
    "fmr4": 1449,
    "goods": 93.643,
+   "home4": 287121,
    "housing": 63.763,
    "other": 99.59,
    "utilities": 90.504
@@ -2146,6 +2412,7 @@
   "Philadelphia-Camden-Wilmington, PA-NJ-DE-MD": {
    "fmr4": 2423,
    "goods": 96.833,
+   "home4": 585120,
    "housing": 113.141,
    "other": 103.052,
    "utilities": 114.389
@@ -2153,6 +2420,7 @@
   "Phoenix-Mesa-Chandler, AZ": {
    "fmr4": 2720,
    "goods": 95.024,
+   "home4": 524191,
    "housing": 121.236,
    "other": 104.016,
    "utilities": 93.332
@@ -2160,6 +2428,7 @@
   "Pinehurst-Southern Pines, NC": {
    "fmr4": 2278,
    "goods": 96.621,
+   "home4": 533587,
    "housing": 59.318,
    "other": 98.186,
    "utilities": 88.176
@@ -2167,6 +2436,7 @@
   "Pittsburgh, PA": {
    "fmr4": 1789,
    "goods": 100.684,
+   "home4": 412430,
    "housing": 71.986,
    "other": 97.726,
    "utilities": 107.711
@@ -2174,6 +2444,7 @@
   "Pittsfield, MA": {
    "fmr4": 2577,
    "goods": 97.015,
+   "home4": 528377,
    "housing": 73.452,
    "other": 101.197,
    "utilities": 153.711
@@ -2181,6 +2452,7 @@
   "Pocatello, ID": {
    "fmr4": 1968,
    "goods": 96.179,
+   "home4": 364316,
    "housing": 66.396,
    "other": 98.974,
    "utilities": 69.773
@@ -2188,6 +2460,7 @@
   "Port St. Lucie, FL": {
    "fmr4": 2579,
    "goods": 96.24,
+   "home4": 471131,
    "housing": 113.642,
    "other": 98.864,
    "utilities": 87.031
@@ -2195,6 +2468,7 @@
   "Portland-South Portland, ME": {
    "fmr4": 2820,
    "goods": 97.171,
+   "home4": 717475,
    "housing": 105.164,
    "other": 103.191,
    "utilities": 134.591
@@ -2202,6 +2476,7 @@
   "Portland-Vancouver-Hillsboro, OR-WA": {
    "fmr4": 3109,
    "goods": 105.222,
+   "home4": 656576,
    "housing": 125.114,
    "other": 100.136,
    "utilities": 106.974
@@ -2216,6 +2491,7 @@
   "Providence-Warwick, RI-MA": {
    "fmr4": 2480,
    "goods": 97.116,
+   "home4": 696516,
    "housing": 103.851,
    "other": 102.275,
    "utilities": 148.809
@@ -2223,6 +2499,7 @@
   "Provo-Orem-Lehi, UT": {
    "fmr4": 2449,
    "goods": 96.446,
+   "home4": 566952,
    "housing": 104.081,
    "other": 98.959,
    "utilities": 78.63
@@ -2230,6 +2507,7 @@
   "Pueblo, CO": {
    "fmr4": 1893,
    "goods": 96.052,
+   "home4": 350635,
    "housing": 71.285,
    "other": 99.822,
    "utilities": 81.933
@@ -2237,6 +2515,7 @@
   "Punta Gorda, FL": {
    "fmr4": 2326,
    "goods": 96.24,
+   "home4": 386872,
    "housing": 113.277,
    "other": 98.864,
    "utilities": 87.35
@@ -2244,6 +2523,7 @@
   "Racine-Mount Pleasant, WI": {
    "fmr4": 1962,
    "goods": 93.787,
+   "home4": 409343,
    "housing": 92.029,
    "other": 99.411,
    "utilities": 90.021
@@ -2251,6 +2531,7 @@
   "Raleigh-Cary, NC": {
    "fmr4": 2936,
    "goods": 96.621,
+   "home4": 539002,
    "housing": 103.476,
    "other": 98.186,
    "utilities": 88.96
@@ -2258,6 +2539,7 @@
   "Rapid City, SD": {
    "fmr4": 2178,
    "goods": 95.473,
+   "home4": 412231,
    "housing": 72.552,
    "other": 91.899,
    "utilities": 79.087
@@ -2265,6 +2547,7 @@
   "Reading, PA": {
    "fmr4": 2085,
    "goods": 100.684,
+   "home4": 415391,
    "housing": 85.419,
    "other": 97.726,
    "utilities": 108.217
@@ -2272,6 +2555,7 @@
   "Redding, CA": {
    "fmr4": 2667,
    "goods": 105.168,
+   "home4": 490919,
    "housing": 89.366,
    "other": 100.267,
    "utilities": 157.712
@@ -2279,6 +2563,7 @@
   "Reno, NV": {
    "fmr4": 2949,
    "goods": 96.271,
+   "home4": 675725,
    "housing": 123.478,
    "other": 98.744,
    "utilities": 89.274
@@ -2286,6 +2571,7 @@
   "Richmond, VA": {
    "fmr4": 2553,
    "goods": 96.773,
+   "home4": 482592,
    "housing": 99.136,
    "other": 98.612,
    "utilities": 89.221
@@ -2293,6 +2579,7 @@
   "Riverside-San Bernardino-Ontario, CA": {
    "fmr4": 3514,
    "goods": 101.431,
+   "home4": 672802,
    "housing": 129.312,
    "other": 101.281,
    "utilities": 148.641
@@ -2300,6 +2587,7 @@
   "Roanoke, VA": {
    "fmr4": 2104,
    "goods": 96.773,
+   "home4": 396442,
    "housing": 78.531,
    "other": 98.612,
    "utilities": 88.913
@@ -2307,6 +2595,7 @@
   "Rochester, MN": {
    "fmr4": 2360,
    "goods": 95.433,
+   "home4": 400124,
    "housing": 78.628,
    "other": 92.193,
    "utilities": 87.389
@@ -2314,6 +2603,7 @@
   "Rochester, NY": {
    "fmr4": 2083,
    "goods": 99.693,
+   "home4": 357891,
    "housing": 87.481,
    "other": 97.754,
    "utilities": 133.213
@@ -2321,6 +2611,7 @@
   "Rockford, IL": {
    "fmr4": 1594,
    "goods": 93.643,
+   "home4": 304463,
    "housing": 70.076,
    "other": 99.59,
    "utilities": 89.378
@@ -2328,6 +2619,7 @@
   "Rocky Mount, NC": {
    "fmr4": 1812,
    "goods": 96.621,
+   "home4": 284507,
    "housing": 56.103,
    "other": 98.186,
    "utilities": 88.378
@@ -2335,6 +2627,7 @@
   "Rome, GA": {
    "fmr4": 1626,
    "goods": 96.269,
+   "home4": 348382,
    "housing": 60.276,
    "other": 98.667,
    "utilities": 90.721
@@ -2342,6 +2635,7 @@
   "Sacramento-Roseville-Folsom, CA": {
    "fmr4": 3460,
    "goods": 105.168,
+   "home4": 668410,
    "housing": 130.23,
    "other": 100.267,
    "utilities": 151.29
@@ -2349,6 +2643,7 @@
   "Saginaw, MI": {
    "fmr4": 1479,
    "goods": 93.711,
+   "home4": 245410,
    "housing": 63.647,
    "other": 99.561,
    "utilities": 95.849
@@ -2356,6 +2651,7 @@
   "Salem, OR": {
    "fmr4": 2338,
    "goods": 105.261,
+   "home4": 521998,
    "housing": 110.333,
    "other": 100.298,
    "utilities": 104.689
@@ -2363,6 +2659,7 @@
   "Salinas, CA": {
    "fmr4": 3945,
    "goods": 105.168,
+   "home4": 906415,
    "housing": 145.669,
    "other": 100.267,
    "utilities": 154.157
@@ -2370,6 +2667,7 @@
   "Salisbury, MD": {
    "fmr4": 1825,
    "goods": 96.592,
+   "home4": 606051,
    "housing": 87.212,
    "other": 98.995,
    "utilities": 102.801
@@ -2377,6 +2675,7 @@
   "Salt Lake City-Murray, UT": {
    "fmr4": 2666,
    "goods": 96.446,
+   "home4": 596991,
    "housing": 123.311,
    "other": 98.959,
    "utilities": 79.0
@@ -2384,6 +2683,7 @@
   "San Angelo, TX": {
    "fmr4": 2043,
    "goods": 93.757,
+   "home4": 352490,
    "housing": 81.442,
    "other": 96.24,
    "utilities": 81.575
@@ -2391,6 +2691,7 @@
   "San Antonio-New Braunfels, TX": {
    "fmr4": 2132,
    "goods": 93.757,
+   "home4": 344399,
    "housing": 94.575,
    "other": 96.24,
    "utilities": 82.169
@@ -2398,6 +2699,7 @@
   "San Diego-Chula Vista-Carlsbad, CA": {
    "fmr4": 4845,
    "goods": 107.963,
+   "home4": 1137737,
    "housing": 179.267,
    "other": 99.597,
    "utilities": 174.247
@@ -2405,6 +2707,7 @@
   "San Francisco-Oakland-Fremont, CA": {
    "fmr4": 4772,
    "goods": 108.465,
+   "home4": 1474714,
    "housing": 194.718,
    "other": 106.207,
    "utilities": 172.585
@@ -2412,6 +2715,7 @@
   "San Jose-Sunnyvale-Santa Clara, CA": {
    "fmr4": 5010,
    "goods": 105.168,
+   "home4": 1872325,
    "housing": 211.901,
    "other": 100.267,
    "utilities": 156.659
@@ -2419,6 +2723,7 @@
   "San Luis Obispo-Paso Robles, CA": {
    "fmr4": 3861,
    "goods": 105.168,
+   "home4": 1152155,
    "housing": 144.362,
    "other": 100.267,
    "utilities": 147.823
@@ -2426,6 +2731,7 @@
   "Sandusky, OH": {
    "fmr4": 1696,
    "goods": 93.628,
+   "home4": 329584,
    "housing": 59.462,
    "other": 98.939,
    "utilities": 96.703
@@ -2433,6 +2739,7 @@
   "Santa Cruz-Watsonville, CA": {
    "fmr4": 5659,
    "goods": 105.168,
+   "home4": 1537840,
    "housing": 164.328,
    "other": 100.267,
    "utilities": 152.716
@@ -2440,6 +2747,7 @@
   "Santa Fe, NM": {
    "fmr4": 2231,
    "goods": 96.144,
+   "home4": 734580,
    "housing": 107.978,
    "other": 98.54,
    "utilities": 76.705
@@ -2447,6 +2755,7 @@
   "Santa Maria-Santa Barbara, CA": {
    "fmr4": 4647,
    "goods": 105.168,
+   "home4": 1154068,
    "housing": 151.394,
    "other": 100.267,
    "utilities": 149.807
@@ -2454,6 +2763,7 @@
   "Santa Rosa-Petaluma, CA": {
    "fmr4": 4147,
    "goods": 105.168,
+   "home4": 907072,
    "housing": 139.569,
    "other": 100.267,
    "utilities": 154.777
@@ -2461,6 +2771,7 @@
   "Savannah, GA": {
    "fmr4": 2547,
    "goods": 96.269,
+   "home4": 409405,
    "housing": 86.012,
    "other": 98.667,
    "utilities": 88.603
@@ -2468,6 +2779,7 @@
   "Scranton--Wilkes-Barre, PA": {
    "fmr4": 1766,
    "goods": 100.684,
+   "home4": 315094,
    "housing": 66.987,
    "other": 97.726,
    "utilities": 106.533
@@ -2475,6 +2787,7 @@
   "Seattle-Tacoma-Bellevue, WA": {
    "fmr4": 3847,
    "goods": 103.972,
+   "home4": 898206,
    "housing": 151.314,
    "other": 106.835,
    "utilities": 92.814
@@ -2482,6 +2795,7 @@
   "Sebastian-Vero Beach-West Vero Corridor, FL": {
    "fmr4": 2691,
    "goods": 96.24,
+   "home4": 513649,
    "housing": 101.635,
    "other": 98.864,
    "utilities": 87.265
@@ -2489,6 +2803,7 @@
   "Sebring, FL": {
    "fmr4": 2017,
    "goods": 96.24,
+   "home4": 355511,
    "housing": 73.455,
    "other": 98.864,
    "utilities": 86.755
@@ -2496,6 +2811,7 @@
   "Sheboygan, WI": {
    "fmr4": 1527,
    "goods": 93.787,
+   "home4": 330120,
    "housing": 80.54,
    "other": 99.411,
    "utilities": 87.566
@@ -2503,6 +2819,7 @@
   "Sherman-Denison, TX": {
    "fmr4": 2157,
    "goods": 93.757,
+   "home4": 385943,
    "housing": 89.466,
    "other": 96.24,
    "utilities": 83.323
@@ -2510,6 +2827,7 @@
   "Shreveport-Bossier City, LA": {
    "fmr4": 1552,
    "goods": 93.691,
+   "home4": 326948,
    "housing": 52.286,
    "other": 95.705,
    "utilities": 72.558
@@ -2517,6 +2835,7 @@
   "Sierra Vista-Douglas, AZ": {
    "fmr4": 2109,
    "goods": 96.237,
+   "home4": 349705,
    "housing": 61.918,
    "other": 99.838,
    "utilities": 91.945
@@ -2524,6 +2843,7 @@
   "Sioux City, IA-NE-SD": {
    "fmr4": 1528,
    "goods": 94.013,
+   "home4": 290534,
    "housing": 57.849,
    "other": 92.749,
    "utilities": 82.706
@@ -2531,6 +2851,7 @@
   "Sioux Falls, SD-MN": {
    "fmr4": 1939,
    "goods": 95.472,
+   "home4": 381339,
    "housing": 77.605,
    "other": 91.906,
    "utilities": 80.7
@@ -2545,6 +2866,7 @@
   "South Bend-Mishawaka, IN-MI": {
    "fmr4": 1711,
    "goods": 94.221,
+   "home4": 344220,
    "housing": 74.586,
    "other": 99.213,
    "utilities": 87.733
@@ -2552,6 +2874,7 @@
   "Spartanburg, SC": {
    "fmr4": 1661,
    "goods": 96.339,
+   "home4": 341185,
    "housing": 68.007,
    "other": 98.284,
    "utilities": 88.331
@@ -2559,6 +2882,7 @@
   "Spokane-Spokane Valley, WA": {
    "fmr4": 2506,
    "goods": 105.028,
+   "home4": 478755,
    "housing": 97.059,
    "other": 99.472,
    "utilities": 91.196
@@ -2566,6 +2890,7 @@
   "Springfield, IL": {
    "fmr4": 1682,
    "goods": 93.643,
+   "home4": 332049,
    "housing": 71.616,
    "other": 99.59,
    "utilities": 90.406
@@ -2573,6 +2898,7 @@
   "Springfield, MA": {
    "fmr4": 2296,
    "goods": 97.015,
+   "home4": 461891,
    "housing": 75.781,
    "other": 101.197,
    "utilities": 154.996
@@ -2580,6 +2906,7 @@
   "Springfield, MO": {
    "fmr4": 1701,
    "goods": 94.193,
+   "home4": 368480,
    "housing": 65.568,
    "other": 93.026,
    "utilities": 85.825
@@ -2587,6 +2914,7 @@
   "Springfield, OH": {
    "fmr4": 1572,
    "goods": 93.628,
+   "home4": 288406,
    "housing": 61.726,
    "other": 98.939,
    "utilities": 97.155
@@ -2594,6 +2922,7 @@
   "St. Cloud, MN": {
    "fmr4": 1873,
    "goods": 95.433,
+   "home4": 350890,
    "housing": 65.057,
    "other": 92.193,
    "utilities": 88.672
@@ -2601,6 +2930,7 @@
   "St. George, UT": {
    "fmr4": 2624,
    "goods": 96.446,
+   "home4": 610184,
    "housing": 98.148,
    "other": 98.959,
    "utilities": 77.69
@@ -2608,6 +2938,7 @@
   "St. Joseph, MO-KS": {
    "fmr4": 1566,
    "goods": 94.18,
+   "home4": 326234,
    "housing": 55.359,
    "other": 93.088,
    "utilities": 88.283
@@ -2615,6 +2946,7 @@
   "St. Louis, MO-IL": {
    "fmr4": 1812,
    "goods": 99.996,
+   "home4": 431639,
    "housing": 79.024,
    "other": 98.642,
    "utilities": 69.921
@@ -2622,6 +2954,7 @@
   "State College, PA": {
    "fmr4": 1862,
    "goods": 100.684,
+   "home4": 483354,
    "housing": 85.688,
    "other": 97.726,
    "utilities": 109.462
@@ -2629,6 +2962,7 @@
   "Staunton-Stuarts Draft, VA": {
    "fmr4": 1941,
    "goods": 96.773,
+   "home4": 428575,
    "housing": 68.232,
    "other": 98.612,
    "utilities": 89.522
@@ -2636,6 +2970,7 @@
   "Stockton-Lodi, CA": {
    "fmr4": 2922,
    "goods": 105.168,
+   "home4": 616677,
    "housing": 115.614,
    "other": 100.267,
    "utilities": 158.247
@@ -2643,6 +2978,7 @@
   "Sumter, SC": {
    "fmr4": 1871,
    "goods": 96.339,
+   "home4": 298048,
    "housing": 60.833,
    "other": 98.284,
    "utilities": 87.304
@@ -2650,6 +2986,7 @@
   "Syracuse, NY": {
    "fmr4": 1848,
    "goods": 99.693,
+   "home4": 352379,
    "housing": 80.656,
    "other": 97.754,
    "utilities": 133.405
@@ -2657,6 +2994,7 @@
   "Tallahassee, FL": {
    "fmr4": 1790,
    "goods": 96.24,
+   "home4": 448228,
    "housing": 78.528,
    "other": 98.864,
    "utilities": 87.471
@@ -2664,6 +3002,7 @@
   "Tampa-St. Petersburg-Clearwater, FL": {
    "fmr4": 3077,
    "goods": 95.47,
+   "home4": 479359,
    "housing": 125.839,
    "other": 97.565,
    "utilities": 88.525
@@ -2671,6 +3010,7 @@
   "Terre Haute, IN": {
    "fmr4": 1535,
    "goods": 94.318,
+   "home4": 269209,
    "housing": 51.923,
    "other": 99.141,
    "utilities": 86.564
@@ -2678,6 +3018,7 @@
   "Texarkana, TX-AR": {
    "fmr4": 1657,
    "goods": 93.693,
+   "home4": 324814,
    "housing": 49.885,
    "other": 95.895,
    "utilities": 79.258
@@ -2685,6 +3026,7 @@
   "Toledo, OH": {
    "fmr4": 1454,
    "goods": 93.628,
+   "home4": 321107,
    "housing": 67.317,
    "other": 98.939,
    "utilities": 96.285
@@ -2692,6 +3034,7 @@
   "Topeka, KS": {
    "fmr4": 1411,
    "goods": 94.027,
+   "home4": 309572,
    "housing": 64.987,
    "other": 93.816,
    "utilities": 88.942
@@ -2699,6 +3042,7 @@
   "Traverse City, MI": {
    "fmr4": 1720,
    "goods": 93.711,
+   "home4": 597636,
    "housing": 78.146,
    "other": 99.561,
    "utilities": 92.356
@@ -2706,6 +3050,7 @@
   "Trenton-Princeton, NJ": {
    "fmr4": 2670,
    "goods": 99.79,
+   "home4": 636696,
    "housing": 135.082,
    "other": 97.925,
    "utilities": 112.266
@@ -2713,6 +3058,7 @@
   "Tucson, AZ": {
    "fmr4": 2245,
    "goods": 96.237,
+   "home4": 411300,
    "housing": 91.765,
    "other": 99.838,
    "utilities": 89.521
@@ -2720,6 +3066,7 @@
   "Tulsa, OK": {
    "fmr4": 1858,
    "goods": 93.778,
+   "home4": 363658,
    "housing": 68.235,
    "other": 95.458,
    "utilities": 73.856
@@ -2727,6 +3074,7 @@
   "Tuscaloosa, AL": {
    "fmr4": 1548,
    "goods": 96.397,
+   "home4": 350647,
    "housing": 58.246,
    "other": 96.693,
    "utilities": 84.396
@@ -2734,6 +3082,7 @@
   "Twin Falls, ID *": {
    "fmr4": 2154,
    "goods": 96.179,
+   "home4": 432456,
    "housing": 73.833,
    "other": 98.974,
    "utilities": 70.028
@@ -2741,6 +3090,7 @@
   "Tyler, TX": {
    "fmr4": 1981,
    "goods": 93.757,
+   "home4": 412728,
    "housing": 79.911,
    "other": 96.24,
    "utilities": 82.904
@@ -2748,6 +3098,7 @@
   "Urban Honolulu, HI": {
    "fmr4": 4432,
    "goods": 111.562,
+   "home4": 1191869,
    "housing": 135.538,
    "other": 102.898,
    "utilities": 187.263
@@ -2755,6 +3106,7 @@
   "Utica-Rome, NY": {
    "fmr4": 1623,
    "goods": 99.693,
+   "home4": 278287,
    "housing": 66.063,
    "other": 97.754,
    "utilities": 131.909
@@ -2762,6 +3114,7 @@
   "Valdosta, GA": {
    "fmr4": 1915,
    "goods": 96.269,
+   "home4": 325056,
    "housing": 58.758,
    "other": 98.667,
    "utilities": 87.803
@@ -2769,6 +3122,7 @@
   "Vallejo, CA": {
    "fmr4": 3297,
    "goods": 105.168,
+   "home4": 642754,
    "housing": 142.042,
    "other": 100.267,
    "utilities": 154.993
@@ -2776,6 +3130,7 @@
   "Victoria, TX": {
    "fmr4": 1909,
    "goods": 93.757,
+   "home4": 355870,
    "housing": 69.318,
    "other": 96.24,
    "utilities": 85.271
@@ -2783,6 +3138,7 @@
   "Vineland, NJ": {
    "fmr4": 2311,
    "goods": 99.79,
+   "home4": 370055,
    "housing": 83.883,
    "other": 97.925,
    "utilities": 108.227
@@ -2790,6 +3146,7 @@
   "Virginia Beach-Chesapeake-Norfolk, VA-NC": {
    "fmr4": 2797,
    "goods": 96.767,
+   "home4": 471835,
    "housing": 99.805,
    "other": 98.599,
    "utilities": 89.579
@@ -2797,6 +3154,7 @@
   "Visalia, CA": {
    "fmr4": 2393,
    "goods": 105.168,
+   "home4": 439455,
    "housing": 84.053,
    "other": 100.267,
    "utilities": 156.446
@@ -2804,6 +3162,7 @@
   "Waco, TX": {
    "fmr4": 1644,
    "goods": 93.757,
+   "home4": 396939,
    "housing": 83.531,
    "other": 96.24,
    "utilities": 80.967
@@ -2811,6 +3170,7 @@
   "Walla Walla, WA": {
    "fmr4": 2600,
    "goods": 105.028,
+   "home4": 513147,
    "housing": 86.579,
    "other": 99.472,
    "utilities": 94.308
@@ -2818,6 +3178,7 @@
   "Warner Robins, GA": {
    "fmr4": 2148,
    "goods": 96.269,
+   "home4": 333415,
    "housing": 79.172,
    "other": 98.667,
    "utilities": 88.135
@@ -2825,6 +3186,7 @@
   "Washington-Arlington-Alexandria, DC-VA-MD-WV": {
    "fmr4": 3332,
    "goods": 104.847,
+   "home4": 740333,
    "housing": 151.134,
    "other": 102.321,
    "utilities": 106.7
@@ -2839,6 +3201,7 @@
   "Waterloo-Cedar Falls, IA": {
    "fmr4": 1763,
    "goods": 93.73,
+   "home4": 288186,
    "housing": 63.13,
    "other": 92.927,
    "utilities": 83.652
@@ -2846,6 +3209,7 @@
   "Watertown-Fort Drum, NY": {
    "fmr4": 2340,
    "goods": 99.693,
+   "home4": 263819,
    "housing": 53.185,
    "other": 97.754,
    "utilities": 132.18
@@ -2853,6 +3217,7 @@
   "Wausau, WI": {
    "fmr4": 1519,
    "goods": 93.787,
+   "home4": 315508,
    "housing": 71.464,
    "other": 99.411,
    "utilities": 89.981
@@ -2860,6 +3225,7 @@
   "Weirton-Steubenville, WV-OH": {
    "fmr4": 1482,
    "goods": 96.446,
+   "home4": 179358,
    "housing": 52.383,
    "other": 99.651,
    "utilities": 94.991
@@ -2867,6 +3233,7 @@
   "Wenatchee-East Wenatchee, WA": {
    "fmr4": 2516,
    "goods": 105.028,
+   "home4": 675180,
    "housing": 114.958,
    "other": 99.472,
    "utilities": 100.591
@@ -2874,6 +3241,7 @@
   "Wheeling, WV-OH": {
    "fmr4": 1413,
    "goods": 96.42,
+   "home4": 230288,
    "housing": 51.443,
    "other": 99.675,
    "utilities": 94.892
@@ -2881,6 +3249,7 @@
   "Wichita Falls, TX": {
    "fmr4": 1759,
    "goods": 93.757,
+   "home4": 291670,
    "housing": 68.208,
    "other": 96.24,
    "utilities": 84.092
@@ -2888,6 +3257,7 @@
   "Wichita, KS": {
    "fmr4": 1784,
    "goods": 94.027,
+   "home4": 297857,
    "housing": 66.245,
    "other": 93.816,
    "utilities": 88.459
@@ -2895,6 +3265,7 @@
   "Wildwood-The Villages, FL": {
    "fmr4": 1937,
    "goods": 96.24,
+   "home4": 468262,
    "housing": 51.733,
    "other": 98.864,
    "utilities": 88.996
@@ -2902,6 +3273,7 @@
   "Williamsport, PA": {
    "fmr4": 1737,
    "goods": 100.684,
+   "home4": 298435,
    "housing": 64.392,
    "other": 97.726,
    "utilities": 107.451
@@ -2909,6 +3281,7 @@
   "Wilmington, NC": {
    "fmr4": 2319,
    "goods": 96.621,
+   "home4": 619659,
    "housing": 93.215,
    "other": 98.186,
    "utilities": 87.902
@@ -2916,6 +3289,7 @@
   "Winchester, VA-WV": {
    "fmr4": 2639,
    "goods": 96.699,
+   "home4": 508632,
    "housing": 90.009,
    "other": 98.797,
    "utilities": 89.716
@@ -2923,6 +3297,7 @@
   "Winston-Salem, NC": {
    "fmr4": 1898,
    "goods": 96.621,
+   "home4": 398462,
    "housing": 71.377,
    "other": 98.186,
    "utilities": 88.421
@@ -2930,6 +3305,7 @@
   "Worcester, MA": {
    "fmr4": 2825,
    "goods": 97.015,
+   "home4": 640765,
    "housing": 113.001,
    "other": 101.197,
    "utilities": 155.206
@@ -2937,6 +3313,7 @@
   "Yakima, WA": {
    "fmr4": 2093,
    "goods": 105.028,
+   "home4": 439921,
    "housing": 72.628,
    "other": 99.472,
    "utilities": 91.901
@@ -2944,6 +3321,7 @@
   "York-Hanover, PA": {
    "fmr4": 1850,
    "goods": 100.684,
+   "home4": 414859,
    "housing": 79.762,
    "other": 97.726,
    "utilities": 107.011
@@ -2951,6 +3329,7 @@
   "Youngstown-Warren, OH": {
    "fmr4": 1345,
    "goods": 93.628,
+   "home4": 262061,
    "housing": 53.448,
    "other": 98.939,
    "utilities": 96.292
@@ -2958,6 +3337,7 @@
   "Yuba City, CA": {
    "fmr4": 2600,
    "goods": 105.168,
+   "home4": 486424,
    "housing": 108.279,
    "other": 100.267,
    "utilities": 160.771
@@ -2965,6 +3345,7 @@
   "Yuma, AZ": {
    "fmr4": 2318,
    "goods": 96.237,
+   "home4": 363225,
    "housing": 73.776,
    "other": 99.838,
    "utilities": 87.834
@@ -3363,306 +3744,357 @@
  "us_state_parts": {
   "AK": {
    "goods": 106.319,
+   "home4": 532212,
    "housing": 93.784,
    "other": 102.208,
    "utilities": 119.021
   },
   "AL": {
    "goods": 96.399,
+   "home4": 373782,
    "housing": 61.785,
    "other": 96.711,
    "utilities": 84.643
   },
   "AR": {
    "goods": 93.597,
+   "home4": 375975,
    "housing": 58.203,
    "other": 95.312,
    "utilities": 74.731
   },
   "AZ": {
    "goods": 95.361,
+   "home4": 506048,
    "housing": 106.804,
    "other": 102.808,
    "utilities": 92.317
   },
   "CA": {
    "goods": 106.098,
+   "home4": 923521,
    "housing": 154.346,
    "other": 102.591,
    "utilities": 158.899
   },
   "CO": {
    "goods": 98.727,
+   "home4": 636742,
    "housing": 127.359,
    "other": 99.613,
    "utilities": 84.971
   },
   "CT": {
    "goods": 97.33,
+   "home4": 636446,
    "housing": 117.048,
    "other": 102.658,
    "utilities": 146.495
   },
   "DC": {
    "goods": 106.502,
+   "home4": 973845,
    "housing": 154.984,
    "other": 102.964,
    "utilities": 112.821
   },
   "DE": {
    "goods": 96.155,
+   "home4": 517222,
    "housing": 102.015,
    "other": 101.235,
    "utilities": 103.81
   },
   "FL": {
    "goods": 98.059,
+   "home4": 507559,
    "housing": 122.107,
    "other": 101.324,
    "utilities": 90.074
   },
   "GA": {
    "goods": 98.929,
+   "home4": 415812,
    "housing": 88.694,
    "other": 97.343,
    "utilities": 92.814
   },
   "HI": {
    "goods": 111.562,
+   "home4": 1172801,
    "housing": 125.304,
    "other": 102.898,
    "utilities": 190.178
   },
   "IA": {
    "goods": 93.73,
+   "home4": 333189,
    "housing": 65.322,
    "other": 92.927,
    "utilities": 83.274
   },
   "ID": {
    "goods": 96.311,
+   "home4": 545762,
    "housing": 90.027,
    "other": 99.015,
    "utilities": 70.444
   },
   "IL": {
    "goods": 103.832,
+   "home4": 446913,
    "housing": 93.944,
    "other": 100.156,
    "utilities": 84.952
   },
   "IN": {
    "goods": 95.509,
+   "home4": 361847,
    "housing": 73.926,
    "other": 99.145,
    "utilities": 85.545
   },
   "KS": {
    "goods": 94.027,
+   "home4": 380641,
    "housing": 71.156,
    "other": 93.816,
    "utilities": 88.438
   },
   "KY": {
    "goods": 95.967,
+   "home4": 378901,
    "housing": 64.313,
    "other": 97.25,
    "utilities": 75.313
   },
   "LA": {
    "goods": 93.7,
+   "home4": 325689,
    "housing": 63.104,
    "other": 95.706,
    "utilities": 71.463
   },
   "MA": {
    "goods": 98.82,
+   "home4": 861634,
    "housing": 128.068,
    "other": 102.852,
    "utilities": 152.07
   },
   "MD": {
    "goods": 102.524,
+   "home4": 560328,
    "housing": 121.079,
    "other": 101.596,
    "utilities": 110.86
   },
   "ME": {
    "goods": 97.171,
+   "home4": 546603,
    "housing": 78.94,
    "other": 103.191,
    "utilities": 135.189
   },
   "MI": {
    "goods": 95.993,
+   "home4": 414758,
    "housing": 82.332,
    "other": 100.933,
    "utilities": 100.15
   },
   "MN": {
    "goods": 100.519,
+   "home4": 439774,
    "housing": 91.281,
    "other": 100.213,
    "utilities": 90.836
   },
   "MO": {
    "goods": 96.299,
+   "home4": 410943,
    "housing": 69.88,
    "other": 95.169,
    "utilities": 79.406
   },
   "MS": {
    "goods": 96.219,
+   "home4": 332642,
    "housing": 56.456,
    "other": 96.09,
    "utilities": 78.415
   },
   "MT": {
    "goods": 96.006,
+   "home4": 562937,
    "housing": 84.648,
    "other": 98.715,
    "utilities": 72.254
   },
   "NC": {
    "goods": 96.621,
+   "home4": 483919,
    "housing": 81.364,
    "other": 98.186,
    "utilities": 88.619
   },
   "ND": {
    "goods": 95.701,
+   "home4": 365360,
    "housing": 71.421,
    "other": 91.158,
    "utilities": 73.669
   },
   "NE": {
    "goods": 94.101,
+   "home4": 385813,
    "housing": 75.174,
    "other": 92.98,
    "utilities": 75.604
   },
   "NH": {
    "goods": 98.578,
+   "home4": 693146,
    "housing": 114.947,
    "other": 103.879,
    "utilities": 133.663
   },
   "NJ": {
    "goods": 107.066,
+   "home4": 767604,
    "housing": 134.292,
    "other": 103.529,
    "utilities": 114.187
   },
   "NM": {
    "goods": 96.144,
+   "home4": 426479,
    "housing": 73.611,
    "other": 98.54,
    "utilities": 77.895
   },
   "NV": {
    "goods": 96.271,
+   "home4": 524805,
    "housing": 114.135,
    "other": 98.744,
    "utilities": 90.51
   },
   "NY": {
    "goods": 107.254,
+   "home4": 577921,
    "housing": 122.168,
    "other": 104.067,
    "utilities": 134.37
   },
   "OH": {
    "goods": 93.67,
+   "home4": 381940,
    "housing": 73.012,
    "other": 98.947,
    "utilities": 95.823
   },
   "OK": {
    "goods": 93.778,
+   "home4": 345077,
    "housing": 62.763,
    "other": 95.458,
    "utilities": 73.882
   },
   "OR": {
    "goods": 105.261,
+   "home4": 625007,
    "housing": 108.628,
    "other": 100.298,
    "utilities": 107.046
   },
   "PA": {
    "goods": 99.357,
+   "home4": 467795,
    "housing": 85.068,
    "other": 99.762,
    "utilities": 109.321
   },
   "RI": {
    "goods": 97.165,
+   "home4": 697209,
    "housing": 105.62,
    "other": 102.84,
    "utilities": 146.653
   },
   "SC": {
    "goods": 96.339,
+   "home4": 428937,
    "housing": 80.49,
    "other": 98.284,
    "utilities": 88.303
   },
   "SD": {
    "goods": 95.473,
+   "home4": 375299,
    "housing": 67.642,
    "other": 91.899,
    "utilities": 79.651
   },
   "TN": {
    "goods": 96.247,
+   "home4": 487221,
    "housing": 79.07,
    "other": 95.142,
    "utilities": 72.137
   },
   "TX": {
    "goods": 98.083,
+   "home4": 393939,
    "housing": 96.503,
    "other": 97.081,
    "utilities": 87.512
   },
   "UT": {
    "goods": 96.446,
+   "home4": 575337,
    "housing": 107.814,
    "other": 98.959,
    "utilities": 78.739
   },
   "VA": {
    "goods": 100.368,
+   "home4": 573622,
    "housing": 106.799,
    "other": 100.233,
    "utilities": 92.185
   },
   "VT": {
    "goods": 97.274,
+   "home4": 538568,
    "housing": 86.502,
    "other": 101.586,
    "utilities": 125.833
   },
   "WA": {
    "goods": 104.359,
+   "home4": 741500,
    "housing": 125.979,
    "other": 103.873,
    "utilities": 92.86
   },
   "WI": {
    "goods": 94.31,
+   "home4": 433058,
    "housing": 79.312,
    "other": 99.501,
    "utilities": 89.906
   },
   "WV": {
    "goods": 96.539,
+   "home4": 288129,
    "housing": 54.241,
    "other": 99.94,
    "utilities": 92.242
   },
   "WY": {
    "goods": 95.368,
+   "home4": 428796,
    "housing": 71.127,
    "other": 100.428,
    "utilities": 78.422

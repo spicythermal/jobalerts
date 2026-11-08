@@ -23,11 +23,13 @@ def _age(published) -> str:
     return f"{hours:.0f}h ago" if hours < 48 else f"{hours / 24:.0f}d ago"
 
 
-def top_matches(store: Store, job_filter: JobFilter, days: int, n: int, pay=None) -> tuple[int, list[dict]]:
+def top_matches(store: Store, job_filter: JobFilter, days: int, n: int, pay=None,
+                by: str = "score") -> tuple[int, list[dict]]:
     """(number of matches posted in the last `days`, the best `n` of them).
 
-    Ranked by AI score, then newest first. Jobs that were already open when a board was first
-    polled (baseline) count too if they pass the title/location filter, so the list isn't empty
+    Ranked by AI score (or with by="step_up" by the AI's step-up score, for the best promotions;
+    jobs without one are left out), then newest first. Jobs that were already open when a board was
+    first polled (baseline) count too if they pass the title/location filter, so the list isn't empty
     right after a deploy. `pay` (a col.PayIndex) fills in the pay index for jobs stored without one."""
     matches = []
     for r in store.recent_candidates(utcnow() - timedelta(days=days)):
@@ -35,10 +37,12 @@ def top_matches(store: Store, job_filter: JobFilter, days: int, n: int, pay=None
         if r["status"] == "baseline" and not job_filter.check_basic(job_from_row(r))[0]:
             continue
         pay_index, low, high = r["pay_index"], r["pay_low"], r["pay_high"]
+        buy_index, buy_low, buy_high = r["buy_index"], r["buy_low"], r["buy_high"]
         pay_note = "" if r["pay_note"] == NO_PAY else r["pay_note"] or ""
         if pay_index is None and pay and (result := pay.index(parse_salary(r["salary"] or ""), r["location"] or "",
                                                               bool(r["remote"]))):
             pay_index, low, high, pay_note = result.index, result.low, result.high, result.text()
+            buy_index, buy_low, buy_high = result.buy_index, result.buy_low, result.buy_high
         matches.append({
             "company": r["company"] or "",
             "title": r["title"] or "",
@@ -47,9 +51,14 @@ def top_matches(store: Store, job_filter: JobFilter, days: int, n: int, pay=None
             "pay_index": round(pay_index, 2) if pay_index is not None else None,
             "pay_low": round(low, 2) if low is not None else None,
             "pay_high": round(high, 2) if high is not None else None,
+            "buy_index": round(buy_index, 2) if buy_index is not None else None,
+            "buy_low": round(buy_low, 2) if buy_low is not None else None,
+            "buy_high": round(buy_high, 2) if buy_high is not None else None,
             "pay": pay_note,
             "url": r["url"] or "",
             "score": r["score"],
+            "step_up": r["step_up"],
+            "step_up_note": r["step_up_note"] or "",
             "summary": r["score_summary"] or "",
             "best_resume": r["best_resume"] or "",
             "posted": r["published_at"] or r["first_seen_at"],
@@ -57,6 +66,9 @@ def top_matches(store: Store, job_filter: JobFilter, days: int, n: int, pay=None
             "pushed": r["status"] == "alerted",
         })
     matches.sort(key=lambda m: m["posted"], reverse=True)
+    if by == "step_up":
+        ranked = sorted((m for m in matches if m["step_up"] is not None), key=lambda m: m["step_up"], reverse=True)
+        return len(matches), ranked[:n]
     matches.sort(key=lambda m: -1 if m["score"] is None else m["score"], reverse=True)
     return len(matches), matches[:n]
 
@@ -135,10 +147,12 @@ class MqttPublisher:
             "device": self._device(),
         }
 
-    def messages(self, total: int, jobs: list[dict], cost: dict | None = None) -> list[tuple[str, str]]:
+    def messages(self, total: int, jobs: list[dict], cost: dict | None = None,
+                 step_ups: list[dict] | None = None) -> list[tuple[str, str]]:
         top = f"{jobs[0]['company']}: {jobs[0]['title']}" if jobs else "none"
         updated = utcnow().isoformat(timespec="seconds")
-        attributes = {"days": self.cfg.days, "top": top[:250], "jobs": jobs, "updated": updated}
+        attributes = {"days": self.cfg.days, "top": top[:250], "jobs": jobs, "step_ups": step_ups or [],
+                      "updated": updated}
         out = [(self.discovery_topic, json.dumps(self.discovery())),
                (self.attributes_topic, json.dumps(attributes)),
                (self.state_topic, str(total))]
@@ -149,8 +163,9 @@ class MqttPublisher:
                     (f"{base}/cost/state", f"{cost['month']:.4f}")]
         return out
 
-    async def publish(self, total: int, jobs: list[dict], cost: dict | None = None) -> None:
-        await asyncio.to_thread(self._send, self.cfg, self.messages(total, jobs, cost))
+    async def publish(self, total: int, jobs: list[dict], cost: dict | None = None,
+                      step_ups: list[dict] | None = None) -> None:
+        await asyncio.to_thread(self._send, self.cfg, self.messages(total, jobs, cost, step_ups))
         log.debug("MQTT %s updated: %d matches", self.state_topic, total)
 
 

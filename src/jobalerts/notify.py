@@ -50,13 +50,15 @@ class Notifier:
                 log.warning("ntfy send failed (%s); retrying", e)
                 await asyncio.sleep(3 * (attempt + 1))
 
-    async def job_alert(self, job: Job, score=None, pay: str = "") -> None:
+    async def job_alert(self, job: Job, score=None, pay: str = "", step_up_shown: int = 60) -> None:
         lines = [" · ".join(filter(None, [job.location or None, "Remote" if job.remote and
                                            "remote" not in job.location.lower() else None, job.salary or None]))]
         if pay:
             lines.append(pay[0].upper() + pay[1:])
         if score is not None:
             lines.append(f"Fit {score.score}/100: {score.summary}")
+            if score.step_up >= step_up_shown:
+                lines.append(f"Step up {score.step_up}/100" + (f": {score.step_up_note}" if score.step_up_note else ""))
             if score.red_flags:
                 lines.append("Watch out: " + "; ".join(score.red_flags))
             if score.best_resume:
@@ -71,7 +73,7 @@ class Notifier:
             f"{job.company}: {job.title}",
             "\n".join(line for line in lines if line),
             priority=priority,
-            tags=["briefcase"],
+            tags=["rocket"] if score is not None and score.step_up >= step_up_shown else ["briefcase"],
             click=job.url,
             actions=[{"action": "view", "label": "Open posting", "url": job.url, "clear": True}],
         )

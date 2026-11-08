@@ -53,6 +53,7 @@ class Scoring(BaseModel):
     resume_dir: str = "../resume_reference"  # PDF/.md/.txt resumes, relative to the config directory
     push_threshold: int = 75
     digest_threshold: int = 50
+    step_up_threshold: int = 75          # AI "step up" score (a credible promotion) at or above this -> pushed too (0 = off)
     daily_max_calls: int = 300
 
 
@@ -63,6 +64,16 @@ class Prescreen(BaseModel):
     title_batch: int = 50               # titles per pass-1 call
     posting_batch: int = 8              # postings per pass-2 call
     excerpt_chars: int = 3000           # description characters shown per posting in pass 2
+
+
+class BuyConfig(BaseModel):
+    """Second pay index for a family that buys a 4-bedroom home (see col.py); needs housing_share > 0."""
+    enabled: bool = True
+    down_payment: float = 0.20
+    property_tax: float = 0.011          # a year, share of the purchase price, where the state isn't listed
+    property_tax_by_state: dict[str, float] = {}
+    upkeep: float = 0.0075               # insurance + maintenance a year, share of the price
+    utilities: float = 350               # $/month at US-average utility prices
 
 
 class PayConfig(BaseModel):
@@ -78,6 +89,7 @@ class PayConfig(BaseModel):
     tax_rules: str = "taxes.yaml"        # household, localities, local taxes, rates abroad (config dir)
     tax_data: str = "tax_data.json"      # US taxes by salary and place, built by tools/build_tax_data.py
     housing_share: float = 0.40          # share of spending on rent + utilities, priced at HUD 4-bedroom FMRs (0 = plain RPP)
+    buy: BuyConfig = BuyConfig()
 
 
 class Notify(BaseModel):
@@ -99,7 +111,7 @@ class HomeAssistant(BaseModel):
     mqtt_tls: bool = False               # true for a TLS listener (usually port 8883)
     discovery_prefix: str = "homeassistant"
     base_topic: str = "jobalerts"
-    top_n: int = 3
+    top_n: int = 10
     days: int = 7                        # matches posted in the last N days
     interval: int = 300                  # seconds between refreshes (also refreshed right after new matches)
 

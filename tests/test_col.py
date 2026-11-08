@@ -116,6 +116,7 @@ def test_location_overrides():
 def test_committed_data_resolves_the_reference():
     data = json.loads((REPO / "config" / "col_data.json").read_text(encoding="utf-8"))
     col.check_data(data, "Portland, OR")  # with family housing (HUD rents) at the default 40%
+    col.check_data(data, "Portland, OR", buy=True)
     for share in (0.0, 0.4):
         pi = PayIndex(data, housing_share=share)
         assert "Portland-Vancouver-Hillsboro" in pi.home.label
@@ -124,6 +125,10 @@ def test_committed_data_resolves_the_reference():
     plain, family = (PayIndex(data, housing_share=s).index(Pay(155_000, 155_000, "USD"), "San Jose, CA").index
                      for s in (0.0, 0.4))
     assert family < plain - 0.1
+    # buying a 4-bedroom home in San Jose costs far more against Portland than renting one does
+    result = PayIndex(data, housing_share=0.4, ownership=col.Ownership()).index(Pay(250_000, 250_000, "USD"),
+                                                                                   "Palo Alto, CA")
+    assert result.buy_index < result.index - 0.2
 
 
 # ---------------------------------------------------------------------------- family housing
@@ -155,6 +160,45 @@ def test_family_housing_levels_by_hand():
     # places without parts and countries keep their plain price level
     assert pi.resolve("Albuquerque, NM").level == pytest.approx(0.84)
     assert pi.resolve("Munich, Germany").level == pytest.approx(0.8)
+
+
+OWN = col.Ownership(down_payment=0.2, property_tax=0.01, property_tax_by_state={"CA": 0.012}, upkeep=0.005,
+                    utilities=300)
+BUY = dict(FAMILY, mortgage_rate=6.0, us_metro_parts={
+    "Portland-Vancouver-Hillsboro, OR-WA": dict(FAMILY["us_metro_parts"]["Portland-Vancouver-Hillsboro, OR-WA"],
+                                                home4=600_000),
+    "San Jose-Sunnyvale-Santa Clara, CA": dict(FAMILY["us_metro_parts"]["San Jose-Sunnyvale-Santa Clara, CA"],
+                                               home4=1_800_000),
+})
+
+
+def test_buy_index_by_hand():
+    pi = PayIndex(BUY, housing_share=0.4, ownership=OWN)
+    # Portland: (480K x 6% + 600K x 1.5%) / 12 = 3,150 + utilities 300 x 100/100 = $3,450/mo
+    assert pi.own_monthly(BUY["us_metro_parts"]["Portland-Vancouver-Hillsboro, OR-WA"], "OR") == pytest.approx(3450)
+    # level: 60% x 100 + 40% x 3,450 x 0.04 = 138 -> 1.152
+    assert pi.home.buy_level == pytest.approx(1.152)
+    assert "own $600K 4-bed at 6.00%: $3.5K/mo, $120K down" == pi.home.buy_note
+    # San Jose: (1.44M x 6% + 1.8M x (1.2% + 0.5%)) / 12 = 9,750 + 300 x 150/100 = $10,200 -> 60 + 40 x 408 / 100
+    sj = pi.resolve("San Jose, CA")
+    assert sj.buy_level == pytest.approx((60 + 0.4 * 10_200 * 0.04) / 100)
+    result = pi.index(Pay(155_000, 155_000), "San Jose, CA")
+    assert result.index == pytest.approx(1.08 / 1.40)                        # renting: unchanged
+    assert result.buy_index == pytest.approx(1.152 / sj.buy_level)           # buying against buying in Portland
+    assert result.text().startswith(f"pay index 0.77 rent · {result.buy_index:.2f} buy: $155K/yr in San Jose")
+    assert result.best_high == result.high                                   # renting is the better of the two here
+    # the reference buys too: same pay in Portland is 1.0 either way
+    home = pi.index(Pay(155_000, 155_000), "Portland, OR")
+    assert home.index == pytest.approx(1.0) and home.buy_index == pytest.approx(1.0)
+
+
+def test_no_buy_index_without_home_prices_or_abroad():
+    pi = PayIndex(BUY, housing_share=0.4, ownership=OWN)
+    assert pi.index(Pay(80_000, 80_000, "EUR"), "Munich, Germany").buy_low is None
+    nm = pi.index(Pay(155_000, 155_000), "Santa Fe, NM")                     # state parts without home4
+    assert nm.buy_low is None and "buy" not in nm.text()
+    assert PayIndex(FAMILY, housing_share=0.4, ownership=OWN).ownership is None   # table without home prices
+    assert PayIndex(BUY, housing_share=0, ownership=OWN).ownership is None        # buying needs family housing
 
 
 def test_family_housing_off_or_missing_falls_back_to_rpp():
@@ -199,7 +243,12 @@ def _metro_rows(fips: str, name: str, parts: dict[str, float], total: float | No
     return rows
 
 
-def fake_sources(metros: int = 320, fmr: bool = True) -> httpx.MockTransport:
+def _zillow_csv(rows: list[tuple[str, str, float | str]]) -> str:
+    header = "RegionID,SizeRank,RegionName,RegionType,StateName,2026-08-31,2026-09-30"
+    return "\n".join([header, *(f'1,1,"{name}",msa,{st},1,{v}' for name, st, v in rows)])
+
+
+def fake_sources(metros: int = 320, fmr: bool = True, homes: bool = True) -> httpx.MockTransport:
     msa = []
     fmr_features = []
     for i in range(metros):
@@ -215,6 +264,9 @@ def fake_sources(metros: int = 320, fmr: bool = True) -> httpx.MockTransport:
               for i, name in enumerate(col.STATES.values())]
     oregon = list(col.STATES.values()).index("Oregon")
     states += [f' "{oregon:02d}000","Oregon",8,SARPP,{n},"...","{k}","Index",100,{100 + n}' for k, n in LINES.items()]
+    zillow_metros = [(f"Town{i}, OR", "OR", 300_000 + 1000 * i) for i in range(metros)] if homes else []
+    zillow_metros += [("Portland, OR", "OR", 650_000), ("Nowhere, ZZ", "ZZ", "")]  # empty latest month: skipped
+    zillow_states = [(name, "", 400_000) for name in col.STATES.values()]
     iso3 = list(col.CURRENCY)
     wb = lambda v: [{"page": 1}, [{"countryiso3code": c, "date": y, "value": v} for c in iso3 for y in ("2024", "2025")]
                     + [{"countryiso3code": "ARG", "date": "2021", "value": 99.0}]]  # PPP-only year: ignored
@@ -230,6 +282,11 @@ def fake_sources(metros: int = 320, fmr: bool = True) -> httpx.MockTransport:
             page = fmr_features[start:start + 200]
             return httpx.Response(200, json={"features": [{"attributes": a} for a in page],
                                              "exceededTransferLimit": start + 200 < len(fmr_features)})
+        if "zillowstatic" in url:
+            return httpx.Response(200, text=_zillow_csv(zillow_metros if "Metro_" in url else zillow_states))
+        if "freddiemac" in url:
+            return httpx.Response(200, text="date,pmms30,pmms30p,pmms15\n4/2/1971,7.33, ,\n10/29/2026,7.24,,6.6\n"
+                                            "11/5/2026,7.18,,6.57\n")
         if "MARPP" in url:
             return httpx.Response(200, content=_zip("MARPP_MSA_2008_2024.csv", msa))
         if "SARPP" in url:
@@ -245,9 +302,14 @@ def test_build_data_parses_bea_and_world_bank():
     assert data["countries"]["DEU"] == {"ppp": 0.8, "fx": 1.0, "year": 2025}
     # RPP parts and HUD rents (all pages of the FMR query), and the part weights fitted back exactly
     assert data["us_metro_parts"]["Portland-Vancouver-Hillsboro, OR-WA"] == {
-        "goods": 105, "housing": 125, "utilities": 107, "other": 100, "fmr4": 3109}
+        "goods": 105, "housing": 125, "utilities": 107, "other": 100, "fmr4": 3109, "home4": 650_000}
     assert sum(1 for p in data["us_metro_parts"].values() if p.get("fmr4")) == 321
-    assert data["us_state_parts"]["OR"] == {"goods": 102, "housing": 103, "utilities": 104, "other": 105}
+    assert data["us_state_parts"]["OR"] == {"goods": 102, "housing": 103, "utilities": 104, "other": 105,
+                                            "home4": 400_000}
+    # Zillow 4-bedroom home values (latest month) and the latest weekly mortgage rate
+    assert data["us_metro_parts"]["Town7, OR"]["home4"] == 307_000
+    assert data["mortgage_rate"] == 7.18 and "2026-11-05" in data["sources"]["mortgage"]
+    assert "2026-09" in data["sources"]["homes"] and "Zillow" in data["sources"]["homes"]
     assert data["rpp_weights"] == pytest.approx(WEIGHTS, abs=0.005)  # Portland's all-items is off the mix
     assert data["fmr_scale"] > 0 and "2025-09-30" in data["sources"]["housing"]
     col.check_data(data, "Portland, OR")
@@ -260,6 +322,28 @@ def test_check_data_needs_hud_rents_for_family_housing():
     with pytest.raises(ValueError, match="Fair Market Rent"):
         col.check_data(data, "Portland, OR", housing_share=0.4)
     col.check_data(data, "Portland, OR", housing_share=0)  # plain RPP doesn't need them
+
+
+def test_check_data_needs_home_values_for_the_buy_index():
+    data = run(col.build_data(httpx.AsyncClient(transport=fake_sources(homes=False))))
+    col.check_data(data, "Portland, OR")
+    with pytest.raises(ValueError, match="Zillow"):
+        col.check_data(data, "Portland, OR", buy=True)
+
+
+def test_metro_home_tries_each_principal_city():
+    homes = {("prescott", "AZ"): 600_000.0, ("san jose", "CA"): 1_900_000.0}
+    assert col._metro_home("Prescott Valley-Prescott, AZ", homes) == 600_000
+    assert col._metro_home("San Jose-Sunnyvale-Santa Clara, CA", homes) == 1_900_000
+    assert col._metro_home("Enid, OK *", homes) is None
+    assert col._metro_home("Prescott, AZ Metropolitan Statistical Area", homes) == 600_000
+
+
+def test_metro_without_a_home_value_uses_the_state_value():
+    data = dict(BUY, us_state_parts={"CA": {"goods": 100, "housing": 150, "utilities": 120, "other": 100, "home4": 900_000}})
+    data["us_metro_parts"] = dict(BUY["us_metro_parts"])
+    data["us_metro_parts"]["San Jose-Sunnyvale-Santa Clara, CA"] = FAMILY["us_metro_parts"]["San Jose-Sunnyvale-Santa Clara, CA"]
+    assert "own $900K 4-bed" in PayIndex(data, housing_share=0.4, ownership=OWN).resolve("San Jose, CA").buy_note
 
 
 def test_failed_hud_query_fails_the_build():
@@ -511,3 +595,56 @@ def test_overrides_match_whole_words_and_take_any_place():
     assert "San Jose" in pi.resolve("PAO H 3120, United States of America").label
     assert pi.resolve("Melbourne, AUS") is None  # "AUS S" isn't a whole-word match
     assert pi.resolve("PAOLO H") is None
+
+
+# ---------------------------------------------------------------------------- renting or buying
+BUY_DATA = dict(BUY, us_metro_parts=dict(BUY["us_metro_parts"], **{
+    "Albuquerque, NM": {"goods": 100, "housing": 100, "utilities": 100, "other": 100, "fmr4": 3000, "home4": 200_000}}))
+OWN_CFG = {"down_payment": 0.2, "property_tax": 0.01, "property_tax_by_state": {"CA": 0.012}, "upkeep": 0.005,
+           "utilities": 300}
+
+
+@pytest.fixture
+def buy_env(tmp_path, monkeypatch):
+    from jobalerts import sources
+    fake = FakeSource()
+    monkeypatch.setitem(sources.SOURCES, "fake", fake)
+    monkeypatch.setattr("jobalerts.scheduler.SOURCES", sources.SOURCES)
+    (tmp_path / "col_data.json").write_text(json.dumps(BUY_DATA))
+    cfg = Config.model_validate({"criteria": {"title_include": ["network engineer"]}, "config_dir": tmp_path,
+                                 "database": str(tmp_path / "db" / "x.db"),
+                                 "pay": {"taxes": False, "buy": OWN_CFG}})
+    store = Store(":memory:")
+    notifier = Notifier(cfg.notify, dry_run=True)
+    runner = Runner(cfg, store, HttpClient(), notifier, PayScorer(FitScore(score=90, summary="fit")))
+    board = Board("fake", "acme", "Acme", 600)
+    fake.jobs = [make_job(0)]
+    run(runner.poll_board(board))  # baseline
+    return fake, runner, board, store, notifier
+
+
+def test_a_job_passes_the_pay_gate_when_buying_clears_it(buy_env):
+    fake, runner, board, store, notifier = buy_env
+    # $160K in Albuquerque: renting 160/155 x 1.08/1.08 = 1.03 (under 1.05), but a 4-bedroom home costs
+    # (160K x 6% + 200K x 1.5%) / 12 + 300 = $1,350/mo -> level 0.816 against Portland's 1.152 -> buying 1.46
+    job = make_job(1, location="Albuquerque, NM")
+    job.salary = "$160K"
+    fake.jobs.append(job)
+    run(runner.poll_board(board))
+    row = store.db.execute("SELECT * FROM jobs WHERE job_id='1'").fetchone()
+    assert row["status"] == "alerted"
+    assert row["pay_high"] == pytest.approx(160 / 155, abs=1e-3)
+    assert row["buy_high"] == pytest.approx(160 / 155 * 1.152 / 0.816, abs=1e-3)
+    assert "Pay index 1.03 rent · 1.46 buy" in notifier.sent[-1]["message"]
+    assert runner.top_matches(10, 7)[1][0]["buy_index"] == pytest.approx(1.46, abs=0.01)
+
+
+def test_a_job_under_the_bar_renting_and_buying_is_low_pay(buy_env):
+    fake, runner, board, store, notifier = buy_env
+    job = make_job(2, location="San Jose, CA")
+    job.salary = "$160K"  # renting 0.80, buying lower still
+    fake.jobs.append(job)
+    run(runner.poll_board(board))
+    row = store.db.execute("SELECT status, reason, buy_high FROM jobs WHERE job_id='2'").fetchone()
+    assert row["status"] == "low_pay" and row["buy_high"] < 0.8
+    assert "< 1.05" in row["reason"] and runner.scorer.calls == 0

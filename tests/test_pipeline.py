@@ -32,12 +32,15 @@ class FakeSource(Source):
 
 
 class FakeScorer:
-    def __init__(self, scores: dict[str, int | None]):
+    def __init__(self, scores: dict[str, int | None], step_ups: dict[str, int] | None = None):
         self.scores = scores
+        self.step_ups = step_ups or {}
 
     async def score(self, job):
         s = self.scores.get(job.title)
-        return None if s is None else FitScore(score=s, summary=f"scored {s}", red_flags=[])
+        up = self.step_ups.get(job.title, 0)
+        return None if s is None else FitScore(score=s, summary=f"scored {s}", red_flags=[], step_up=up,
+                                               step_up_note="leads a larger org" if up else "")
 
 
 def make_job(n, title="Network Engineer", source="fake", company="Acme", age_days=0.1, location="Remote"):
@@ -131,6 +134,26 @@ def test_scores_route_to_push_digest_low(env):
     assert rows["Network Engineer C"]["status"] == "low"
     assert rows["Network Engineer D"]["status"] == "alerted"  # no score -> keyword match still pushed
     assert sorted(fake.enriched) == [f"fake:acme:{i}" for i in range(4)]  # descriptions fetched before scoring
+
+
+def test_clear_step_up_is_pushed_even_with_a_lower_fit(env):
+    fake, runner, board, store, notifier = env
+    runner.scorer = FakeScorer({"Network Engineer A": 60, "Network Engineer B": 60, "Network Engineer C": 40},
+                               step_ups={"Network Engineer A": 82, "Network Engineer B": 70, "Network Engineer C": 90})
+    fake.jobs = []
+    poll(runner, board)
+    fake.jobs = [make_job(i, title=f"Network Engineer {c}") for i, c in enumerate("ABC")]
+    poll(runner, board)
+    rows = {r["title"]: r for r in store.db.execute("SELECT title, status, step_up, step_up_note FROM jobs")}
+    assert rows["Network Engineer A"]["status"] == "alerted" and rows["Network Engineer A"]["step_up"] == 82
+    assert rows["Network Engineer B"]["status"] == "digest"   # a real step up, but under the threshold
+    assert rows["Network Engineer C"]["status"] == "alerted"  # step-up threshold applies whatever the fit
+    message = next(m for m in notifier.sent if m["title"].endswith("Network Engineer A"))
+    assert "Step up 82/100: leads a larger org" in message["message"] and message["tags"] == ["rocket"]
+    digest = run(runner.send_digest(mark=False))
+    assert "step up 70: leads a larger org" in digest
+    runner.cfg.scoring.step_up_threshold = 0                      # off: the fit score alone decides
+    assert runner.route(60, 95) == "digest"
 
 
 def test_digest_lists_held_jobs_and_marks_them(env):

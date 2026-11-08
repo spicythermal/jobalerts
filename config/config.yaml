@@ -227,6 +227,8 @@ scoring:
   resume_dir: ../resume_reference   # every PDF/.md/.txt resume here is compared against each posting
   push_threshold: 75        # >= this: phone alert now
   digest_threshold: 50      # >= this: evening digest; below: stored only
+  step_up_threshold: 75     # AI "step up" score >= this (a clear, credible promotion): phone alert too, even
+                            # when the fit score is lower. Its own ranking is in `jobalerts top`; 0 = off
   daily_max_calls: 500      # all Claude calls a day: scoring + pre-screen (~75 scored + ~50 pre-screen calls typical)
 
 # ---------------------------------------------------------------- AI second look at rejected titles
@@ -250,7 +252,8 @@ pay:
   enabled: true
   reference_salary: 155000
   reference_location: "Portland, OR"
-  min_index: 1.05           # skip AI scoring and alerts when even the top of the stated range is under this; 0 = off
+  min_index: 1.05           # skip AI scoring and alerts when even the top of the stated range is under this,
+                            # renting AND buying (a job passes if either index clears it); 0 = off.
                             # (no stated pay: scored anyway). Skipped jobs are listed in the digest.
   col_data: col_data.json   # committed seed; refreshed copies go to data/col_data.json
   refresh_days: 30          # re-download BEA + World Bank data when older than this (checked daily); 0 = never
@@ -260,6 +263,31 @@ pay:
   housing_share: 0.40       # family housing: rent + utilities as a share of spending, priced at HUD's 4-bedroom
                             # Fair Market Rent for the metro (see col.py). 0.40 fits a family renting a
                             # 3-4 bedroom home; 0 = plain BEA RPP.
+  buy:                      # second index: the family buys a typical 4-bedroom home instead of renting one.
+    enabled: true           # Price: Zillow 4-bedroom home value (metro, else state); rate: Freddie Mac 30-year.
+    down_payment: 0.20      # Own cost/month = (loan x rate + price x (property tax + upkeep)) / 12 + utilities.
+    upkeep: 0.0075          # insurance + maintenance a year, share of the price
+    utilities: 350          # $/month at US-average utility prices (scaled by the metro's utility prices)
+    property_tax: 0.010     # a year, share of the purchase price, for states not listed below
+    property_tax_by_state:  # approximate statewide effective rates; counties vary a lot. CA = a new purchase
+      CA: 0.0115            # (Prop 13 resets the assessment to the price, plus local bonds)
+      TX: 0.018
+      NJ: 0.022
+      IL: 0.021
+      CT: 0.018
+      NH: 0.018
+      NY: 0.014
+      PA: 0.014
+      OH: 0.015
+      MI: 0.015
+      WI: 0.016
+      MA: 0.011
+      WA: 0.009
+      CO: 0.0055
+      UT: 0.0055
+      AZ: 0.006
+      NV: 0.006
+      HI: 0.003
   locations:                # whole words of a location -> a place ("Palo Alto, CA"), state code, ISO3 country or "home"
     # Siemens Healthineers (Varian) posts site codes instead of cities
     "PAO H": "Palo Alto, CA"
@@ -298,7 +326,7 @@ homeassistant:
   mqtt_tls: false
   discovery_prefix: homeassistant
   base_topic: jobalerts     # writes jobalerts/top/state and jobalerts/top/attributes
-  top_n: 5
+  top_n: 10                 # best fits, and separately the biggest step ups (attribute `step_ups`)
   days: 7
   interval: 3000             # refresh every 50 min, and right after new matches
 

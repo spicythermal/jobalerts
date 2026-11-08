@@ -137,3 +137,15 @@ def test_reads_posted_pay_but_leaves_the_floor_to_the_program():
 def test_no_pay_stated_means_no_pay():
     s, _, _ = scorer(response({"score": 80, "summary": "ok", "red_flags": [], "pay_min": 0, "pay_max": 0}))
     assert run(s.score(JOB)).pay() is None
+
+
+def test_step_up_is_asked_for_separately_and_clamped():
+    s, messages, _ = scorer(response({"score": 62, "summary": "x", "red_flags": [], "step_up": 130,
+                                      "step_up_note": "Director over three group leaders"}))
+    result = run(s.score(JOB))
+    assert result.score == 62 and result.step_up == 100 and result.step_up_note == "Director over three group leaders"
+    schema = messages.calls[0]["output_config"]["format"]["schema"]
+    assert {"step_up", "step_up_note"} <= set(schema["required"])
+    assert "a level up" in messages.calls[0]["system"][0]["text"]
+    s, _, _ = scorer(response({"score": 50, "summary": "x", "red_flags": []}))  # an answer without it: 0
+    assert run(s.score(JOB)).step_up == 0

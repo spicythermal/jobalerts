@@ -92,7 +92,16 @@ Claude Haiku 5.5 against the resumes and profile (about $0.001 each with two res
 alert says which resume version to apply with ("Apply with: …"), and so does the digest.
 A score of 75 or more is pushed now, 50–74 goes to the evening digest, and anything
 lower is only stored. If scoring fails or the daily cap is reached, keyword matches are
-still pushed. Preview scores before turning it on:
+still pushed.
+
+The same call also gives a separate **step-up score** (0–100): how big a career step up the role
+is (title level, scope, team size, budget, authority) *and* how credibly you could win it. It is
+not the fit score: a strong fit at your level scores high on fit but low on step-up, while a
+director role you could stretch to scores high on step-up even if fit is middling. A step-up of
+`scoring.step_up_threshold` (75) or more is pushed whatever the fit score, with a 🚀 tag and a
+"Step up 82/100: …" line; from 60 the note is shown in alerts and the digest. `jobalerts top` and
+Home Assistant list the biggest step ups separately from the best fits. Preview scores before
+turning it on:
 
 ```sh
 jobalerts poll --dry-run --score 5
@@ -127,10 +136,22 @@ family that moves: `pay.housing_share` (40%) of spending goes to rent plus utili
 4-bedroom Fair Market Rent for the metro, and the rest to the RPP's goods and other services. The
 plain all-items RPP weighs housing at about 17% at what all renters pay, so it put San Jose only 5%
 above Portland; with family housing it's about 27% above. States without an FMR use the RPP's
-rents; `housing_share: 0` goes back to the plain RPP. Prices abroad come from the
+rents; `housing_share: 0` goes back to the plain RPP.
+
+**Renting or buying:** US jobs get two indexes, renting and buying (`pay.buy`). The buying one
+prices the housing share at the monthly cost of owning the area's typical 4-bedroom home instead
+of renting one: Zillow's 4-bedroom Home Value Index for the metro (else the state; data by
+Zillow), 20% down, Freddie Mac's latest 30-year rate on the loan, property tax by state, upkeep
+(insurance and maintenance, 0.75% a year) and utilities. Paying down principal counts as saving,
+so it's left out; so are the mortgage-interest deduction and what the down payment would earn.
+It compares buying there with buying a 4-bedroom in Portland today, not with your current
+mortgage. In the Bay Area the two split widely: $250K in Palo Alto is 1.22 renting but 0.79
+buying, while Austin and Albuquerque come out a little better buying than renting. A job passes
+`pay.min_index` if *either* index clears it, and alerts show both ("pay index 1.22 rent · 0.79
+buy … own $1.87M 4-bed at 7.18%: $12K/mo, $374K down"). Prices abroad come from the
 World Bank's purchasing-power parity divided by the exchange rate (country-wide). Remote jobs use
 your home prices. The pay comes from the posting's salary field, or else from a salary range stated
-in the description. When even the top of that range is under `pay.min_index` (1.05), the match is
+in the description. When even the top of that range is under `pay.min_index` (1.05) renting and buying, the match is
 stored as `low_pay` *before* AI scoring: no Claude call, no alert. The digest lists those jobs with
 their pay note so you can catch a misread. A posting that states no pay is still scored; the AI
 reads pay from the text, and the same check applies afterwards. The index shows in alerts, the
@@ -140,9 +161,9 @@ than `pay.refresh_days` it downloads new tables into `data/col_data.json`. They 
 data only if they pass sanity checks; if not, the old data stays and the digest says why.
 `jobalerts pay --update` refreshes now. The seed copy is `config/col_data.json`.
 
-**Top matches / Home Assistant:** `jobalerts top` lists the best matches posted in the last 7 days,
-ranked by AI score and then newest. Jobs that were already open when watching started count
-too. To show the list on a Home Assistant dashboard, jobalerts publishes it to Home
+**Top matches / Home Assistant:** `jobalerts top` lists the 10 best matches posted in the last 7 days,
+ranked by AI score and then newest, then the 10 biggest step ups (by step-up score). Jobs that
+were already open when watching started count too. To show the list on a Home Assistant dashboard, jobalerts publishes it to Home
 Assistant's MQTT broker. It never gets a Home Assistant token, only an MQTT login:
 
 1. Give it its own broker login. With the Mosquitto add-on: Settings → Add-ons → Mosquitto
@@ -152,8 +173,9 @@ Assistant's MQTT broker. It never gets a Home Assistant token, only an MQTT logi
    `.env`, and restart jobalerts.
 3. Run `jobalerts top --push` to check. A "Job alerts" device with `sensor.job_alerts`
    appears (MQTT discovery). Its state is the number of matches, and its `jobs` attribute
-   holds the top matches with their AI score (`score`) and pay index (`pay_index`, with the
-   range `pay_low`–`pay_high`). It refreshes every 5 minutes and right after new matches. The messages
+   holds the top matches with their AI score (`score`), step-up score (`step_up`, `step_up_note`)
+   and pay indexes (renting `pay_index`, range `pay_low`–`pay_high`; buying `buy_index`,
+   `buy_low`–`buy_high`), and its `step_ups` attribute the biggest step ups in the same form. It refreshes every 5 minutes and right after new matches. The messages
    are retained, so the sensor survives Home Assistant restarts. It turns "unavailable" if
    jobalerts stops updating it for 15 minutes.
 4. Add a Markdown card to a dashboard (Edit dashboard → Add card → Manual):
@@ -166,11 +188,25 @@ content: >-
   **[{{ j.title }}]({{ j.url }})**<br>
   {{ j.company }} · {{ j.location }}{% if j.salary %} · {{ j.salary }}{% endif %} · {{ j.age }}
   {%- if j.score is not none %} · fit {{ j.score }}{% endif %}
-  {%- if j.pay_index is not none %} · pay {{ j.pay_index }}{% if j.pay_low is not none %} ({{ j.pay_low }}–{{ j.pay_high }}){% endif %}{% endif %}<br>
+  {%- if j.pay_index is not none %} · pay {{ j.pay_index }} rent{% if j.buy_index is not none %} / {{ j.buy_index }} buy{% endif %}{% endif %}<br>
   {% if j.best_resume %}<small>Apply with {{ j.best_resume }}</small>{% endif %}
 
   {% else %}
   No matches in the last {{ state_attr('sensor.job_alerts', 'days') or 7 }} days.
+  {% endfor %}
+```
+
+A second card for the biggest step ups uses the `step_ups` attribute:
+
+```yaml
+type: markdown
+title: Biggest step ups
+content: >-
+  {% for j in state_attr('sensor.job_alerts', 'step_ups') or [] %}
+  **[{{ j.title }}]({{ j.url }})** · step up {{ j.step_up }} · fit {{ j.score }}<br>
+  {{ j.company }} · {{ j.location }}{% if j.pay_index is not none %} · pay {{ j.pay_index }} rent{% if j.buy_index is not none %} / {{ j.buy_index }} buy{% endif %}{% endif %}<br>
+  <small>{{ j.step_up_note }}</small>
+
   {% endfor %}
 ```
 

@@ -62,6 +62,18 @@ If the range differs by location, use the one for the job's location, or for the
 area if the job is remote.
 - pay_currency: ISO code of that pay, such as USD or EUR (empty string if no pay is stated)
 - pay_period: what the pay figures are per: year, month, week, day or hour
+- step_up: integer 0-100, a separate judgement from score: how big a career step up this role is \
+for the candidate AND how credibly they could win it. Compare it with their current or most recent \
+role in title level, scope, team size, budget and decision authority:
+  - below 30: lateral move or a step down
+  - 30-59: a modest step (somewhat larger scope or team at about the same level)
+  - 60-74: a real step up, but a long shot or only partly a promotion
+  - 75-89: a clear promotion (a level up, such as group leader to manager of managers or director) \
+that their record makes a credible stretch
+  - 90-100: a major step up they could still realistically win
+  A role so far above them that they would not be considered, or in a field where their record \
+doesn't carry over, scores low. A strong fit at the same level is a high score but a low step_up.
+- step_up_note: at most 15 words naming what makes it a step up (empty string if step_up is under 60)
 
 Don't let pay move the score. The program compares base pay with the candidate's salary floor \
 itself, adjusted for the local cost of living, so a lower number in a cheaper place isn't a red flag.
@@ -83,8 +95,11 @@ SCHEMA = {
         "pay_max": {"type": "number"},
         "pay_currency": {"type": "string"},
         "pay_period": {"type": "string", "enum": ["year", "month", "week", "day", "hour"]},
+        "step_up": {"type": "integer"},
+        "step_up_note": {"type": "string"},
     },
-    "required": ["score", "summary", "red_flags", "best_resume", "pay_min", "pay_max", "pay_currency", "pay_period"],
+    "required": ["score", "summary", "red_flags", "best_resume", "pay_min", "pay_max", "pay_currency", "pay_period",
+                 "step_up", "step_up_note"],
     "additionalProperties": False,
 }
 
@@ -98,6 +113,8 @@ class FitScore(BaseModel):
     pay_max: float = 0
     pay_currency: str = ""
     pay_period: str = "year"
+    step_up: int = 0
+    step_up_note: str = ""
 
     def pay(self) -> Pay | None:
         """The base pay the model read from the posting, if it found any."""
@@ -174,6 +191,7 @@ class Scorer:
             log.error("Unparseable score for %s (stop_reason=%s): %s", job.key, response.stop_reason, e)
             return None
         result.score = max(0, min(100, result.score))
+        result.step_up = max(0, min(100, result.step_up))
         if result.best_resume not in self.resume_names:
             result.best_resume = ""
         return result

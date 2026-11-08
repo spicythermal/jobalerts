@@ -24,6 +24,8 @@ from .taxes import Taxes
 
 log = logging.getLogger(__name__)
 
+STEP_UP_SHOWN = 60  # step-up scores from here on are shown with the job (the scorer's "real step up")
+
 
 @dataclass
 class PollResult:
@@ -38,15 +40,20 @@ class PollResult:
 def _pay_cols(pay: col.PayResult | None, score: FitScore | None = None) -> dict:
     if pay is None:
         return {"pay_note": col.NO_PAY} if score is not None else {}
-    return {"pay_index": round(pay.index, 3), "pay_low": round(pay.low, 3), "pay_high": round(pay.high, 3),
+    cols = {"pay_index": round(pay.index, 3), "pay_low": round(pay.low, 3), "pay_high": round(pay.high, 3),
             "pay_note": pay.text()}
+    if pay.buy_low is not None:
+        cols |= {"buy_index": round(pay.buy_index, 3), "buy_low": round(pay.buy_low, 3),
+                 "buy_high": round(pay.buy_high, 3)}
+    return cols
 
 
 def _score_cols(score: FitScore | None) -> dict:
     if score is None:
         return {}
     return {"score": score.score, "score_summary": score.summary,
-            "red_flags": "; ".join(score.red_flags) or None, "best_resume": score.best_resume or None}
+            "red_flags": "; ".join(score.red_flags) or None, "best_resume": score.best_resume or None,
+            "step_up": score.step_up, "step_up_note": score.step_up_note or None}
 
 
 class Runner:
@@ -189,12 +196,15 @@ class Runner:
                 pay = self.pay_index(job, fit) if fit else None
             old = status = row["status"]
             score = fit.score if fit else row["score"]
-            high = pay.high if pay else row["pay_high"]  # the pay the AI read earlier, if that's all there is
+            if pay:
+                high = pay.best_high
+            else:  # the pay the AI read earlier, if that's all there is
+                high = max((v for v in (row["pay_high"], row["buy_high"]) if v is not None), default=None)
+            step_up = fit.step_up if fit else row["step_up"]
             if high is not None and high < self.cfg.pay.min_index:
                 status = "low_pay"
-            elif old == "low_pay":
-                status = ("baseline" if score is None else "digest" if score >= self.cfg.scoring.digest_threshold
-                          else "low")
+            elif old == "low_pay":  # back where its AI score puts it, never pushed
+                status = "baseline" if score is None else self.route(score, step_up).replace("alert", "digest")
             if write:
                 reason = (f"top of range {high:.2f} < {self.cfg.pay.min_index:g}" if status == "low_pay"
                           else "repriced" if status != old else None)
@@ -247,14 +257,7 @@ class Runner:
             return "low_pay", None
 
         score = await self.scorer.score(job) if self.scorer else None
-        if score is None:
-            status = "alert"  # keyword match and no score available: better to over-notify than miss it
-        elif score.score >= self.cfg.scoring.push_threshold:
-            status = "alert"
-        elif score.score >= self.cfg.scoring.digest_threshold:
-            status = "digest"
-        else:
-            status = "low"
+        status = self.route(score.score, score.step_up) if score else self.route(None)
         if pay is None and score is not None:  # pay the AI read from the posting
             pay = self.pay_index(job, score)
             if self._pay_too_low(job, pay, score):
@@ -346,6 +349,15 @@ class Runner:
             log.info("pre-screen: %s", ", ".join(f"{n} {k}" for k, n in sorted(counts.items())))
         return counts
 
+    def route(self, score: int | None, step_up: int | None = None) -> str:
+        """alert, digest or low from the AI's fit score, or its step-up score for a credible promotion."""
+        cfg = self.cfg.scoring
+        if score is None:
+            return "alert"  # keyword match and no score available: better to over-notify than miss it
+        if score >= cfg.push_threshold or (cfg.step_up_threshold and (step_up or 0) >= cfg.step_up_threshold):
+            return "alert"
+        return "digest" if score >= cfg.digest_threshold else "low"
+
     def pay_index(self, job: Job, score: FitScore | None = None) -> col.PayResult | None:
         """Cost-of-living pay index from the posting's salary field, else the pay stated in its description,
         else (given a score) the pay the AI read."""
@@ -357,9 +369,9 @@ class Runner:
     def _pay_too_low(self, job: Job, pay: col.PayResult | None, score: FitScore | None = None) -> bool:
         """Stores the job as low_pay (listed in the digest, never pushed) when even the top of its range
         is under pay.min_index."""
-        if pay is None or pay.high >= self.cfg.pay.min_index:
+        if pay is None or pay.best_high >= self.cfg.pay.min_index:
             return False
-        self.store.update_job(job.key, status="low_pay", reason=f"top of range {pay.high:.2f} < {self.cfg.pay.min_index:g}",
+        self.store.update_job(job.key, status="low_pay", reason=f"top of range {pay.best_high:.2f} < {self.cfg.pay.min_index:g}",
                               **_pay_cols(pay, score), **_score_cols(score))
         return True
 
@@ -386,8 +398,9 @@ class Runner:
                 self.pay_problem = f"tax tables unusable ({type(e).__name__}: {e}); comparing gross pay"
                 log.warning("Pay index: %s", self.pay_problem)
         try:
+            ownership = col.Ownership(**cfg.buy.model_dump(exclude={"enabled"})) if cfg.buy.enabled else None
             self.pay = col.PayIndex(data, cfg.reference_salary, cfg.reference_location, cfg.locations, taxes,
-                                    cfg.housing_share)
+                                    cfg.housing_share, ownership)
         except (KeyError, ValueError) as e:
             self.pay_problem = f"cost-of-living data in {path} unusable: {e}"
             log.warning("Pay index off: %s", self.pay_problem)
@@ -409,7 +422,7 @@ class Runner:
             return ""
         try:
             data = await col.build_data()
-            col.check_data(data, cfg.reference_location, cfg.housing_share)
+            col.check_data(data, cfg.reference_location, cfg.housing_share, cfg.buy.enabled)
         except Exception as e:
             built = self.pay.data.get("built") if self.pay else "never"
             self.pay_problem = f"cost-of-living refresh failed ({type(e).__name__}: {e}); using data built {built}"
@@ -424,7 +437,7 @@ class Runner:
     async def _notify(self, job: Job, score: FitScore | None) -> int:
         pay = self.pay_index(job, score)
         try:
-            await self.notifier.job_alert(job, score, pay.text() if pay else "")
+            await self.notifier.job_alert(job, score, pay.text() if pay else "", STEP_UP_SHOWN)
         except Exception as e:
             log.error("Notification failed for %s: %s (will go in the digest)", job.key, e)
             self.store.update_job(job.key, status="notify_failed")
@@ -533,13 +546,15 @@ class Runner:
             except asyncio.TimeoutError:
                 pass
 
-    def top_matches(self, n: int | None = None, days: int | None = None) -> tuple[int, list[dict]]:
+    def top_matches(self, n: int | None = None, days: int | None = None, by: str = "score") -> tuple[int, list[dict]]:
+        """Best recent matches by AI fit score, or with by="step_up" the biggest credible promotions."""
         cfg = self.cfg.homeassistant
-        return top_matches(self.store, self.filter, days or cfg.days, n or cfg.top_n, self.pay)
+        return top_matches(self.store, self.filter, days or cfg.days, n or cfg.top_n, self.pay, by)
 
     async def publish_dashboard(self) -> int:
         total, jobs = self.top_matches()
-        await self.homeassistant.publish(total, jobs, ai_cost(self.store, self.cfg.scoring))
+        _, step_ups = self.top_matches(by="step_up")
+        await self.homeassistant.publish(total, jobs, ai_cost(self.store, self.cfg.scoring), step_ups)
         return total
 
     # ------------------------------------------------------------------ digest
@@ -555,6 +570,8 @@ class Runner:
                 lines.append(f"• {score}{r['company']}: {r['title']} ({r['location'] or 'n/a'})\n  {r['url']}")
                 if r["pay_note"] and r["pay_note"] != col.NO_PAY:
                     lines.append(f"  {r['pay_note']}")
+                if r["step_up"] is not None and r["step_up"] >= STEP_UP_SHOWN:
+                    lines.append(f"  step up {r['step_up']}: {r['step_up_note'] or ''}".rstrip(": "))
                 if r["best_resume"]:
                     lines.append(f"  apply with: {r['best_resume']}")
         else:

@@ -34,7 +34,12 @@ CREATE TABLE IF NOT EXISTS jobs (
     pay_high      REAL,
     pay_note      TEXT,
     notified_at   TEXT,
-    description   TEXT              -- kept only while status='prescreen' (list APIs give it once)
+    description   TEXT,             -- kept only while status='prescreen' (list APIs give it once)
+    buy_index     REAL,             -- pay index for a family that buys (pay_* are renting)
+    buy_low       REAL,
+    buy_high      REAL,
+    step_up       INTEGER,          -- AI: how big a credible career step up the role is, 0-100
+    step_up_note  TEXT
 );
 CREATE INDEX IF NOT EXISTS jobs_fingerprint ON jobs(fingerprint);
 CREATE INDEX IF NOT EXISTS jobs_status ON jobs(status);
@@ -111,6 +116,10 @@ class Store:
             self.db.execute("ALTER TABLE jobs ADD COLUMN pay_high REAL")
         if "description" not in columns:  # databases created before the AI pre-screen
             self.db.execute("ALTER TABLE jobs ADD COLUMN description TEXT")
+        for name, kind in (("buy_index", "REAL"), ("buy_low", "REAL"), ("buy_high", "REAL"),
+                           ("step_up", "INTEGER"), ("step_up_note", "TEXT")):  # before rent/buy and step-ups
+            if name not in columns:
+                self.db.execute(f"ALTER TABLE jobs ADD COLUMN {name} {kind}")
         usage_columns = {r["name"] for r in self.db.execute("PRAGMA table_info(ai_usage)")}
         for col in ("cache_read_tokens", "cache_write_tokens"):  # databases created before the AI cost sensor
             if col not in usage_columns:
@@ -200,16 +209,20 @@ class Store:
                    score_summary: str | None = None, red_flags: str | None = None,
                    best_resume: str | None = None, pay_index: float | None = None,
                    pay_low: float | None = None, pay_high: float | None = None,
-                   pay_note: str | None = None) -> None:
+                   pay_note: str | None = None, buy_index: float | None = None, buy_low: float | None = None,
+                   buy_high: float | None = None, step_up: int | None = None,
+                   step_up_note: str | None = None) -> None:
         self.db.execute(
             """UPDATE jobs SET status=?, reason=COALESCE(?, reason), score=COALESCE(?, score),
                    score_summary=COALESCE(?, score_summary), red_flags=COALESCE(?, red_flags),
                    best_resume=COALESCE(?, best_resume), pay_index=COALESCE(?, pay_index),
                    pay_low=COALESCE(?, pay_low), pay_high=COALESCE(?, pay_high),
-                   pay_note=COALESCE(?, pay_note),
+                   pay_note=COALESCE(?, pay_note), buy_index=COALESCE(?, buy_index),
+                   buy_low=COALESCE(?, buy_low), buy_high=COALESCE(?, buy_high),
+                   step_up=COALESCE(?, step_up), step_up_note=COALESCE(?, step_up_note),
                    description=CASE WHEN ?='prescreen' THEN description END WHERE key=?""",
             (status, reason, score, score_summary, red_flags, best_resume, pay_index, pay_low, pay_high,
-             pay_note, status, key),
+             pay_note, buy_index, buy_low, buy_high, step_up, step_up_note, status, key),
         )
 
     def mark_notified(self, key: str, status: str = "alerted") -> None:
@@ -242,7 +255,8 @@ class Store:
                AND COALESCE(published_at, first_seen_at)>=?""", (_iso(since),)).fetchall()
 
     def low_pay_since(self, since: datetime) -> list[sqlite3.Row]:
-        return self.db.execute("SELECT * FROM jobs WHERE status='low_pay' AND first_seen_at>=? ORDER BY pay_index DESC",
+        return self.db.execute("SELECT * FROM jobs WHERE status='low_pay' AND first_seen_at>=? "
+                               "ORDER BY MAX(COALESCE(pay_index, 0), COALESCE(buy_index, 0)) DESC",
                                (_iso(since),)).fetchall()
 
     def activity_since(self, since: datetime) -> Counter:

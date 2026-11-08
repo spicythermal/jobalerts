@@ -341,23 +341,42 @@ async def cmd_digest(cfg: Config, args) -> int:
     return 0
 
 
+def _pay_text(j: dict) -> str:
+    """"pay 1.22 rent (1.10-1.34) / 0.83 buy" from a top_matches row."""
+    if j["pay_index"] is None:
+        return ""
+    spread = f" ({j['pay_low']:.2f}-{j['pay_high']:.2f})" if j["pay_low"] is not None else ""
+    if j.get("buy_index") is None:
+        return f"pay {j['pay_index']:.2f}{spread}"
+    buy_spread = f" ({j['buy_low']:.2f}-{j['buy_high']:.2f})" if j["buy_low"] is not None else ""
+    return f"pay {j['pay_index']:.2f} rent{spread} / {j['buy_index']:.2f} buy{buy_spread}"
+
+
+def _print_top(jobs: list[dict], step_up: bool = False) -> None:
+    for i, j in enumerate(jobs, 1):
+        mark = j["step_up"] if step_up else j["score"]
+        score = f"[{mark}] " if mark is not None else ""
+        extra = " · ".join(filter(None, [j["location"], j["salary"], _pay_text(j), j["age"],
+                                         "pushed" if j["pushed"] else ""]))
+        print(f"{i:3}. {score}{j['company']}: {j['title']} — {extra}\n     {j['url']}")
+        if step_up and j["step_up_note"]:
+            print(f"     step up: {j['step_up_note']} (fit {j['score']})")
+        elif j["summary"]:
+            print(f"     {j['summary']}")
+        if j["best_resume"]:
+            print(f"     apply with: {j['best_resume']}")
+
+
 async def cmd_top(cfg: Config, args) -> int:
     async with open_runner(cfg, memory_store=False) as runner:
         days = args.days or cfg.homeassistant.days
         total, jobs = runner.top_matches(args.n, days)
-        print(f"{total} matches posted in the last {days} days" + (f"; top {len(jobs)}:" if jobs else "."))
-        for i, j in enumerate(jobs, 1):
-            score = f"[{j['score']}] " if j["score"] is not None else ""
-            pay = ""
-            if j["pay_index"] is not None:
-                spread = f" ({j['pay_low']:.2f}-{j['pay_high']:.2f})" if j["pay_low"] is not None else ""
-                pay = f"pay {j['pay_index']:.2f}{spread}"
-            extra = " · ".join(filter(None, [j["location"], j["salary"], pay, j["age"], "pushed" if j["pushed"] else ""]))
-            print(f"{i:3}. {score}{j['company']}: {j['title']} — {extra}\n     {j['url']}")
-            if j["summary"]:
-                print(f"     {j['summary']}")
-            if j["best_resume"]:
-                print(f"     apply with: {j['best_resume']}")
+        print(f"{total} matches posted in the last {days} days" + (f"; best fits:" if jobs else "."))
+        _print_top(jobs)
+        _, step_ups = runner.top_matches(args.n, days, by="step_up")
+        if step_ups:
+            print("\nBiggest step ups (AI step-up score, a credible promotion):")
+            _print_top(step_ups, step_up=True)
         if args.push:
             if not runner.homeassistant:
                 print("\n--push: set homeassistant.enabled: true and MQTT_HOST (plus its login) in .env first.")
@@ -424,6 +443,13 @@ async def cmd_pay(cfg: Config, args) -> int:
         if pi.housing_share:
             print(f"Housing: {pi.housing_share:.0%} of spending at {data['sources'].get('housing', 'HUD FMRs')}; "
                   f"the rest at RPP goods and other services")
+        if pi.ownership:
+            o = pi.ownership
+            print(f"Buying: {data['sources'].get('homes')}; {data['sources'].get('mortgage')} = "
+                  f"{data['mortgage_rate']:.2f}%; {o.down_payment:.0%} down, property tax {o.property_tax:.2%} "
+                  f"(or by state), upkeep {o.upkeep:.2%} a year, utilities ${o.utilities:,.0f}/mo at US prices")
+        elif cfg.pay.buy.enabled and pi.housing_share:
+            print("Buying: no home prices in this table; run `jobalerts pay --update`")
         elif cfg.pay.housing_share:
             print("Housing: plain RPP (this price table has no HUD rents; run `jobalerts pay --update`)")
         if pi.taxes:
@@ -464,7 +490,14 @@ async def cmd_pay(cfg: Config, args) -> int:
                   f"               take-home ${ref_th.net:,.0f} / {home.level:.3f} = ${ref_th.net / home.level:,.0f}")
         else:
             print(f"  reference:   ${ref:,.0f} / {home.level:.3f} = ${ref / home.level:,.0f} in US-average prices")
-        print(f"  pay index:   {result.index:.2f} (range {result.low:.2f}-{result.high:.2f})")
+        if result.buy_low is not None:
+            print(f"  renting:     prices {place.level:.3f}x US ({pi.housing_share:.0%} housing at the 4-bedroom FMR)")
+            print(f"  buying:      prices {place.buy_level:.3f}x US; {place.buy_note}\n"
+                  f"               reference buys too: {home.buy_note} (prices {home.buy_level:.3f}x US)")
+            print(f"  pay index:   {result.index:.2f} renting (range {result.low:.2f}-{result.high:.2f}), "
+                  f"{result.buy_index:.2f} buying (range {result.buy_low:.2f}-{result.buy_high:.2f})")
+        else:
+            print(f"  pay index:   {result.index:.2f} (range {result.low:.2f}-{result.high:.2f})")
     return 0
 
 
