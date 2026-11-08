@@ -364,6 +364,9 @@ salary field nor the description states pay, it AI-scores the job once more so t
 the pay (~$0.001 each; `--dry-run` skips this). The new score replaces the old one. Run it after upgrading to the pay index, or after changing `pay.min_index`. Jobs under
 the threshold become `low_pay` and drop out of `top` and Home Assistant. A `low_pay` job that now
 passes goes back to the digest, or to the baseline to be scored if it never was.
+Postings the employer has taken down since (HTTP 404, or Workday's 403 "permission denied") become
+`closed` and leave `top`, Home Assistant and the digest. An unscored job that turns out to be closed
+isn't sent to the AI. Other fetch errors are only logged, and the job keeps its status.
 
 ```sh
 docker compose exec jobalerts jobalerts backfill --dry-run   # show the scores, save nothing

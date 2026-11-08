@@ -242,6 +242,13 @@ async def cmd_discover(cfg: Config, args) -> int:
 
 
 def print_repriced(repriced, cfg: Config) -> None:
+    closed = [r for r in repriced if r[2] == "closed"]
+    repriced = [r for r in repriced if r[2] != "closed"]
+    if closed:
+        print(f"{len(closed)} postings were taken down since they were processed: "
+              "marked closed, out of `top`, Home Assistant and the digest.")
+        for job, *_ in closed:
+            print(f"  {job.company}: {job.title}")
     priced = [r for r in repriced if r[3]]
     rescored = sum(1 for r in repriced if r[4])
     print(f"Pay index for {len(repriced)} matches already processed: {len(priced)} with a pay index, "

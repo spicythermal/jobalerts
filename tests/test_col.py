@@ -717,3 +717,55 @@ def test_runner_takes_current_home_and_city_weight_from_the_config(tmp_path):
     runner = Runner(cfg, Store(":memory:"), HttpClient(), Notifier(cfg.notify, dry_run=True))
     assert runner.pay.home.level == pytest.approx(1.096) and "staying" in runner.pay.home.buy_note
     assert runner.pay.resolve("Palo Alto, CA").level == pytest.approx(1.60)
+
+
+def _http_error(status: int, url: str, body: str = "") -> httpx.HTTPStatusError:
+    request = httpx.Request("GET", url)
+    return httpx.HTTPStatusError("x", request=request, response=httpx.Response(status, text=body, request=request))
+
+
+def test_posting_gone_knows_a_taken_down_posting_from_a_blocked_request():
+    from jobalerts.http import posting_gone
+    wd = "https://boeing.wd1.myworkdayjobs.com/wday/cxs/boeing/EXTERNAL_CAREERS/job/x"
+    assert posting_gone(_http_error(404, "https://boards-api.greenhouse.io/v1/boards/a/jobs/1"))
+    assert posting_gone(_http_error(410, "https://x/1"))
+    assert posting_gone(_http_error(403, wd, '{"errorCode":"S22","httpStatus":403,"message":"permission denied"}'))
+    assert not posting_gone(_http_error(403, wd, "<html>Access Denied</html>"))  # a block, not a closed job
+    assert not posting_gone(_http_error(403, "https://x/1", '"S22"'))
+    assert not posting_gone(_http_error(429, "https://x/1"))
+    assert not posting_gone(RuntimeError("boom"))
+
+
+def _gone(fake, job_ids, status=404):
+    original = fake.enrich
+
+    async def enrich(job, board, http):
+        if job.job_id in job_ids:
+            raise _http_error(status, f"https://x/{job.job_id}")
+        await original(job, board, http)
+    fake.enrich = enrich
+
+
+def test_reprice_closes_postings_that_were_taken_down(pay_env):
+    fake, runner, board, store, notifier = pay_env
+    for n in (16, 17):
+        job = make_job(n, location="Portland, OR")
+        job.salary = "$200K-260K"
+        store.insert_job(job, "processing")
+        store.update_job(job.key, status="digest", score=80)
+    _gone(fake, {"16"})
+    assert run(runner.reprice([board], write=False))[0][2] == "closed"
+    assert store.db.execute("SELECT status FROM jobs WHERE job_id='16'").fetchone()[0] == "digest"  # dry run
+    out = {job.job_id: (old, new) for job, old, new, _, _ in run(runner.reprice([board]))}
+    assert out == {"16": ("digest", "closed"), "17": ("digest", "digest")}
+    assert store.db.execute("SELECT reason FROM jobs WHERE job_id='16'").fetchone()[0] == "posting taken down (HTTP 404)"
+    assert "https://x/16" not in {j["url"] for j in runner.top_matches(10, 7)[1]}
+
+
+def test_backfill_closes_a_taken_down_baseline_job_without_scoring_it(pay_env):
+    fake, runner, board, store, notifier = pay_env
+    runner.scorer = scorer = PayScorer(FitScore(score=90, summary="fit"))
+    _gone(fake, {"0"})
+    assert [(job.job_id, status) for job, status, _ in run(runner.backfill([board]))] == [("0", "closed")]
+    assert scorer.calls == 0
+    assert store.db.execute("SELECT status FROM jobs WHERE job_id='0'").fetchone()[0] == "closed"

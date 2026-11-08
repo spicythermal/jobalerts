@@ -21,6 +21,17 @@ class RateLimited(Exception):
     pass
 
 
+def posting_gone(e: Exception) -> bool:
+    """True when fetching a posting failed because the employer took it down: 404 or 410, or Workday's
+    403 "S22" (permission denied), which Workday returns for an unposted job on some tenants."""
+    if not isinstance(e, httpx.HTTPStatusError):
+        return False
+    code = e.response.status_code
+    if code in (404, 410):
+        return True
+    return code == 403 and "myworkdayjobs.com" in e.request.url.host and '"S22"' in e.response.text
+
+
 class HttpClient:
     def __init__(
         self,

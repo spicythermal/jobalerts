@@ -13,7 +13,7 @@ from . import col, discover
 from .dashboard import MqttPublisher, ai_cost, top_matches
 from .config import Board, Config
 from .filters import JobFilter
-from .http import HttpClient
+from .http import HttpClient, posting_gone
 from .models import Job, normalize_company, utcnow
 from .notify import Notifier
 from .prescreen import Prescreener
@@ -184,6 +184,13 @@ class Runner:
                 try:
                     await SOURCES[job.source].enrich(job, board, self.http)
                 except Exception as e:
+                    if posting_gone(e):  # filled or withdrawn: off the dashboard and out of the digest
+                        log.info("reprice: %s was taken down (HTTP %s)", job.key, e.response.status_code)
+                        if write:
+                            store.update_job(job.key, status="closed",
+                                             reason=f"posting taken down (HTTP {e.response.status_code})")
+                        out.append((job, row["status"], "closed", None, False))
+                        continue
                     log.warning("reprice: couldn't fetch %s: %s", job.key, e)
             pay = self.pay_index(job)
             fit = None
@@ -241,6 +248,10 @@ class Runner:
             try:
                 await source.enrich(job, board, self.http)
             except Exception as e:
+                if posting_gone(e):  # taken down before we got to it: not worth an AI call
+                    self.store.update_job(job.key, status="closed",
+                                          reason=f"posting taken down (HTTP {e.response.status_code})")
+                    return "closed", None
                 log.warning("%s: couldn't fetch description for %s: %s", board.key, job.key, e)
             if self.filter.is_stale(job):  # enrichment can replace an approximate date with the real one
                 self.store.update_job(job.key, status="stale", reason="published date after enrichment")
