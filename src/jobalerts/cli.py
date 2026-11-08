@@ -493,7 +493,7 @@ async def cmd_pay(cfg: Config, args) -> int:
         if result.buy_low is not None:
             print(f"  renting:     prices {place.level:.3f}x US ({pi.housing_share:.0%} housing at the 4-bedroom FMR)")
             print(f"  buying:      prices {place.buy_level:.3f}x US; {place.buy_note}\n"
-                  f"               reference buys too: {home.buy_note} (prices {home.buy_level:.3f}x US)")
+                  f"               reference: {home.buy_note} (prices {home.buy_level:.3f}x US)")
             print(f"  pay index:   {result.index:.2f} renting (range {result.low:.2f}-{result.high:.2f}), "
                   f"{result.buy_index:.2f} buying (range {result.buy_low:.2f}-{result.buy_high:.2f})")
         else:

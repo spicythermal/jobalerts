@@ -288,6 +288,13 @@ pay:
       AZ: 0.006
       NV: 0.006
       HI: 0.003
+  current_home:             # staying put is what you compare a move with: both indexes use what your own home costs
+    payment: 3400           # now instead of market rent or price at the reference location (payment 0 = off).
+    principal: 750          # Mortgage payment incl. escrowed tax + insurance; the principal part is saving, not
+    upkeep: 450             # cost; upkeep = repairs (~1% of value a year). Utilities are added at local prices.
+    rate: 4.5               # locked-in rate (for the explanation): buying elsewhere means today's rate instead
+  city_weight: 0.5          # move the metro's home prices and rents this far toward the job's city's (Zillow city
+                            # data): 0 = anywhere in the metro, 1 = in the job's city, 0.5 = living near the job
   locations:                # whole words of a location -> a place ("Palo Alto, CA"), state code, ISO3 country or "home"
     # Siemens Healthineers (Varian) posts site codes instead of cities
     "PAO H": "Palo Alto, CA"

@@ -76,6 +76,14 @@ class BuyConfig(BaseModel):
     utilities: float = 350               # $/month at US-average utility prices
 
 
+class CurrentHomeConfig(BaseModel):
+    """What staying in your own home costs a month; the reference side of both pay indexes (payment 0 = off)."""
+    payment: float = 0                   # mortgage payment, with property tax and insurance if escrowed
+    principal: float = 0                 # of which pays down the loan (saving, not cost)
+    upkeep: float = 0                    # repairs and maintenance a month
+    rate: float = 0                      # mortgage rate, %, shown in the explanation only
+
+
 class PayConfig(BaseModel):
     """Cost-of-living pay index (see col.py): reference_salary at reference_location scores 1.0."""
     enabled: bool = True
@@ -90,6 +98,8 @@ class PayConfig(BaseModel):
     tax_data: str = "tax_data.json"      # US taxes by salary and place, built by tools/build_tax_data.py
     housing_share: float = 0.40          # share of spending on rent + utilities, priced at HUD 4-bedroom FMRs (0 = plain RPP)
     buy: BuyConfig = BuyConfig()
+    current_home: CurrentHomeConfig = CurrentHomeConfig()
+    city_weight: float = 0.5             # how far a metro's home prices and rents move toward the job's city's
 
 
 class Notify(BaseModel):

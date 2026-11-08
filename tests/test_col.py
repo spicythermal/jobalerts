@@ -230,6 +230,7 @@ def _zip(name: str, rows: list[str]) -> bytes:
     return buf.getvalue()
 
 
+PDX = "Portland-Vancouver-Hillsboro, OR-WA"
 WEIGHTS = {"goods": 0.3, "housing": 0.17, "utilities": 0.01, "other": 0.52}
 LINES = {"goods": 2, "housing": 3, "utilities": 4, "other": 5}
 
@@ -246,6 +247,11 @@ def _metro_rows(fips: str, name: str, parts: dict[str, float], total: float | No
 def _zillow_csv(rows: list[tuple[str, str, float | str]]) -> str:
     header = "RegionID,SizeRank,RegionName,RegionType,StateName,2026-08-31,2026-09-30"
     return "\n".join([header, *(f'1,1,"{name}",msa,{st},1,{v}' for name, st, v in rows)])
+
+
+def _zillow_city_csv(rows: list[tuple[str, str, str, float]]) -> str:
+    header = "RegionID,SizeRank,RegionName,RegionType,StateName,State,Metro,CountyName,2026-08-31,2026-09-30"
+    return "\n".join([header, *(f'1,1,{city},city,{st},{st},"{metro}",X County,1,{v}' for city, st, metro, v in rows)])
 
 
 def fake_sources(metros: int = 320, fmr: bool = True, homes: bool = True) -> httpx.MockTransport:
@@ -282,6 +288,13 @@ def fake_sources(metros: int = 320, fmr: bool = True, homes: bool = True) -> htt
             page = fmr_features[start:start + 200]
             return httpx.Response(200, json={"features": [{"attributes": a} for a in page],
                                              "exceededTransferLimit": start + 200 < len(fmr_features)})
+        if "City_zhvi" in url:
+            return httpx.Response(200, text=_zillow_city_csv([("Lake Oswego", "OR", PDX, 1_000_000),
+                                                               ("Gresham", "OR", PDX, 640_000)]))
+        if "City_zori" in url:
+            return httpx.Response(200, text=_zillow_city_csv([("Lake Oswego", "OR", PDX, 2600)]))
+        if "Metro_zori" in url:
+            return httpx.Response(200, text=_zillow_csv([("Portland, OR", "OR", 2000)]))
         if "zillowstatic" in url:
             return httpx.Response(200, text=_zillow_csv(zillow_metros if "Metro_" in url else zillow_states))
         if "freddiemac" in url:
@@ -310,6 +323,8 @@ def test_build_data_parses_bea_and_world_bank():
     assert data["us_metro_parts"]["Town7, OR"]["home4"] == 307_000
     assert data["mortgage_rate"] == 7.18 and "2026-11-05" in data["sources"]["mortgage"]
     assert "2026-09" in data["sources"]["homes"] and "Zillow" in data["sources"]["homes"]
+    # cities far from their metro's prices (Gresham is within 10% of Portland's $650K: left out)
+    assert data["us_cities"] == {"lake oswego, OR": {"metro": PDX, "home4": 1_000_000, "rent_ratio": 1.3}}
     assert data["rpp_weights"] == pytest.approx(WEIGHTS, abs=0.005)  # Portland's all-items is off the mix
     assert data["fmr_scale"] > 0 and "2025-09-30" in data["sources"]["housing"]
     col.check_data(data, "Portland, OR")
@@ -648,3 +663,57 @@ def test_a_job_under_the_bar_renting_and_buying_is_low_pay(buy_env):
     row = store.db.execute("SELECT status, reason, buy_high FROM jobs WHERE job_id='2'").fetchone()
     assert row["status"] == "low_pay" and row["buy_high"] < 0.8
     assert "< 1.05" in row["reason"] and runner.scorer.calls == 0
+
+
+# ---------------------------------------------------------------------------- staying put, the job's city
+SJ = "San Jose-Sunnyvale-Santa Clara, CA"
+STAY = col.CurrentHome(payment=3000, principal=500, upkeep=300, rate=4.5)
+CITY_DATA = dict(BUY, us_cities={"palo alto, CA": {"metro": SJ, "home4": 3_000_000, "rent_ratio": 1.5}})
+
+
+def test_staying_in_your_own_home_is_the_reference():
+    pi = PayIndex(CITY_DATA, housing_share=0.4, ownership=OWN, current_home=STAY)
+    # staying: 3,000 - 500 + 300 + utilities 300 x 100/100 = $3,100/mo -> 60 + 40% x 3,100 x 0.04 = 109.6
+    assert pi.home.level == pytest.approx(1.096) and pi.home.buy_level == pytest.approx(1.096)
+    assert "staying in your home at 4.5%" in pi.home.buy_note and "$3.1K/mo" in pi.home.buy_note
+    for where in ("Portland, OR", "Hillsboro, OR", "Remote"):  # you'd keep the house: 1.0 either way
+        r = pi.index(Pay(155_000, 155_000), where)
+        assert (r.index, r.buy_index) == pytest.approx((1.0, 1.0))
+    sj = pi.index(Pay(155_000, 155_000), "San Jose, CA")
+    assert sj.index == pytest.approx(1.096 / 1.40)
+    assert sj.buy_index == pytest.approx(1.096 / ((60 + 0.4 * 10_200 * 0.04) / 100))  # buying at today's 6%
+    assert PayIndex(CITY_DATA, housing_share=0.4, ownership=OWN).home.buy_level == pytest.approx(1.152)  # off
+
+
+def test_the_jobs_city_moves_metro_prices_by_city_weight():
+    pi = PayIndex(CITY_DATA, housing_share=0.4, ownership=OWN, city_weight=0.5)
+    pa = pi.resolve("Palo Alto, CA")
+    # rents: FMR $5,000 x (1 + 0.5 x 0.5) = $6,250 -> 60 + 40% x 250 = 160
+    assert pa.level == pytest.approx(1.60) and "50% toward Palo Alto" in pa.label
+    # home: halfway between the metro's $1.8M and the city's $3M = $2.4M
+    assert "own $2.40M 4-bed" in pa.buy_note
+    assert pi.resolve("Sunnyvale, CA").level == pytest.approx(1.40)       # not in the city table: the metro
+    assert PayIndex(CITY_DATA, housing_share=0.4, ownership=OWN).resolve("Palo Alto, CA").level == pytest.approx(1.40)
+
+
+def test_city_table_keeps_cities_that_differ_from_their_metro():
+    parts = {SJ: {"home4": 2_000_000}, "Boise City, ID": {"home4": 500_000}}
+    homes = [{"city": "palo alto", "state": "CA", "metro": SJ, "value": 4_000_000},
+             {"city": "campbell", "state": "CA", "metro": SJ, "value": 2_100_000},       # within 10%: dropped
+             {"city": "nampa", "state": "ID", "metro": "Boise City, ID", "value": 520_000},
+             {"city": "elsewhere", "state": "ZZ", "metro": "Not a BEA metro", "value": 1}]
+    rents = [{"city": "palo alto", "state": "CA", "metro": SJ, "value": 4800},
+             {"city": "nampa", "state": "ID", "metro": "Boise City, ID", "value": 1500}]
+    table = col._city_table(parts, homes, rents, {("san jose", "CA"): 4000.0, ("boise city", "ID"): 2000.0})
+    assert table == {"palo alto, CA": {"metro": SJ, "home4": 4_000_000, "rent_ratio": 1.2},
+                     "nampa, ID": {"metro": "Boise City, ID", "home4": 520_000, "rent_ratio": 0.75}}
+
+
+def test_runner_takes_current_home_and_city_weight_from_the_config(tmp_path):
+    (tmp_path / "col_data.json").write_text(json.dumps(CITY_DATA))
+    cfg = Config.model_validate({"config_dir": tmp_path, "database": str(tmp_path / "x.db"), "pay": {
+        "taxes": False, "buy": OWN_CFG, "city_weight": 0.5,
+        "current_home": {"payment": 3000, "principal": 500, "upkeep": 300, "rate": 4.5}}})
+    runner = Runner(cfg, Store(":memory:"), HttpClient(), Notifier(cfg.notify, dry_run=True))
+    assert runner.pay.home.level == pytest.approx(1.096) and "staying" in runner.pay.home.buy_note
+    assert runner.pay.resolve("Palo Alto, CA").level == pytest.approx(1.60)

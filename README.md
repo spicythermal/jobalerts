@@ -144,11 +144,23 @@ of renting one: Zillow's 4-bedroom Home Value Index for the metro (else the stat
 Zillow), 20% down, Freddie Mac's latest 30-year rate on the loan, property tax by state, upkeep
 (insurance and maintenance, 0.75% a year) and utilities. Paying down principal counts as saving,
 so it's left out; so are the mortgage-interest deduction and what the down payment would earn.
-It compares buying there with buying a 4-bedroom in Portland today, not with your current
-mortgage. In the Bay Area the two split widely: $250K in Palo Alto is 1.22 renting but 0.79
-buying, while Austin and Albuquerque come out a little better buying than renting. A job passes
-`pay.min_index` if *either* index clears it, and alerts show both ("pay index 1.22 rent · 0.79
-buy … own $1.87M 4-bed at 7.18%: $12K/mo, $374K down"). Prices abroad come from the
+Two settings make it a move-vs-stay comparison:
+
+- `pay.current_home`: what staying in your own home costs now (mortgage payment, less the
+  principal it pays down, plus upkeep and utilities: e.g. $2,500 − $600 + $300 + utilities ≈ $2,550 a
+  month at your locked-in rate). Both indexes compare a move with that, and jobs in your home
+  metro count as staying (1.0 either way). Buying elsewhere means today's rate, so the low
+  locked rate counts against moving. `payment: 0` compares with market rent and price instead.
+- `pay.city_weight` (0.5): a metro's typical home and rent can be far from the job's city's
+  (Palo Alto's 4-bedroom homes cost 2.2x the San Jose metro's). Zillow's city figures (4-bedroom
+  values; typical rents against the metro's) move the metro's numbers halfway toward the job's
+  city: living near the job rather than in it. 0 = anywhere in the metro, 1 = in the city.
+
+With both, $250K in Palo Alto is 1.22 renting but 0.48 buying (a $3.0M blended 4-bedroom at
+7.18%: about $20K a month and $600K down), while Austin and Albuquerque stay above 1.1 either
+way. A job passes `pay.min_index` if *either* index clears it, and alerts show both ("pay index
+1.22 rent · 0.48 buy … own $3.00M 4-bed at 7.18%: $20K/mo, $600K down"). Selling and moving
+costs (one-time) aren't in either index. Prices abroad come from the
 World Bank's purchasing-power parity divided by the exchange rate (country-wide). Remote jobs use
 your home prices. The pay comes from the posting's salary field, or else from a salary range stated
 in the description. When even the top of that range is under `pay.min_index` (1.05) renting and buying, the match is

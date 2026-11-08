@@ -400,7 +400,8 @@ class Runner:
         try:
             ownership = col.Ownership(**cfg.buy.model_dump(exclude={"enabled"})) if cfg.buy.enabled else None
             self.pay = col.PayIndex(data, cfg.reference_salary, cfg.reference_location, cfg.locations, taxes,
-                                    cfg.housing_share, ownership)
+                                    cfg.housing_share, ownership, col.CurrentHome(**cfg.current_home.model_dump()),
+                                    cfg.city_weight)
         except (KeyError, ValueError) as e:
             self.pay_problem = f"cost-of-living data in {path} unusable: {e}"
             log.warning("Pay index off: %s", self.pay_problem)

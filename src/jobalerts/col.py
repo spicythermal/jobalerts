@@ -42,6 +42,16 @@ down principal is saving, not cost, so it's left out; so are the mortgage-intere
 what the down payment would have earned. The buy index compares buying there with buying at the
 reference location at today's prices and rates.
 
+Staying put (pay.current_home): when set, the reference side of both indexes is what the household
+pays now to stay in its own home (mortgage payment less the principal it pays down, plus upkeep and
+utilities), so a low locked-in mortgage rate counts against moving. Jobs in the reference metro are
+priced the same way (you'd keep the house).
+
+The job's city (pay.city_weight): a metro's typical home and rent can be far from those of the
+city a job is in (Palo Alto's 4-bedroom homes cost 2.2x the San Jose metro's). Zillow's city-level
+4-bedroom values and typical rents (ZORI, city vs metro) move the metro's figures `city_weight` of
+the way toward the city's: 0 = the metro, 1 = living in the job's city, 0.5 = living near it.
+
 Benefits, bonus and equity are not included; this is base pay against prices.
 """
 from __future__ import annotations
@@ -72,7 +82,14 @@ WB_PPP, WB_FX = "PA.NUS.PRVT.PP", "PA.NUS.FCRF"
 ZILLOW_URLS = {
     "msa": "https://files.zillowstatic.com/research/public_csvs/zhvi/Metro_zhvi_bdrmcnt_4_uc_sfrcondo_tier_0.33_0.67_sm_sa_month.csv",
     "state": "https://files.zillowstatic.com/research/public_csvs/zhvi/State_zhvi_bdrmcnt_4_uc_sfrcondo_tier_0.33_0.67_sm_sa_month.csv",
+    "city": "https://files.zillowstatic.com/research/public_csvs/zhvi/City_zhvi_bdrmcnt_4_uc_sfrcondo_tier_0.33_0.67_sm_sa_month.csv",
 }
+# Zillow Observed Rent Index (typical rent, all home types), for how a city's rents compare with its metro's.
+ZORI_URLS = {
+    "msa": "https://files.zillowstatic.com/research/public_csvs/zori/Metro_zori_uc_sfrcondomfr_sm_month.csv",
+    "city": "https://files.zillowstatic.com/research/public_csvs/zori/City_zori_uc_sfrcondomfr_sm_month.csv",
+}
+CITY_KEEP = 0.10  # keep a city when its home value or rent differs from its metro's by more than this
 PMMS_URL = "https://www.freddiemac.com/pmms/docs/PMMS_history.csv"  # Freddie Mac's weekly mortgage survey
 
 STATES = {
@@ -211,6 +228,18 @@ class Ownership:
 
 
 @dataclass
+class CurrentHome:
+    """What staying in the household's own home costs a month (pay.current_home in config.yaml)."""
+    payment: float = 0.0     # mortgage payment, with property tax and insurance when escrowed
+    principal: float = 0.0   # of which pays down the loan: saving, not cost
+    upkeep: float = 0.0      # repairs and maintenance
+    rate: float = 0.0        # the mortgage rate, for display
+
+    def monthly(self, utilities: float) -> float:
+        return self.payment - self.principal + self.upkeep + utilities
+
+
+@dataclass
 class Place:
     label: str
     level: float          # price level, US average = 1.0 (renting, with family housing on)
@@ -219,6 +248,7 @@ class Place:
     city: str = ""        # lower case, when known (for city taxes)
     buy_level: float | None = None  # price level for a family that buys a 4-bedroom home (US places only)
     buy_note: str = ""    # "own $1.87M 4-bed: $12.4K/mo, $374K down"
+    metro: str = ""       # BEA metro name, for metro places
 
 
 def _money(v: float) -> str:
@@ -495,6 +525,39 @@ def _pmms_rate(text: str) -> tuple[str, float]:
     return latest[0].isoformat(), latest[1]
 
 
+def _zillow_cities(text: str) -> list[dict]:
+    """[{city, state, metro, value}] from a Zillow city CSV (latest month per city)."""
+    reader = csv.DictReader(io.StringIO(text))
+    months = [h for h in reader.fieldnames or [] if re.fullmatch(r"\d{4}-\d{2}-\d{2}", h)]
+    out = []
+    for r in reader:
+        month = next((m for m in reversed(months) if r.get(m)), None)
+        if month and r.get("Metro"):
+            out.append({"city": r["RegionName"].lower(), "state": r.get("State") or "", "metro": r["Metro"],
+                        "value": float(r[month])})
+    return out
+
+
+def _city_table(metro_parts: dict[str, dict], homes: list[dict], rents: list[dict],
+                metro_rents: dict[tuple[str, str], float]) -> dict[str, dict]:
+    """{"palo alto, CA": {"metro", "home4", "rent_ratio"}} for cities whose 4-bedroom home value or
+    typical rent is more than CITY_KEEP away from their metro's (the rest add nothing)."""
+    rent_of = {(r["city"], r["state"]): r for r in rents}
+    out = {}
+    for h in homes:
+        metro = metro_parts.get(h["metro"])
+        if not metro or not metro.get("home4"):
+            continue
+        rent_ratio = 1.0
+        r = rent_of.get((h["city"], h["state"]))
+        if r and (metro_rent := _metro_home(h["metro"], metro_rents)):
+            rent_ratio = r["value"] / metro_rent
+        if abs(h["value"] / metro["home4"] - 1) > CITY_KEEP or abs(rent_ratio - 1) > CITY_KEEP:
+            out[f"{h['city']}, {h['state']}"] = {"metro": h["metro"], "home4": round(h["value"]),
+                                                 "rent_ratio": round(rent_ratio, 3)}
+    return out
+
+
 def _wb_values(payload: list) -> dict[str, dict[int, float]]:
     out: dict[str, dict[int, float]] = {}
     for r in payload[1] or []:
@@ -520,11 +583,23 @@ async def build_data(client: httpx.AsyncClient | None = None) -> dict:
             r.raise_for_status()
             wb[code] = _wb_values(r.json())
         fmr_updated, fmr_rows = await _fmr_rows(client)
-        zillow = {}
+        zillow, city_homes, city_rents, metro_rents = {}, [], [], {}
         for key, url in ZILLOW_URLS.items():
             r = await client.get(url)
             r.raise_for_status()
-            zillow[key] = _zillow_rows(r.text)
+            if key == "city":
+                city_homes = _zillow_cities(r.text)
+            else:
+                zillow[key] = _zillow_rows(r.text)
+        for key, url in ZORI_URLS.items():
+            r = await client.get(url)
+            r.raise_for_status()
+            if key == "city":
+                city_rents = _zillow_cities(r.text)
+            else:
+                for region, _, value in _zillow_rows(r.text)[1]:
+                    city, _, st = region.rpartition(", ")
+                    metro_rents[(city.lower(), st)] = value
         r = await client.get(PMMS_URL)
         r.raise_for_status()
         rate_day, rate = _pmms_rate(r.text)
@@ -584,11 +659,12 @@ async def build_data(client: httpx.AsyncClient | None = None) -> dict:
             "us": f"BEA Regional Price Parities, all items, {msa_year} (MARPP, SARPP)",
             "countries": f"World Bank {WB_PPP} / {WB_FX}, latest year with both, per country",
             "housing": f"HUD Fair Market Rents, 4 bedrooms, metro areas (layer updated {fmr_updated})",
-            "homes": f"Zillow Home Value Index (ZHVI), 4 bedrooms, metro and state, {zillow_month}; "
-                     f"data by Zillow Group",
+            "homes": f"Zillow Home Value Index (ZHVI), 4 bedrooms, metro, state and city, {zillow_month}; "
+                     f"city rents vs metro from the Zillow Observed Rent Index; data by Zillow Group",
             "mortgage": f"Freddie Mac PMMS 30-year fixed rate, week of {rate_day}",
         },
         "mortgage_rate": rate,
+        "us_cities": _city_table(metro_parts, city_homes, city_rents, metro_rents),
         "us_metros": metros, "us_nonmetro": nonmetro, "us_states": states, "countries": countries,
         "us_metro_parts": metro_parts, "us_state_parts": state_part_map,
         "rpp_weights": weights, "fmr_scale": round(fmr_scale, 6),
@@ -599,7 +675,8 @@ async def build_data(client: httpx.AsyncClient | None = None) -> dict:
 class PayIndex:
     def __init__(self, data: dict, reference_salary: float = 155_000, reference_location: str = "Portland, OR",
                  overrides: dict[str, str] | None = None, taxes: Taxes | None = None, housing_share: float = 0.0,
-                 ownership: Ownership | None = None):
+                 ownership: Ownership | None = None, current_home: CurrentHome | None = None,
+                 city_weight: float = 0.0):
         self.data = data
         self.taxes = taxes
         self.metros: dict[str, float] = data["us_metros"]
@@ -609,6 +686,10 @@ class PayIndex:
         self.housing_share = housing_share if housing_share > 0 and data.get("rpp_weights") else 0.0
         # Buying needs family housing on and home prices plus a mortgage rate (tables built before 2026-11-08 lack them).
         self.ownership = ownership if self.housing_share and data.get("mortgage_rate") else None
+        self.city_weight = city_weight if self.housing_share else 0.0
+        self.cities: dict[str, dict] = data.get("us_cities") or {}
+        self.current_home: CurrentHome | None = None  # set once the home metro is known
+        self._home_metro = ""
         self.overrides = {k.lower(): v for k, v in (overrides or {}).items()}
         self._cities: dict[tuple[str, str], str] = {}
         for name in self.metros:
@@ -621,6 +702,9 @@ class PayIndex:
         home = self.resolve(reference_location)
         if home is None:
             raise ValueError(f"pay.reference_location {reference_location!r} isn't a known place")
+        if current_home and current_home.payment and self.housing_share and home.metro:
+            self.current_home, self._home_metro = current_home, home.metro
+            home = self.resolve(reference_location)  # again, now priced at what staying costs
         self.home = home
         if self.ownership and home.buy_level is None:
             log.warning("Buy index off: no home price for %s", home.label)
@@ -658,12 +742,38 @@ class PayIndex:
     def _metro(self, name: str, state: str = "", city: str = "") -> Place:
         state = state or name.rpartition(", ")[2].split("-")[0]  # the metro's first state
         parts = (self.data.get("us_metro_parts") or {}).get(name)
-        level, how = self._level(self.metros[name], parts)
+        if self.current_home and name == self._home_metro and parts:
+            return self._staying(name, state, city, parts)
         state_home = ((self.data.get("us_state_parts") or {}).get(state) or {}).get("home4")
         if parts and not parts.get("home4") and state_home:  # Zillow doesn't list every metro: the state's value
             parts = dict(parts, home4=state_home)
+        where = ""
+        c = self.cities.get(f"{city}, {state}") if city else None
+        if parts and self.city_weight and c and c["metro"] == name:
+            w = self.city_weight
+            parts = dict(parts)
+            if parts.get("fmr4"):
+                parts["fmr4"] = round(parts["fmr4"] * (1 + w * (c["rent_ratio"] - 1)))
+            if parts.get("home4"):
+                parts["home4"] = round(parts["home4"] * (1 - w) + c["home4"] * w)
+            where = f"; {w:.0%} toward {city.title()} (rents x{c['rent_ratio']:.2f}, 4-bed {_money(c['home4'])})"
+        level, how = self._level(self.metros[name], parts)
         buy, note = self._buy(parts, state)
-        return Place(f"{name} metro ({how})", level, "USA", state, city, buy, note)
+        return Place(f"{name} metro ({how}{where})", level, "USA", state, city, buy, note, name)
+
+    def _staying(self, name: str, state: str, city: str, parts: dict) -> Place:
+        """The reference metro when the household keeps its own home: renting and buying both cost what
+        staying costs."""
+        h = self.current_home
+        utilities = (self.ownership or Ownership()).utilities * parts.get("utilities", 100.0) / 100
+        monthly = h.monthly(utilities)
+        level = family_level(dict(parts, fmr4=monthly), self.data["rpp_weights"], self.data["fmr_scale"],
+                             self.housing_share)
+        rate = f" at {h.rate:g}%" if h.rate else ""
+        note = (f"staying in your home{rate}: ${h.payment:,.0f} payment - ${h.principal:,.0f} principal + "
+                f"${h.upkeep:,.0f} upkeep + ${utilities:,.0f} utilities = {_money(monthly)}/mo")
+        return Place(f"{name} metro (RPP {self.metros[name]:.1f}; {note})", level, "USA", state, city,
+                     level if self.ownership else None, note, name)
 
     def _state(self, st: str, city: str = "") -> Place | None:
         if st not in self.states:
