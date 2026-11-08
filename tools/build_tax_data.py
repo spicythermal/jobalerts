@@ -3,7 +3,7 @@
     pip install policyengine-us        # not a jobalerts dependency; only needed to rebuild the table
     python tools/build_tax_data.py [--config config] [--year 2026]
 
-The household (filing status, 401(k) share) and the localities come from config/taxes.yaml. For each
+The household (filing status, 401(k) share, dependents' ages) and the localities come from config/taxes.yaml. For each
 place this runs one PolicyEngine simulation holding one household per salary on the grid, and stores
 federal income tax, Social Security + Medicare, state income tax, state payroll taxes and local
 income taxes, in whole dollars. jobalerts interpolates between grid points. Rebuild each January,
@@ -28,7 +28,8 @@ PARTS = ["federal", "fica", "state", "state_payroll", "local"]
 
 
 def situation(state: str, household: dict, inputs: dict, year: int) -> dict:
-    """One household per grid salary: an earner and a spouse with no income, filing jointly."""
+    """One household per grid salary: an earner, a spouse with no income and the dependents (by age),
+    filing jointly. PolicyEngine treats everyone in the tax unit other than the couple as a dependent."""
     people, units = {}, {"tax_units": {}, "families": {}, "spm_units": {}, "marital_units": {}, "households": {}}
     for i, wage in enumerate(WAGES):
         you, spouse = f"you{i}", f"spouse{i}"
@@ -37,9 +38,16 @@ def situation(state: str, household: dict, inputs: dict, year: int) -> dict:
         for var, value in (inputs.get("person") or {}).items():
             person[var] = {year: wage if value == "$wage" else value}
         people[you], people[spouse] = person, {"age": {year: 40}}
-        members = [you, spouse]
-        for unit in ("tax_units", "families", "spm_units", "marital_units"):
+        kids = []
+        for j, age in enumerate(household.get("dependents") or []):
+            kid = f"kid{i}_{j}"
+            people[kid] = {"age": {year: age}}
+            units["marital_units"][f"k{i}_{j}"] = {"members": [kid]}
+            kids.append(kid)
+        members = [you, spouse, *kids]
+        for unit in ("tax_units", "families", "spm_units"):
             units[unit][f"u{i}"] = {"members": members}
+        units["marital_units"][f"u{i}"] = {"members": [you, spouse]}
         hh = {"members": members, "state_name": {year: state}}
         for var, value in (inputs.get("household") or {}).items():
             hh[var] = {year: value}

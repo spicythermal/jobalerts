@@ -386,7 +386,8 @@ class Runner:
                 self.pay_problem = f"tax tables unusable ({type(e).__name__}: {e}); comparing gross pay"
                 log.warning("Pay index: %s", self.pay_problem)
         try:
-            self.pay = col.PayIndex(data, cfg.reference_salary, cfg.reference_location, cfg.locations, taxes)
+            self.pay = col.PayIndex(data, cfg.reference_salary, cfg.reference_location, cfg.locations, taxes,
+                                    cfg.housing_share)
         except (KeyError, ValueError) as e:
             self.pay_problem = f"cost-of-living data in {path} unusable: {e}"
             log.warning("Pay index off: %s", self.pay_problem)
@@ -408,7 +409,7 @@ class Runner:
             return ""
         try:
             data = await col.build_data()
-            col.check_data(data, cfg.reference_location)
+            col.check_data(data, cfg.reference_location, cfg.housing_share)
         except Exception as e:
             built = self.pay.data.get("built") if self.pay else "never"
             self.pay_problem = f"cost-of-living refresh failed ({type(e).__name__}: {e}); using data built {built}"

@@ -29,10 +29,11 @@ def part(th, label):
 def test_federal_and_fica_by_hand(taxes):
     # $155K, married filing jointly, 6% 401(k): taxable 155,000 - 9,300 - 32,200 standard deduction = 113,500
     th = taxes.take_home(155_000, "USA", "TX", "austin")
-    assert part(th, "federal income tax") == pytest.approx(0.10 * 24_800 + 0.12 * 76_000 + 0.22 * 12_700, abs=1)
+    # less the credits for the dependents (ages 4, 8, 18): two $2,200 child tax credits + $500 other-dependent credit
+    assert part(th, "federal income tax") == pytest.approx(0.10 * 24_800 + 0.12 * 76_000 + 0.22 * 12_700 - 4_900, abs=1)
     # 401(k) money still pays Social Security and Medicare
     assert part(th, "Social Security + Medicare") == pytest.approx(0.0765 * 155_000, abs=1)
-    assert th.net == pytest.approx(155_000 - 14_394 - 11_858, abs=2)
+    assert th.net == pytest.approx(155_000 - 9_494 - 11_858, abs=2)
 
 
 def test_social_security_stops_at_the_wage_cap(taxes):
@@ -62,7 +63,7 @@ def test_washington_keeps_more_than_oregon(taxes):
     wa, oregon = taxes.take_home(155_000, "USA", "WA", "seattle"), taxes.take_home(155_000, "USA", "OR", "portland")
     assert part(wa, "state income tax") == 0                         # (its column holds a low-income credit)
     assert part(wa, "state payroll (SDI, paid leave)") > 1_500       # WA Cares + paid leave
-    assert wa.net - oregon.net == pytest.approx(9_240, abs=300)
+    assert wa.net - oregon.net == pytest.approx(8_455, abs=300)  # Oregon's credit per dependent narrows the gap
 
 
 def test_localities_by_city_and_state_default(taxes):
@@ -110,6 +111,7 @@ def test_problem_when_stale_or_built_for_another_household(taxes):
 def test_committed_table_covers_every_state_and_locality(taxes):
     assert len([k for k in taxes.places if len(k) == 2 and k != "US"]) == 51 and "US" in taxes.places
     assert taxes.data["household"] == taxes.household
+    assert taxes.household["dependents"] == [4, 8, 18]
 
 
 # ---------------------------------------------------------------------------- the index on take-home

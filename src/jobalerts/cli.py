@@ -421,11 +421,18 @@ async def cmd_pay(cfg: Config, args) -> int:
         print(f"Reference: ${ref:,.0f} in {home.label} = 1.00")
         print(f"Prices built {data.get('built')} ({col.data_age_days(data)} days ago; refreshed after "
               f"{cfg.pay.refresh_days}):\n  US: {data['sources']['us']}\n  Abroad: {data['sources']['countries']}")
+        if pi.housing_share:
+            print(f"Housing: {pi.housing_share:.0%} of spending at {data['sources'].get('housing', 'HUD FMRs')}; "
+                  f"the rest at RPP goods and other services")
+        elif cfg.pay.housing_share:
+            print("Housing: plain RPP (this price table has no HUD rents; run `jobalerts pay --update`)")
         if pi.taxes:
             t = pi.taxes
             hh = t.household
+            kids = hh.get("dependents") or []
+            deps = f"{len(kids)} dependents (ages {', '.join(map(str, kids))})" if kids else "no dependents"
             print(f"Taxes: {t.year}, {t.data.get('source')} (built {t.data.get('built')}); married filing jointly, "
-                  f"one earner, {hh['k401_rate']:.0%} pre-tax 401(k); abroad approximate")
+                  f"one earner, {deps}, {hh['k401_rate']:.0%} pre-tax 401(k); abroad approximate")
             if problem := t.problem():
                 print(f"  note: {problem}")
         else:

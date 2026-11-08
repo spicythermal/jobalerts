@@ -5,7 +5,8 @@
 
 Two files in the config directory:
 
-- taxes.yaml (hand-kept): the household (married filing jointly, one earner, 6% pre-tax 401(k)),
+- taxes.yaml (hand-kept): the household (married filing jointly, one earner, 6% pre-tax 401(k),
+  dependents by age),
   localities with their own income tax and the cities that pick them, local taxes PolicyEngine
   doesn't model (Ohio, Pennsylvania, Michigan and Kentucky city taxes, Portland Metro's housing
   tax), and approximate tax rates abroad.

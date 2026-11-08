@@ -257,6 +257,9 @@ pay:
   taxes: true               # index on take-home pay: after federal, state, local and payroll taxes where the job is
   tax_rules: taxes.yaml     # household (married filing jointly, 6% pre-tax 401k), local taxes, rates abroad
   tax_data: tax_data.json   # US taxes by salary and place; rebuild each January with tools/build_tax_data.py
+  housing_share: 0.40       # family housing: rent + utilities as a share of spending, priced at HUD's 4-bedroom
+                            # Fair Market Rent for the metro (see col.py). 0.40 fits a family renting a
+                            # 3-4 bedroom home; 0 = plain BEA RPP.
   locations:                # whole words of a location -> a place ("Palo Alto, CA"), state code, ISO3 country or "home"
     # Siemens Healthineers (Varian) posts site codes instead of cities
     "PAO H": "Palo Alto, CA"

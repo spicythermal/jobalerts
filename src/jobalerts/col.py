@@ -7,14 +7,28 @@ taxes.py; pay.taxes: false compares gross pay instead). With the defaults, $155K
 is 1.0; $155K somewhere with Portland's prices but no state income tax is about 1.10.
 
 Price levels are all relative to the US average (= 1.0) and come from `col_data.json`, which
-`jobalerts pay --update` builds from two free, official sources:
+`jobalerts pay --update` builds from free, official sources:
 
-- US metro areas and states: BEA Regional Price Parities (RPP, "all items"). One number per metro
-  area or state covering goods, rents and other services, from the CPI and the Census's American
-  Community Survey rents. Released each December for the year before last.
+- US metro areas and states: BEA Regional Price Parities (RPP). One "all items" number per metro
+  area or state, plus its parts (goods, housing rents, utilities, other services), from the CPI and
+  the Census's American Community Survey rents. Released each December for the year before last.
+- US metro rents for a family: HUD Fair Market Rents (FMR) for a 4-bedroom home, rent plus
+  utilities, set each October for the coming fiscal year from what recent movers pay.
 - Other countries: World Bank purchasing-power parity for household consumption (PA.NUS.PRVT.PP)
   divided by the official exchange rate (PA.NUS.FCRF). That ratio is the country's price level
   against the US. Country-wide only: there is no free official city-level series outside the US.
+
+Family housing (pay.housing_share, 0 = off): the all-items RPP weighs housing at about 17% of
+spending and prices it at what all renters pay, long-time tenants included. A family that moves
+pays today's rent for a bigger home, and rent is a larger share of what it spends. So a US place's
+price level is instead
+
+    (1 - housing_share) x RPP goods and other services  +  housing_share x family rent level
+
+where the family rent level is the metro's 4-bedroom FMR, scaled onto the RPP's index (US = 100) by
+the median ratio of RPP housing + utilities to 4-bedroom FMR across metros. Places without an FMR
+(states) use RPP housing + utilities. The weights that combine the RPP parts are fitted to the
+all-items RPP when the data is built. Countries abroad keep the World Bank price level.
 
 Benefits, bonus and equity are not included; this is base pay against prices.
 """
@@ -37,6 +51,9 @@ from .taxes import Taxes, TakeHome
 log = logging.getLogger(__name__)
 
 BEA_URLS = {"msa": "https://apps.bea.gov/regional/zip/MARPP.zip", "state": "https://apps.bea.gov/regional/zip/SARPP.zip"}
+BEA_PARTS = {"2": "goods", "3": "housing", "4": "utilities", "5": "other"}  # RPP LineCode -> part
+# HUD's public ArcGIS layer of Fair Market Rents (no key needed; the huduser.gov downloads sit behind a bot check).
+FMR_URL = "https://services.arcgis.com/VTyQ9soqVukalItT/arcgis/rest/services/Fair_Market_Rents/FeatureServer/0"
 WB_URL = "https://api.worldbank.org/v2/country/all/indicator/{}?format=json&date={}:{}&per_page=20000"
 WB_PPP, WB_FX = "PA.NUS.PRVT.PP", "PA.NUS.FCRF"
 
@@ -276,26 +293,100 @@ def pay_in_description(text: str) -> Pay | None:
 
 
 # ---------------------------------------------------------------------------- the data file
-def _bea_rows(blob: bytes, prefix: str) -> tuple[int, list[tuple[str, str, float]]]:
-    """(latest year, [(fips, name, all-items RPP)]) from a BEA regional zip."""
+def _bea_rows(blob: bytes, prefix: str) -> tuple[int, list[tuple[str, str, float]], dict[str, dict[str, float]]]:
+    """(latest year, [(fips, name, all-items RPP)], {fips: {part: RPP}}) from a BEA regional zip.
+    LineCode 1 is all items; 2-5 are the parts in BEA_PARTS."""
     with zipfile.ZipFile(io.BytesIO(blob)) as z:
         name = next(n for n in z.namelist() if n.startswith(prefix) and n.endswith(".csv"))
         reader = csv.reader(io.StringIO(z.read(name).decode("utf-8-sig", errors="replace")))
         header = next(reader)
         years = [i for i, h in enumerate(header) if h.strip().isdigit()]
-        latest, rows = 0, []
+        latest, rows, parts = 0, [], {}
         for r in reader:
-            if len(r) <= years[-1] or r[4].strip() != "1":  # LineCode 1 = all items
+            line = r[4].strip() if len(r) > years[-1] else ""
+            if line != "1" and line not in BEA_PARTS:
                 continue
             for i in reversed(years):
                 try:
                     value = float(r[i])
                 except ValueError:
                     continue
-                latest = max(latest, int(header[i]))
-                rows.append((r[0].strip().strip('"'), r[1].strip(), value))
+                fips = r[0].strip().strip('"')
+                if line == "1":
+                    latest = max(latest, int(header[i]))
+                    rows.append((fips, r[1].strip(), value))
+                else:
+                    parts.setdefault(fips, {})[BEA_PARTS[line]] = value
                 break
-        return latest, rows
+        return latest, rows, parts
+
+
+async def _fmr_rows(client: httpx.AsyncClient) -> tuple[str, list[dict]]:
+    """(date the layer was last updated, [{FMR_CODE, FMR_AREANAME, FMR_4BDR}]) for HUD's metro FMR areas."""
+    r = await client.get(FMR_URL, params={"f": "json"})
+    r.raise_for_status()
+    stamp = (r.json().get("editingInfo") or {}).get("lastEditDate")
+    updated = date.fromtimestamp(stamp / 1000).isoformat() if stamp else "unknown"
+    rows: list[dict] = []
+    while True:
+        r = await client.get(f"{FMR_URL}/query", params={
+            "where": "FMR_CODE LIKE 'METRO%'", "outFields": "FMR_CODE,FMR_AREANAME,FMR_4BDR",
+            "returnGeometry": "false", "orderByFields": "OBJECTID", "resultOffset": len(rows),
+            "resultRecordCount": 1000, "f": "json"})
+        r.raise_for_status()
+        page = r.json()
+        if "error" in page:
+            raise ValueError(f"HUD FMR query failed: {page['error']}")
+        rows += [f["attributes"] for f in page.get("features") or []]
+        if not page.get("features") or not page.get("exceededTransferLimit"):
+            return updated, rows
+
+
+def _metro_fmr(cbsa: str, metro: str, areas: list[dict]) -> int | None:
+    """4-bedroom FMR for a BEA metro. HUD splits some metros into several FMR areas; take the one
+    coded for the whole metro ("METRO41940M41940"), else the one named after its first city."""
+    if not areas:
+        return None
+    first = re.split(r"[-,]", metro)[0].strip().lower()
+    pick = (next((a for a in areas if a["FMR_CODE"].endswith(f"M{cbsa}")), None)
+            or next((a for a in areas if first in a["FMR_AREANAME"].lower()), None) or areas[0])
+    return pick.get("FMR_4BDR") or None
+
+
+def _fit_weights(parts: list[dict[str, float]], totals: list[float]) -> dict[str, float]:
+    """Least-squares weights that best rebuild the all-items RPP from its parts, clipped at zero and
+    summing to 1. (BEA doesn't publish the expenditure weights it combines the parts with.)"""
+    names = list(BEA_PARTS.values())
+    n = len(names)
+    # normal equations A w = b, solved by Gaussian elimination
+    a = [[sum(p[i] * p[j] for p in parts) for j in names] for i in names]
+    b = [sum(p[i] * t for p, t in zip(parts, totals)) for i in names]
+    for c in range(n):
+        pivot = max(range(c, n), key=lambda r: abs(a[r][c]))
+        a[c], a[pivot], b[c], b[pivot] = a[pivot], a[c], b[pivot], b[c]
+        for r in range(c + 1, n):
+            f = a[r][c] / a[c][c]
+            a[r] = [x - f * y for x, y in zip(a[r], a[c])]
+            b[r] -= f * b[c]
+    w = [0.0] * n
+    for c in reversed(range(n)):
+        w[c] = (b[c] - sum(a[c][k] * w[k] for k in range(c + 1, n))) / a[c][c]
+    w = [max(x, 0.0) for x in w]
+    return {name: round(x / sum(w), 4) for name, x in zip(names, w)}
+
+
+def _housing_rpp(parts: dict[str, float], weights: dict[str, float]) -> float:
+    """RPP housing and utilities together (an FMR is rent plus utilities)."""
+    wh, wu = weights["housing"], weights["utilities"]
+    return (wh * parts["housing"] + wu * parts["utilities"]) / (wh + wu)
+
+
+def family_level(parts: dict[str, float], weights: dict[str, float], fmr_scale: float, share: float) -> float:
+    """Price level (US average = 1.0) with housing at `share` of spending; see the module docstring."""
+    wg, wo = weights["goods"], weights["other"]
+    other = (wg * parts["goods"] + wo * parts["other"]) / (wg + wo)
+    housing = parts["fmr4"] * fmr_scale if parts.get("fmr4") else _housing_rpp(parts, weights)
+    return ((1 - share) * other + share * housing) / 100
 
 
 def _wb_values(payload: list) -> dict[str, dict[int, float]]:
@@ -322,16 +413,39 @@ async def build_data(client: httpx.AsyncClient | None = None) -> dict:
             r = await client.get(WB_URL.format(code, date.today().year - 8, date.today().year))
             r.raise_for_status()
             wb[code] = _wb_values(r.json())
+        fmr_updated, fmr_rows = await _fmr_rows(client)
     finally:
         if own:
             await client.aclose()
 
-    msa_year, msa_rows = _bea_rows(blobs["msa"], "MARPP")
-    state_year, state_rows = _bea_rows(blobs["state"], "SARPP")
-    metros = {re.sub(r"\s*\(Metropolitan Statistical Area\)", "", n): v
-              for fips, n, v in msa_rows if fips not in ("00000", "00999")}
+    msa_year, msa_rows, msa_parts = _bea_rows(blobs["msa"], "MARPP")
+    state_year, state_rows, state_parts = _bea_rows(blobs["state"], "SARPP")
+    metros, metro_parts = {}, {}
+    fmr_areas: dict[str, list[dict]] = {}
+    for row in fmr_rows:
+        if m := re.match(r"METRO(\d{5})", row.get("FMR_CODE") or ""):
+            fmr_areas.setdefault(m.group(1), []).append(row)
+    for fips, n, v in msa_rows:
+        if fips in ("00000", "00999"):
+            continue
+        name = re.sub(r"\s*\(Metropolitan Statistical Area\)", "", n)
+        metros[name] = v
+        if set(BEA_PARTS.values()) <= set(msa_parts.get(fips, {})):
+            metro_parts[name] = dict(msa_parts[fips])
+            if fmr := _metro_fmr(fips, name, fmr_areas.get(fips, [])):
+                metro_parts[name]["fmr4"] = fmr
     nonmetro = next((v for fips, _, v in msa_rows if fips == "00999"), None)
-    states = {_STATE_BY_NAME[n.lower()]: v for _, n, v in state_rows if n.lower() in _STATE_BY_NAME}
+    states, state_part_map = {}, {}
+    for fips, n, v in state_rows:
+        if n.lower() in _STATE_BY_NAME:
+            st = _STATE_BY_NAME[n.lower()]
+            states[st] = v
+            if set(BEA_PARTS.values()) <= set(state_parts.get(fips, {})):
+                state_part_map[st] = state_parts[fips]
+    fitted = [(metro_parts[k], metros[k]) for k in metro_parts]
+    weights = _fit_weights([p for p, _ in fitted], [t for _, t in fitted]) if len(fitted) >= 10 else {}
+    ratios = sorted(_housing_rpp(p, weights) / p["fmr4"] for p, _ in fitted if p.get("fmr4")) if weights else []
+    fmr_scale = ratios[len(ratios) // 2] if ratios else 0.0
     countries = {}
     for iso3, ppp in wb[WB_PPP].items():
         # PPP and exchange rate from the same year: with high inflation (Argentina) a mismatch is off 30x.
@@ -344,20 +458,25 @@ async def build_data(client: httpx.AsyncClient | None = None) -> dict:
         "sources": {
             "us": f"BEA Regional Price Parities, all items, {msa_year} (MARPP, SARPP)",
             "countries": f"World Bank {WB_PPP} / {WB_FX}, latest year with both, per country",
+            "housing": f"HUD Fair Market Rents, 4 bedrooms, metro areas (layer updated {fmr_updated})",
         },
         "us_metros": metros, "us_nonmetro": nonmetro, "us_states": states, "countries": countries,
+        "us_metro_parts": metro_parts, "us_state_parts": state_part_map,
+        "rpp_weights": weights, "fmr_scale": round(fmr_scale, 6),
     }
 
 
 # ---------------------------------------------------------------------------- the index
 class PayIndex:
     def __init__(self, data: dict, reference_salary: float = 155_000, reference_location: str = "Portland, OR",
-                 overrides: dict[str, str] | None = None, taxes: Taxes | None = None):
+                 overrides: dict[str, str] | None = None, taxes: Taxes | None = None, housing_share: float = 0.0):
         self.data = data
         self.taxes = taxes
         self.metros: dict[str, float] = data["us_metros"]
         self.states: dict[str, float] = data["us_states"]
         self.countries: dict[str, dict] = data["countries"]
+        # Family housing needs the RPP parts and fitted weights (tables built before 2026-11 lack them).
+        self.housing_share = housing_share if housing_share > 0 and data.get("rpp_weights") else 0.0
         self.overrides = {k.lower(): v for k, v in (overrides or {}).items()}
         self._cities: dict[tuple[str, str], str] = {}
         for name in self.metros:
@@ -377,14 +496,24 @@ class PayIndex:
         return cls(json.loads(path.read_text(encoding="utf-8")), **kwargs)
 
     # -- places
+    def _level(self, rpp: float, parts: dict | None) -> tuple[float, str]:
+        """(price level, how it was worked out) for a US metro or state."""
+        if not self.housing_share or not parts:
+            return rpp / 100, f"RPP {rpp:.1f}"
+        level = family_level(parts, self.data["rpp_weights"], self.data["fmr_scale"], self.housing_share)
+        rent = f"4-bedroom FMR ${parts['fmr4']:,}" if parts.get("fmr4") else "RPP rents"
+        return level, f"RPP {rpp:.1f}; family {level * 100:.1f} with {self.housing_share:.0%} housing at {rent}"
+
     def _metro(self, name: str, state: str = "", city: str = "") -> Place:
         state = state or name.rpartition(", ")[2].split("-")[0]  # the metro's first state
-        return Place(f"{name} metro (RPP {self.metros[name]:.1f})", self.metros[name] / 100, "USA", state, city)
+        level, how = self._level(self.metros[name], (self.data.get("us_metro_parts") or {}).get(name))
+        return Place(f"{name} metro ({how})", level, "USA", state, city)
 
     def _state(self, st: str, city: str = "") -> Place | None:
         if st not in self.states:
             return None
-        return Place(f"{STATES[st]} (state RPP {self.states[st]:.1f})", self.states[st] / 100, "USA", st, city)
+        level, how = self._level(self.states[st], (self.data.get("us_state_parts") or {}).get(st))
+        return Place(f"{STATES[st]} (state {how})", level, "USA", st, city)
 
     def _country(self, iso3: str) -> Place | None:
         if iso3 == "USA":
@@ -500,7 +629,7 @@ class PayIndex:
 MIN_METROS, MIN_STATES, MIN_COUNTRIES = 300, 50, 30
 
 
-def check_data(data: dict, reference_location: str) -> None:
+def check_data(data: dict, reference_location: str, housing_share: float = 0.4) -> None:
     """Raises ValueError if a freshly built table looks broken."""
     if len(data.get("us_metros") or {}) < MIN_METROS:
         raise ValueError(f"only {len(data.get('us_metros') or {})} US metro areas")
@@ -512,7 +641,16 @@ def check_data(data: dict, reference_location: str) -> None:
         raise ValueError("a metro RPP is outside 60-160")
     if not all(0.1 < c["ppp"] / c["fx"] < 3 for c in data["countries"].values()):
         raise ValueError("a country price level is outside 0.1-3x US")
-    PayIndex(data, reference_location=reference_location)  # the home location must still resolve
+    if housing_share:
+        parts, weights = data.get("us_metro_parts") or {}, data.get("rpp_weights") or {}
+        if sum(1 for p in parts.values() if p.get("fmr4")) < MIN_METROS:
+            raise ValueError(f"only {sum(1 for p in parts.values() if p.get('fmr4'))} metros with a HUD Fair Market Rent")
+        if set(weights) != set(BEA_PARTS.values()) or not data.get("fmr_scale"):
+            raise ValueError("no RPP part weights or FMR scale")
+        levels = [family_level(p, weights, data["fmr_scale"], housing_share) for p in parts.values()]
+        if not all(0.5 < v < 2.5 for v in levels):
+            raise ValueError("a family price level is outside 0.5-2.5")
+    PayIndex(data, reference_location=reference_location, housing_share=housing_share)  # home must still resolve
 
 
 def data_age_days(data: dict) -> int:

@@ -77,6 +77,7 @@ class PayConfig(BaseModel):
     taxes: bool = True                   # compare take-home pay (after income and payroll taxes) instead of gross
     tax_rules: str = "taxes.yaml"        # household, localities, local taxes, rates abroad (config dir)
     tax_data: str = "tax_data.json"      # US taxes by salary and place, built by tools/build_tax_data.py
+    housing_share: float = 0.40          # share of spending on rent + utilities, priced at HUD 4-bedroom FMRs (0 = plain RPP)
 
 
 class Notify(BaseModel):

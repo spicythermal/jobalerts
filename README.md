@@ -114,14 +114,20 @@ Austin = 1.18, from no state income tax and slightly lower prices; $155K in New 
 Take-home pay is base pay after federal income tax, Social Security and Medicare, state income tax,
 state payroll taxes (California SDI, paid-leave programs, WA Cares, Oregon transit) and city or
 county income taxes where the job is. The household is set in `config/taxes.yaml`: married filing
-jointly, one earner, 6% pre-tax 401(k) (that money counts as yours; it only lowers income tax).
+jointly, one earner, dependents (ages 4, 8 and 18), 6% pre-tax 401(k) (that money counts as
+yours; it only lowers income tax).
 US taxes come from `config/tax_data.json`, a table of 2026 taxes by salary for every state and the
 localities in `taxes.yaml`, computed with PolicyEngine-US. City taxes PolicyEngine doesn't model
 (Ohio, Pennsylvania, Michigan and Kentucky cities, Portland Metro's housing tax) and approximate
 rates abroad are in `taxes.yaml` too. Rebuild the table each January (the digest reminds you):
 `pip install policyengine-us && python tools/build_tax_data.py`. `pay.taxes: false` compares gross
 pay instead. US prices come
-from the BEA's Regional Price Parities (by metro area, else by state). Prices abroad come from the
+from the BEA's Regional Price Parities (by metro area, else by state), with housing priced for a
+family that moves: `pay.housing_share` (40%) of spending goes to rent plus utilities at HUD's
+4-bedroom Fair Market Rent for the metro, and the rest to the RPP's goods and other services. The
+plain all-items RPP weighs housing at about 17% at what all renters pay, so it put San Jose only 5%
+above Portland; with family housing it's about 27% above. States without an FMR use the RPP's
+rents; `housing_share: 0` goes back to the plain RPP. Prices abroad come from the
 World Bank's purchasing-power parity divided by the exchange rate (country-wide). Remote jobs use
 your home prices. The pay comes from the posting's salary field, or else from a salary range stated
 in the description. When even the top of that range is under `pay.min_index` (1.05), the match is

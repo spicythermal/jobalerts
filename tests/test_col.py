@@ -115,10 +115,61 @@ def test_location_overrides():
 
 def test_committed_data_resolves_the_reference():
     data = json.loads((REPO / "config" / "col_data.json").read_text(encoding="utf-8"))
-    col.check_data(data, "Portland, OR")
-    pi = PayIndex(data)
-    assert "Portland-Vancouver-Hillsboro" in pi.home.label
-    assert pi.index(Pay(310_000, 310_000, "USD"), "Hillsboro, OR").index == pytest.approx(2.0)
+    col.check_data(data, "Portland, OR")  # with family housing (HUD rents) at the default 40%
+    for share in (0.0, 0.4):
+        pi = PayIndex(data, housing_share=share)
+        assert "Portland-Vancouver-Hillsboro" in pi.home.label
+        assert pi.index(Pay(310_000, 310_000, "USD"), "Hillsboro, OR").index == pytest.approx(2.0)
+    # family housing makes San Jose dearer against Portland than the all-items RPP does
+    plain, family = (PayIndex(data, housing_share=s).index(Pay(155_000, 155_000, "USD"), "San Jose, CA").index
+                     for s in (0.0, 0.4))
+    assert family < plain - 0.1
+
+
+# ---------------------------------------------------------------------------- family housing
+# RPP parts, weights and HUD rents chosen so the levels work out by hand (see test comments).
+FAMILY = dict(
+    DATA,
+    us_metro_parts={
+        "Portland-Vancouver-Hillsboro, OR-WA": {"goods": 100, "housing": 120, "utilities": 100, "other": 100, "fmr4": 3000},
+        "San Jose-Sunnyvale-Santa Clara, CA": {"goods": 100, "housing": 200, "utilities": 150, "other": 100, "fmr4": 5000},
+    },
+    us_state_parts={"NM": {"goods": 90, "housing": 80, "utilities": 100, "other": 95}},
+    rpp_weights={"goods": 0.3, "housing": 0.2, "utilities": 0.1, "other": 0.4},
+    fmr_scale=0.04,
+)
+
+
+def test_family_housing_levels_by_hand():
+    pi = PayIndex(FAMILY, housing_share=0.4)
+    # Portland: 60% x goods/other 100 + 40% x FMR $3,000 x 0.04 = 120 -> 108
+    assert pi.home.level == pytest.approx(1.08)
+    assert "4-bedroom FMR $3,000" in pi.home.label
+    # San Jose: 60% x 100 + 40% x $5,000 x 0.04 = 200 -> 140; the same pay buys 108/140 as much
+    assert pi.resolve("San Jose, CA").level == pytest.approx(1.40)
+    assert pi.index(Pay(155_000, 155_000), "San Jose, CA").index == pytest.approx(1.08 / 1.40)
+    # New Mexico has no FMR: RPP rents (0.2 x 80 + 0.1 x 100) / 0.3 = 86.67, goods/other (0.3 x 90 + 0.4 x 95) / 0.7
+    nm = pi.resolve("Santa Fe, NM")
+    assert nm.level == pytest.approx((0.6 * (27 + 38) / 0.7 + 0.4 * 26 / 0.3) / 100)
+    assert "RPP rents" in nm.label
+    # places without parts and countries keep their plain price level
+    assert pi.resolve("Albuquerque, NM").level == pytest.approx(0.84)
+    assert pi.resolve("Munich, Germany").level == pytest.approx(0.8)
+
+
+def test_family_housing_off_or_missing_falls_back_to_rpp():
+    assert PayIndex(FAMILY, housing_share=0).home.level == pytest.approx(1.05)
+    old_table = PayIndex(DATA, housing_share=0.4)  # built before the RPP parts were kept
+    assert old_table.housing_share == 0 and old_table.home.level == pytest.approx(1.05)
+
+
+def test_metro_fmr_picks_the_whole_metro_area():
+    areas = [{"FMR_CODE": "METRO14460MM4760", "FMR_AREANAME": "Brockton, MA HUD Metro FMR Area", "FMR_4BDR": 3000},
+             {"FMR_CODE": "METRO14460MM1120", "FMR_AREANAME": "Boston-Cambridge-Quincy, MA-NH HUD Metro FMR Area", "FMR_4BDR": 3894}]
+    assert col._metro_fmr("14460", "Boston-Cambridge-Newton, MA-NH", areas) == 3894        # by first city
+    areas.append({"FMR_CODE": "METRO14460M14460", "FMR_AREANAME": "Whole metro", "FMR_4BDR": 3500})
+    assert col._metro_fmr("14460", "Boston-Cambridge-Newton, MA-NH", areas) == 3500        # coded for the metro
+    assert col._metro_fmr("99999", "Nowhere, OR", []) is None
 
 
 def test_check_data_rejects_broken_tables():
@@ -135,19 +186,50 @@ def _zip(name: str, rows: list[str]) -> bytes:
     return buf.getvalue()
 
 
-def fake_sources(metros: int = 320) -> httpx.MockTransport:
-    msa = [f' "{10000 + i}","Town{i}, OR (Metropolitan Statistical Area)", ,MARPP,1,"...","RPPs: All items ","Index",99,{90 + i % 30}'
-           for i in range(metros)]
-    msa.append(' "38900","Portland-Vancouver-Hillsboro, OR-WA (Metropolitan Statistical Area)", ,MARPP,1,"...","RPPs: All items ","Index",106,105.4')
-    msa.append(' "38900","Portland-Vancouver-Hillsboro, OR-WA (Metropolitan Statistical Area)", ,MARPP,3,"...","Housing","Index",125,125')
+WEIGHTS = {"goods": 0.3, "housing": 0.17, "utilities": 0.01, "other": 0.52}
+LINES = {"goods": 2, "housing": 3, "utilities": 4, "other": 5}
+
+
+def _metro_rows(fips: str, name: str, parts: dict[str, float], total: float | None = None) -> list[str]:
+    """All-items line (by default the WEIGHTS mix of the parts) and the four part lines."""
+    total = total if total is not None else sum(WEIGHTS[k] * v for k, v in parts.items())
+    rows = [f' "{fips}","{name} (Metropolitan Statistical Area)", ,MARPP,1,"...","RPPs: All items ","Index",99,{total}']
+    rows += [f' "{fips}","{name} (Metropolitan Statistical Area)", ,MARPP,{LINES[k]},"...","{k}","Index",99,{v}'
+             for k, v in parts.items()]
+    return rows
+
+
+def fake_sources(metros: int = 320, fmr: bool = True) -> httpx.MockTransport:
+    msa = []
+    fmr_features = []
+    for i in range(metros):
+        parts = {"goods": 95 + i % 7, "housing": 80 + i % 40, "utilities": 90 + i % 11, "other": 98 + i % 5}
+        msa += _metro_rows(str(10000 + i), f"Town{i}, OR", parts)
+        fmr_features.append({"FMR_CODE": f"METRO{10000 + i}M{10000 + i}", "FMR_AREANAME": f"Town{i}, OR MSA",
+                             "FMR_4BDR": 2000 + 25 * (i % 40)})
+    msa += _metro_rows("38900", "Portland-Vancouver-Hillsboro, OR-WA",
+                       {"goods": 105, "housing": 125, "utilities": 107, "other": 100}, total=105.4)
+    fmr_features.append({"FMR_CODE": "METRO38900M38900", "FMR_AREANAME": "Portland-Vancouver-Hillsboro, OR-WA MSA",
+                         "FMR_4BDR": 3109})
     states = [f' "{i:02d}000","{name}",8,SARPP,1,"...","RPPs: All items ","Index",100,101'
               for i, name in enumerate(col.STATES.values())]
+    oregon = list(col.STATES.values()).index("Oregon")
+    states += [f' "{oregon:02d}000","Oregon",8,SARPP,{n},"...","{k}","Index",100,{100 + n}' for k, n in LINES.items()]
     iso3 = list(col.CURRENCY)
     wb = lambda v: [{"page": 1}, [{"countryiso3code": c, "date": y, "value": v} for c in iso3 for y in ("2024", "2025")]
                     + [{"countryiso3code": "ARG", "date": "2021", "value": 99.0}]]  # PPP-only year: ignored
 
     def handler(request: httpx.Request) -> httpx.Response:
         url = str(request.url)
+        if "Fair_Market_Rents" in url:
+            if not request.url.path.endswith("/query"):
+                return httpx.Response(200, json={"editingInfo": {"lastEditDate": 1759276162016}})
+            if not fmr:
+                return httpx.Response(200, json={"error": {"code": 400, "message": "Invalid query"}})
+            start = int(request.url.params["resultOffset"])  # pages of 200, like a small maxRecordCount
+            page = fmr_features[start:start + 200]
+            return httpx.Response(200, json={"features": [{"attributes": a} for a in page],
+                                             "exceededTransferLimit": start + 200 < len(fmr_features)})
         if "MARPP" in url:
             return httpx.Response(200, content=_zip("MARPP_MSA_2008_2024.csv", msa))
         if "SARPP" in url:
@@ -161,7 +243,28 @@ def test_build_data_parses_bea_and_world_bank():
     assert data["us_metros"]["Portland-Vancouver-Hillsboro, OR-WA"] == 105.4  # all items, latest year
     assert data["us_states"]["OR"] == 101 and len(data["us_states"]) == 51
     assert data["countries"]["DEU"] == {"ppp": 0.8, "fx": 1.0, "year": 2025}
+    # RPP parts and HUD rents (all pages of the FMR query), and the part weights fitted back exactly
+    assert data["us_metro_parts"]["Portland-Vancouver-Hillsboro, OR-WA"] == {
+        "goods": 105, "housing": 125, "utilities": 107, "other": 100, "fmr4": 3109}
+    assert sum(1 for p in data["us_metro_parts"].values() if p.get("fmr4")) == 321
+    assert data["us_state_parts"]["OR"] == {"goods": 102, "housing": 103, "utilities": 104, "other": 105}
+    assert data["rpp_weights"] == pytest.approx(WEIGHTS, abs=0.005)  # Portland's all-items is off the mix
+    assert data["fmr_scale"] > 0 and "2025-09-30" in data["sources"]["housing"]
     col.check_data(data, "Portland, OR")
+
+
+def test_check_data_needs_hud_rents_for_family_housing():
+    data = run(col.build_data(httpx.AsyncClient(transport=fake_sources())))
+    for p in data["us_metro_parts"].values():
+        p.pop("fmr4")
+    with pytest.raises(ValueError, match="Fair Market Rent"):
+        col.check_data(data, "Portland, OR", housing_share=0.4)
+    col.check_data(data, "Portland, OR", housing_share=0)  # plain RPP doesn't need them
+
+
+def test_failed_hud_query_fails_the_build():
+    with pytest.raises(ValueError, match="HUD FMR"):
+        run(col.build_data(httpx.AsyncClient(transport=fake_sources(fmr=False))))
 
 
 def _runner(tmp_path, built: str):
@@ -188,6 +291,7 @@ def test_stale_data_is_rebuilt_next_to_the_database(tmp_path, monkeypatch):
     assert (tmp_path / "data" / "col_data.json").is_file()
     assert runner.pay.data["built"] == date.today().isoformat()
     assert "Town1, OR" in runner.pay.metros  # the new table is in use without a restart
+    assert runner.pay.housing_share == 0.4 and "family" in runner.pay.home.label  # pay.housing_share default
 
 
 def test_failed_or_broken_refresh_keeps_the_old_data(tmp_path, monkeypatch):

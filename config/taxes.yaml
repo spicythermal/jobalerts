@@ -13,9 +13,11 @@
 year: 2026
 
 household:
-  filing: joint          # married filing jointly, one earner, no dependents
+  filing: joint          # married filing jointly, one earner (the spouse has no income)
   k401_rate: 0.06        # pre-tax 401(k) share of base pay (up to the employer match)
   k401_limit: 24500      # IRS elective deferral limit for the year
+  dependents: [4, 8, 18] # ages in the tax year: 4-year-old, 8-year-old, 18-year-old (child tax credit for
+                         # the two under 17, the $500 other-dependent credit for the 18-year-old)
 
 # Localities with their own income tax that PolicyEngine models, picked by the job's city.
 # `policyengine` holds the inputs that put the household there ("$wage" = the salary).
