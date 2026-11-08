@@ -13,7 +13,7 @@ from .models import Job
 
 
 def _normalize(text: str) -> str:
-    return " ".join(text.lower().split())
+    return " ".join(text.lower().replace("\u2019", "'").split())
 
 
 def phrase_pattern(phrase: str) -> re.Pattern:

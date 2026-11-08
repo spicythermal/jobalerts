@@ -107,3 +107,17 @@ def test_shipped_config_drops_non_english_internships():
     assert f.check_basic(job("Physicist, Stage-Gate R&D"))[0]
     assert f.check_basic(job("Physiker für Beschleunigertechnik (m/w/d)", "Darmstadt"))[0]
     assert f.check_basic(job("Accelerator Physicist", "Lund, Sweden"))[0]  # no location filter any more
+
+
+def test_real_config_reads_french_and_dutch_beam_titles():
+    from conftest import REPO
+    from jobalerts.config import load_config
+    f = JobFilter(load_config(REPO / "config" / "config.yaml").criteria)
+    for title in ("Ingénieur Sources d’Ions ECR H/F", "Responsable faisceaux d'électrons", "Physicien accélérateur",
+                  "Ingénieur optique électronique", "Elektronenmicroscopie specialist",
+                  "Integration Engineer, Ultravide", "Ingénieur de recherche en physique"):
+        assert f.check_basic(job(title))[0], title
+    for title in ("Technicien de maintenance accélérateur", "Assembleur en mécanique de précision",
+                  "Acheteur Industriel (Mécanique de précision)", "Câbleur faisceaux électriques",
+                  "Stage ingénieur physique"):
+        assert not f.check_basic(job(title))[0], title

@@ -40,7 +40,6 @@ criteria:
     - vacuum
     - rf
     - microwave
-    - "microscop*"          # microscopy, microscopist, microscope
     - "diagnostic*"         # diagnostics, diagnostician
     - "spectroscop*"
     - "spectromet*"
@@ -72,6 +71,19 @@ criteria:
     - física
     - fysicus
     - "beschleuniger*"
+    - physique
+    - "accélérateur*"
+    - source d'ion
+    - sources d'ion
+    - faisceau d'ion
+    - faisceaux d'ion
+    - faisceau d'électron
+    - faisceaux d'électron
+    - optique électronique
+    - optique ionique
+    - ultravide
+    - "*microscop*"         # microscopie, elektronenmicroscoop
+    - "elektronen*"         # elektronenoptica, Elektronenstrahl
   title_include:            # the kind of role
     # science and R&D roles
     - scientist
@@ -124,6 +136,11 @@ criteria:
     - "entwicklungsingenieur*"
     - ingénieur de recherche
     - "chercheur*"
+    - directeur technique
+    - chef de groupe
+    - "onderzoeker*"
+    - wetenschapper
+    - teamleider
     - "pesquisador*"
     - "investigador*"
   title_exclude:            # always drops the job, whatever else the title says
@@ -152,6 +169,15 @@ criteria:
     - sourcing
     - procurement
     - buyer
+    # the same in French
+    - "technicien*"
+    - assembleur
+    - monteur
+    - câbleur
+    - acheteur
+    - approvisionneur
+    - ingénieur commercial
+    - technico-commercial
   title_exclude_soft:       # drops the job unless the title also has a title_field word
     - clinical              # "Clinical Specialist" goes, "Clinical Physicist" stays
     - data scientist        # "Applied Plasma Data Scientist" stays
@@ -352,7 +378,8 @@ aggregators:
   adzuna:                   # free key: https://developer.adzuna.com/signup
     enabled: true           # skipped until ADZUNA_APP_ID and ADZUNA_APP_KEY are set in .env
     # New keys get 25 test calls only. "API Access" (GBP 8/month) allows 500 calls/day and 5,000/month.
-    # 12 searches every 4 h = 72/day, ~2,200/month; every 2 h would be ~4,400/month. Searches look 2 days back.
+    # 15 searches every 4 h = 90/day, ~2,700/month; every 2 h would be ~5,400/month (over). Searches look 2 days back.
+    # what: all the words; what_or: any of them (give the search a name).
     interval: 14400
     country: us             # default; a search can set its own: gb de fr nl ch at it es pl in sg br mx ca au
     searches:
@@ -368,6 +395,12 @@ aggregators:
       - {what: "physicist", country: ch}
       - {what: "physicist", country: sg}
       - {what: "físico", country: br}
+      # France: beam and ion-source makers (Pantechnik, Sigmaphi, PMB-Alcen...) post on France Travail
+      # and job boards rather than an ATS. Not "faisceau" alone: that's wiring harnesses.
+      - {what: "physicist", country: fr}
+      - {name: "beam-physics-fr", what_or: "physicien accélérateur ECR ionique ultravide", country: fr}
+      # Netherlands: electron microscopy and electron optics (Delmic, DENSsolutions, Nearfield...)
+      - {name: "electron-physics-nl", what_or: "electron elektronen microscopy microscopie", country: nl}
   jsearch:                  # paid slot (RapidAPI). Free plan ~200 calls/month: keep interval >= 14400
     enabled: true           # skipped until RAPIDAPI_KEY is set in .env
     interval: 14400

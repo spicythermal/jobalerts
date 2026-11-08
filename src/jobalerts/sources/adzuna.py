@@ -22,8 +22,9 @@ class Adzuna(Source):
         p = board.params
         params = {"app_id": app_id, "app_key": app_key, "what": p.get("what", ""),
                   "max_days_old": 2, "sort_by": "date", "results_per_page": 50}
-        if p.get("where"):
-            params["where"] = p["where"]
+        for key in ("what_or", "what_phrase", "where"):  # what_or: any of these words
+            if p.get(key):
+                params[key] = p[key]
         country = p.get("country", "us")
         # Adzuna has no ETag support and the key is in the URL; skip conditional caching.
         data = await http.get_json(f"https://api.adzuna.com/v1/api/jobs/{country}/search/1",

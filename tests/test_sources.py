@@ -1,3 +1,5 @@
+import asyncio
+
 import httpx
 import pytest
 
@@ -147,6 +149,21 @@ def test_adzuna(monkeypatch):
     (uk,) = fetch("adzuna", Board("adzuna", "net-gb", "x", 3600, {"what": "network", "country": "gb"}),
                   {"api.adzuna.com/v1/api/jobs/gb/search/1": load("adzuna.json")})
     assert uk.salary.startswith("GBP ")
+
+
+def test_adzuna_passes_any_of_these_words(monkeypatch):
+    monkeypatch.setenv("ADZUNA_APP_ID", "id")
+    monkeypatch.setenv("ADZUNA_APP_KEY", "key")
+    seen = []
+
+    class Http:
+        async def get_json(self, url, params=None, **kw):
+            seen.append((url, params))
+            return {"results": []}
+    board = Board("adzuna", "beam-fr", "x", 3600, {"name": "beam-fr", "what_or": "physicien ECR", "country": "fr"})
+    asyncio.run(SOURCES["adzuna"].fetch(board, Http()))
+    url, params = seen[0]
+    assert url.endswith("/jobs/fr/search/1") and params["what_or"] == "physicien ECR" and params["what"] == ""
 
 
 def test_jsearch(monkeypatch):
