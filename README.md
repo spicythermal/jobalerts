@@ -190,17 +190,25 @@ Assistant's MQTT broker. It never gets a Home Assistant token, only an MQTT logi
    `buy_low`–`buy_high`), and its `step_ups` attribute the biggest step ups in the same form. It refreshes every 5 minutes and right after new matches. The messages
    are retained, so the sensor survives Home Assistant restarts. It turns "unavailable" if
    jobalerts stops updating it for 15 minutes.
-4. Add a Markdown card to a dashboard (Edit dashboard → Add card → Manual):
+4. Add a Markdown card to a dashboard (Edit dashboard → Add card → Manual). Under each job it shows
+   both pay indexes with their ranges, renting and buying (see "Renting or buying" below), e.g.
+   `Rent 1.22 (1.10–1.35) · Buy 0.48 (0.40–0.55)`. A job is listed when either range reaches
+   `pay.min_index`. A single salary shows no range.
 
 ```yaml
 type: markdown
 title: Top job matches
 content: >-
+  {%- macro scale(name, i, lo, hi) -%}
+  {{ name }} {{ '%.2f'|format(i) }}{% if lo is not none and hi is not none and lo != hi %} ({{ '%.2f'|format(lo) }}–{{ '%.2f'|format(hi) }}){% endif %}
+  {%- endmacro %}
   {% for j in state_attr('sensor.job_alerts', 'jobs') or [] %}
   **[{{ j.title }}]({{ j.url }})**<br>
   {{ j.company }} · {{ j.location }}{% if j.salary %} · {{ j.salary }}{% endif %} · {{ j.age }}
   {%- if j.score is not none %} · fit {{ j.score }}{% endif %}
-  {%- if j.pay_index is not none %} · pay {{ j.pay_index }} rent{% if j.buy_index is not none %} / {{ j.buy_index }} buy{% endif %}{% endif %}<br>
+  {%- if j.pay_index is not none %}<br>
+  {{ scale('Rent', j.pay_index, j.pay_low, j.pay_high) }}
+  {%- if j.buy_index is not none %} · {{ scale('Buy', j.buy_index, j.buy_low, j.buy_high) }}{% endif %}{% endif %}<br>
   {% if j.best_resume %}<small>Apply with {{ j.best_resume }}</small>{% endif %}
 
   {% else %}
@@ -214,9 +222,15 @@ A second card for the biggest step ups uses the `step_ups` attribute:
 type: markdown
 title: Biggest step ups
 content: >-
+  {%- macro scale(name, i, lo, hi) -%}
+  {{ name }} {{ '%.2f'|format(i) }}{% if lo is not none and hi is not none and lo != hi %} ({{ '%.2f'|format(lo) }}–{{ '%.2f'|format(hi) }}){% endif %}
+  {%- endmacro %}
   {% for j in state_attr('sensor.job_alerts', 'step_ups') or [] %}
   **[{{ j.title }}]({{ j.url }})** · step up {{ j.step_up }} · fit {{ j.score }}<br>
-  {{ j.company }} · {{ j.location }}{% if j.pay_index is not none %} · pay {{ j.pay_index }} rent{% if j.buy_index is not none %} / {{ j.buy_index }} buy{% endif %}{% endif %}<br>
+  {{ j.company }} · {{ j.location }}{% if j.salary %} · {{ j.salary }}{% endif %}
+  {%- if j.pay_index is not none %}<br>
+  {{ scale('Rent', j.pay_index, j.pay_low, j.pay_high) }}
+  {%- if j.buy_index is not none %} · {{ scale('Buy', j.buy_index, j.buy_low, j.buy_high) }}{% endif %}{% endif %}<br>
   <small>{{ j.step_up_note }}</small>
 
   {% endfor %}
