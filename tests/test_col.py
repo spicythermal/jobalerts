@@ -254,7 +254,17 @@ def _zillow_city_csv(rows: list[tuple[str, str, str, float]]) -> str:
     return "\n".join([header, *(f'1,1,{city},city,{st},{st},"{metro}",X County,1,{v}' for city, st, metro, v in rows)])
 
 
-def fake_sources(metros: int = 320, fmr: bool = True, homes: bool = True) -> httpx.MockTransport:
+def _gazetteer_zip(rows: list[tuple[str, float, float]]) -> bytes:
+    lines = ["CSAFP|GEOID|GEOIDFQ|NAME|CBSA_TYPE|ALAND|AWATER|ALAND_SQMI|AWATER_SQMI|INTPTLAT|INTPTLONG"]
+    lines += [f"|1|x|{name}|1|1|1|1|1|{lat}|{lon}" for name, lat, lon in rows]
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("2025_Gaz_cbsa_national.txt", "\n".join(lines) + "\n")
+    return buf.getvalue()
+
+
+def fake_sources(metros: int = 320, fmr: bool = True, homes: bool = True,
+                 gazetteer: bool = True) -> httpx.MockTransport:
     msa = []
     fmr_features = []
     for i in range(metros):
@@ -297,6 +307,12 @@ def fake_sources(metros: int = 320, fmr: bool = True, homes: bool = True) -> htt
             return httpx.Response(200, text=_zillow_csv([("Portland, OR", "OR", 2000)]))
         if "zillowstatic" in url:
             return httpx.Response(200, text=_zillow_csv(zillow_metros if "Metro_" in url else zillow_states))
+        if "census.gov" in url:
+            if not gazetteer or "/2025_Gazetteer/" not in url:  # this year's isn't out yet
+                return httpx.Response(404)
+            return httpx.Response(200, content=_gazetteer_zip(
+                [("Portland-Vancouver-Hillsboro, OR-WA Metro Area", 45.6, -122.48), ("Town1, OR Metro Area", 44.0, -121.0),
+                 ("Town2-Elsewhere, OR Micro Area", 43.0, -120.0)]))
         if "freddiemac" in url:
             return httpx.Response(200, text="date,pmms30,pmms30p,pmms15\n4/2/1971,7.33, ,\n10/29/2026,7.24,,6.6\n"
                                             "11/5/2026,7.18,,6.57\n")
@@ -327,7 +343,24 @@ def test_build_data_parses_bea_and_world_bank():
     assert data["us_cities"] == {"lake oswego, OR": {"metro": PDX, "home4": 1_000_000, "rent_ratio": 1.3}}
     assert data["rpp_weights"] == pytest.approx(WEIGHTS, abs=0.005)  # Portland's all-items is off the mix
     assert data["fmr_scale"] > 0 and "2025-09-30" in data["sources"]["housing"]
+    # map points: by name, or by first city + state (Town2 is "Town2-Elsewhere" at the Census)
+    coords = data["us_metro_coords"]
+    assert coords["Portland-Vancouver-Hillsboro, OR-WA"] == [45.6, -122.48] and coords["Town2, OR"] == [43.0, -120.0]
+    assert "Town3, OR" not in coords and "2025" in data["sources"]["places"]
     col.check_data(data, "Portland, OR")
+
+
+def test_build_data_survives_a_census_outage():
+    data = run(col.build_data(httpx.AsyncClient(transport=fake_sources(gazetteer=False))))
+    assert "us_metro_coords" not in data and "places" not in data["sources"]
+    col.check_data(data, "Portland, OR")
+
+
+def test_metro_coords_strip_bea_suffixes():
+    points = {"Enid, OK": (36.4, -97.9), "Bridgeport-Stamford-Norwalk, CT": (41.2, -73.4)}
+    got = col.metro_coords(["Enid, OK *", "Bridgeport-Stamford-Danbury, CT Metropolitan Statistical Area"], points)
+    assert got == {"Enid, OK *": [36.4, -97.9],
+                   "Bridgeport-Stamford-Danbury, CT Metropolitan Statistical Area": [41.2, -73.4]}
 
 
 def test_check_data_needs_hud_rents_for_family_housing():
@@ -407,12 +440,22 @@ def test_failed_or_broken_refresh_keeps_the_old_data(tmp_path, monkeypatch):
 
 # ---------------------------------------------------------------------------- pipeline
 class PayScorer:
-    def __init__(self, fit: FitScore):
+    basis = "pay-basis"
+
+    def __init__(self, fit: FitScore, left: int = 10**6):
         self.fit = fit
         self.calls = 0
+        self.left = left
+
+    def calls_left(self):
+        return self.left
+
+    def capped(self):
+        return self.left <= 0
 
     async def score(self, job):
         self.calls += 1
+        self.left -= 1
         return self.fit
 
 
@@ -794,7 +837,7 @@ def test_rescore_updates_scores_and_never_pushes(pay_env):
     runner.scorer = PayScorer(FitScore(score=95, summary="new", top_stories=["gun"],
                                        top_story_titles=["Designed an electron gun"]))
     sent = len(notifier.sent)
-    out = {job.job_id: (old, new, fit) for job, old, new, fit in run(runner.rescore([board]))}
+    out = {job.job_id: (old, new, fit) for job, old, new, fit in run(runner.rescore([board]))[0]}
     assert {k: v[:2] for k, v in out.items()} == {"21": ("digest", "digest"), "22": ("low", "digest"),
                                                   "23": ("alerted", "alerted"), "24": ("digest", "closed")}
     assert len(notifier.sent) == sent                                   # nothing pushed
@@ -803,5 +846,31 @@ def test_rescore_updates_scores_and_never_pushes(pay_env):
     assert stories_from_row(rows["22"]) == [("gun", "Designed an electron gun")]
 
     runner.scorer = PayScorer(FitScore(score=30, summary="worse"))
-    out = {job.job_id: new for job, _, new, _ in run(runner.rescore([board]))}
+    out = {job.job_id: new for job, _, new, _ in run(runner.rescore([board]))[0]}
     assert out == {"21": "low", "22": "low", "23": "alerted"}
+
+
+def test_rescore_resumes_and_keeps_calls_for_new_jobs(pay_env):
+    fake, runner, board, store, notifier = pay_env
+    for n in range(30, 36):
+        job = make_job(n, location="Portland, OR")
+        store.insert_job(job, "processing")
+        store.update_job(job.key, status="digest", score=60)
+    runner.cfg.scoring.backfill_reserve = 150
+    runner.scorer = scorer = PayScorer(FitScore(score=70, summary="new", basis="pay-basis"), left=154)
+    enriched = len(fake.enriched)
+    done, left = run(runner.rescore([board]))
+    assert len(done) == 4 and left == 2 and scorer.left == 150
+    assert len(fake.enriched) - enriched == 4               # stopped before fetching the 5th posting
+    scorer.left = 1000                                       # the next day
+    done, left = run(runner.rescore([board]))
+    assert len(done) == 2 and left == 0                      # only the two not yet on the current basis
+    assert run(runner.rescore([board])) == ([], 0)
+
+
+def test_backfill_stops_at_the_reserve(pay_env):
+    fake, runner, board, store, notifier = pay_env
+    runner.cfg.scoring.backfill_reserve = 150
+    runner.scorer = PayScorer(FitScore(score=90, summary="fit"), left=150)
+    assert run(runner.backfill([board])) == []               # baseline job 0 left for another day
+    assert store.db.execute("SELECT status FROM jobs WHERE job_id='0'").fetchone()[0] == "baseline"

@@ -5,6 +5,8 @@ services:
     container_name: jobalerts
     restart: unless-stopped
     env_file: .env
+    ports:
+      - "8765:8765"            # cost-of-living map (map.enabled), for a Home Assistant Webpage card
     user: "1000:1000"          # must be able to write ./data (and ./config for `discover --add`)
     volumes:
       - ./config:/app/config   # config.yaml, companies.yaml, profile.md, taxes.yaml, tax_data.json

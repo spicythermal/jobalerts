@@ -32,9 +32,18 @@ class FakeSource(Source):
 
 
 class FakeScorer:
-    def __init__(self, scores: dict[str, int | None], step_ups: dict[str, int] | None = None):
+    basis = "fake-basis"
+
+    def __init__(self, scores: dict[str, int | None], step_ups: dict[str, int] | None = None, left: int = 10**6):
         self.scores = scores
         self.step_ups = step_ups or {}
+        self.left = left
+
+    def calls_left(self):
+        return self.left
+
+    def capped(self):
+        return self.left <= 0
 
     async def score(self, job):
         s = self.scores.get(job.title)
@@ -334,3 +343,15 @@ def test_backfill_leaves_unscored_jobs_for_a_retry(env):
     assert notifier.sent == []
     runner.scorer = FakeScorer({"Network Engineer": 80})  # key fixed
     assert [status for _, status, _ in run(runner.backfill([board]))] == ["digest"]
+
+
+def test_capped_ai_sends_matches_to_the_digest_with_one_notice(env):
+    fake, runner, board, store, notifier = env
+    run(runner.poll_board(board))                            # baseline first
+    runner.scorer = FakeScorer({}, left=0)                   # today's AI calls are used up
+    fake.jobs.extend([make_job(50), make_job(51)])
+    run(runner.poll_board(board))
+    rows = dict(store.db.execute("SELECT job_id, status FROM jobs WHERE job_id IN ('50','51')").fetchall())
+    assert rows == {"50": "digest", "51": "digest"}
+    titles = [m["title"] for m in notifier.sent]
+    assert titles.count("AI daily cap reached") == 1 and not any("Network Engineer" in t for t in titles)

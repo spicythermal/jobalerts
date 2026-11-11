@@ -14,5 +14,6 @@ RUN pip install . \
  && chown app /app/data /app/config
 
 USER app
+EXPOSE 8765
 VOLUME ["/app/data"]
 CMD ["jobalerts", "--config", "/app/config/config.yaml", "run"]

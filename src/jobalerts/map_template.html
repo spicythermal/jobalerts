@@ -1,0 +1,422 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cost-of-living map</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/topojson-client@3.1.0/dist/topojson-client.min.js"></script>
+<style>
+:root {
+  --surface: #fcfcfb; --plane: #f9f9f7; --ink: #0b0b0b; --ink2: #52514e; --muted: #6f6d68;
+  --line: #e1e0d9; --accent: #2a78d6; --ring: rgba(11, 11, 11, .55); --shadow: 0 1px 4px rgba(0, 0, 0, .18);
+  --land: #f1f0ec; --border: #c9c7c0;
+  --r3: #a3292b; --r2: #e34948; --r1: #f2a49c; --n0: #d9d7d2; --b1: #9cc3ef; --b2: #2a78d6; --b3: #17467f;
+  --nodata: transparent;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --surface: #1a1a19; --plane: #0d0d0d; --ink: #f0efec; --ink2: #c3c2b7; --muted: #a09e97;
+    --line: #2c2c2a; --accent: #6aa8f0; --ring: rgba(240, 239, 236, .6); --shadow: 0 1px 4px rgba(0, 0, 0, .6);
+  --land: #232321; --border: #4a4945;
+    --r3: #f08a84; --r2: #d24f4c; --r1: #8c3532; --n0: #383835; --b1: #305e95; --b2: #3987e5; --b3: #8fc0f5;
+  }
+}
+:root[data-theme="dark"] {
+  --surface: #1a1a19; --plane: #0d0d0d; --ink: #f0efec; --ink2: #c3c2b7; --muted: #a09e97;
+  --line: #2c2c2a; --accent: #6aa8f0; --ring: rgba(240, 239, 236, .6); --shadow: 0 1px 4px rgba(0, 0, 0, .6);
+  --land: #232321; --border: #4a4945;
+  --r3: #f08a84; --r2: #d24f4c; --r1: #8c3532; --n0: #383835; --b1: #305e95; --b2: #3987e5; --b3: #8fc0f5;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--plane); color: var(--ink);
+  font: 14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+body { display: flex; flex-direction: column; }
+#bar { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; padding: 8px 12px;
+  background: var(--surface); border-bottom: 1px solid var(--line); z-index: 2; }
+#bar h1 { font-size: 15px; margin: 0 6px 0 0; font-weight: 600; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.seg button, .btn { font: inherit; color: var(--ink2); background: var(--surface); border: 0; padding: 5px 10px;
+  cursor: pointer; min-height: 32px; }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--surface); }
+.btn { border: 1px solid var(--line); border-radius: 8px; }
+.btn:hover, .seg button:hover { color: var(--ink); }
+label.inline { display: inline-flex; align-items: center; gap: 6px; color: var(--ink2); }
+#salary-wrap { display: inline-flex; align-items: center; gap: 8px; color: var(--ink2); }
+#salary-wrap[hidden] { display: none; }
+#salary { width: 170px; accent-color: var(--accent); }
+#salary-out { font-variant-numeric: tabular-nums; color: var(--ink); font-weight: 600; min-width: 48px; }
+#sub { flex-basis: 100%; color: var(--muted); font-size: 12.5px; margin: 0; }
+#main { position: relative; flex: 1; min-height: 0; }
+#map { position: absolute; inset: 0; background: var(--plane); }
+.leaflet-container { font: inherit; }
+.leaflet-tooltip, .leaflet-popup-content-wrapper, .leaflet-popup-tip {
+  background: var(--surface); color: var(--ink); box-shadow: var(--shadow); border: 1px solid var(--line); }
+.leaflet-tooltip-top:before { border-top-color: var(--surface); }
+.leaflet-popup-content { margin: 10px 12px; min-width: 220px; }
+.leaflet-popup-content a { color: var(--accent); }
+.leaflet-container a.leaflet-popup-close-button { color: var(--muted); }
+.leaflet-control-attribution { background: var(--surface) !important; color: var(--muted); }
+.leaflet-control-attribution a { color: var(--ink2); }
+.leaflet-bar a { background: var(--surface); color: var(--ink); border-color: var(--line); }
+.tip b { font-weight: 600; }
+.tip .num { font-variant-numeric: tabular-nums; }
+.pop h3 { margin: 0 0 4px; font-size: 14px; }
+.pop table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+.pop td { padding: 2px 0; vertical-align: top; }
+.pop td:last-child { text-align: right; padding-left: 12px; }
+.pop .note { color: var(--muted); font-size: 12px; margin-top: 6px; }
+.legend { background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 8px;
+  padding: 8px 10px; box-shadow: var(--shadow); max-width: 240px; font-size: 12.5px; }
+.legend h4 { margin: 0 0 6px; font-size: 12.5px; font-weight: 600; }
+.legend button.head { all: unset; cursor: pointer; display: flex; align-items: center; gap: 6px; font-weight: 600; }
+.legend button.head::after { content: "▾"; color: var(--muted); }
+.legend.collapsed button.head::after { content: "▸"; }
+.legend.collapsed .body { display: none; }
+.legend:not(.collapsed) button.head { margin-bottom: 6px; }
+.legend .row { display: flex; align-items: center; gap: 8px; margin: 2px 0; font-variant-numeric: tabular-nums; }
+.legend .row span:last-child { color: var(--ink2); }
+.sw { width: 12px; height: 12px; border-radius: 50%; border: 1px solid var(--ring); flex: none; }
+.legend hr { border: 0; border-top: 1px solid var(--line); margin: 6px 0; }
+.job { width: 14px; height: 14px; background: var(--ink); border: 2px solid var(--surface); box-shadow: var(--shadow); }
+.job.top { transform: rotate(45deg); border-radius: 2px; }
+.job.step { border-radius: 50%; background: var(--surface); border: 3px solid var(--ink); }
+.home-mark { width: 22px; height: 22px; border-radius: 50%; border: 3px solid var(--ink); background: transparent; }
+#panel { position: absolute; top: 0; right: 0; bottom: 0; width: min(560px, 100%); background: var(--surface);
+  border-left: 1px solid var(--line); z-index: 1000; overflow: auto; padding: 12px 14px 24px; box-shadow: var(--shadow); }
+#panel[hidden] { display: none; }
+#panel h2 { font-size: 14px; margin: 16px 0 6px; }
+#panel h2:first-of-type { margin-top: 4px; }
+#panel .close { float: right; }
+#panel p, #panel li { color: var(--ink2); }
+#filter { width: 100%; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--plane);
+  color: var(--ink); font: inherit; margin-bottom: 6px; }
+table.grid { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; font-size: 13px; }
+table.grid th, table.grid td { padding: 4px 6px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
+table.grid th { white-space: normal; vertical-align: bottom; }
+table.grid th:first-child, table.grid td:first-child { text-align: left; white-space: normal; }
+table.grid th { position: sticky; top: -12px; background: var(--surface); cursor: pointer; color: var(--ink2);
+  font-weight: 600; user-select: none; }
+table.grid th[aria-sort="ascending"]::after { content: " ▲"; }
+table.grid th[aria-sort="descending"]::after { content: " ▼"; }
+table.grid td .sw { display: inline-block; vertical-align: -1px; margin-right: 6px; }
+.jobs li { margin: 6px 0; }
+.jobs a { color: var(--accent); }
+.empty { color: var(--muted); font-style: italic; }
+@media (max-width: 600px) {
+  #bar { gap: 6px 10px; padding: 6px 8px; }
+  #bar h1 { flex-basis: 100%; }
+  #salary { width: 120px; }
+  .legend { max-width: 190px; font-size: 12px; }
+}
+</style>
+</head>
+<body>
+<div id="bar">
+  <h1>Cost-of-living map</h1>
+  <div class="seg" role="group" aria-label="View">
+    <button type="button" data-view="index" aria-pressed="true">Pay index</button>
+    <button type="button" data-view="breakeven" aria-pressed="false">Break-even salary</button>
+  </div>
+  <div class="seg" role="group" aria-label="Housing">
+    <button type="button" data-housing="rent" aria-pressed="true">Rent</button>
+    <button type="button" data-housing="buy" aria-pressed="false">Buy</button>
+  </div>
+  <span id="salary-wrap"><label for="salary">Salary</label>
+    <input id="salary" type="range" min="0" step="1"><output id="salary-out" for="salary"></output></span>
+  <label class="inline"><input id="show-jobs" type="checkbox" checked> Jobs</label>
+  <button type="button" class="btn" id="open-panel" aria-expanded="false" aria-controls="panel">Table &amp; details</button>
+  <p id="sub"></p>
+</div>
+<div id="main">
+  <div id="map" role="region" aria-label="Map of US metros colored by pay index"></div>
+  <aside id="panel" hidden>
+    <button type="button" class="btn close" id="close-panel">Close</button>
+    <h2>Jobs not on the map</h2>
+    <ul class="jobs" id="unplaced"></ul>
+    <h2 id="table-title">All metros</h2>
+    <input id="filter" type="search" placeholder="Filter metros…" aria-label="Filter metros">
+    <table class="grid" id="grid"><thead></thead><tbody></tbody></table>
+    <h2>About these numbers</h2>
+    <div id="about"></div>
+  </aside>
+</div>
+<script>
+const D = /*__MAP_DATA__*/null;
+
+// 7 bins, even on a log scale around 1.00 (twice as well off is as far from 1 as half as well off);
+// 0.93-1.07 is the gray "about the same" middle.
+const EDGES = [0.67, 0.80, 0.93, 1.07, 1.25, 1.50];
+const BINS = ["r3", "r2", "r1", "n0", "b1", "b2", "b3"];
+const css = name => getComputedStyle(document.documentElement).getPropertyValue("--" + name).trim();
+const store = {
+  get(k) { try { return localStorage.getItem("colmap." + k); } catch (e) { return null; } },
+  set(k, v) { try { localStorage.setItem("colmap." + k, v); } catch (e) { /* private window */ } },
+};
+const params = new URLSearchParams(location.search);
+if (params.get("theme") === "dark" || params.get("theme") === "light") {
+  document.documentElement.dataset.theme = params.get("theme");
+}
+const money = v => v == null ? "–" : v >= 1e6 ? "$" + (v / 1e6).toFixed(2) + "M" : "$" + Math.round(v / 1000) + "K";
+const dollars = v => v == null ? "–" : "$" + Math.round(v).toLocaleString("en-US");
+const idx = v => v == null ? "–" : v.toFixed(2);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
+const REF = D.reference.salary;
+
+const pick = (key, allowed, fallback) => {
+  const v = params.get(key) || store.get(key);
+  return allowed.includes(v) ? v : fallback;
+};
+const state = {
+  view: pick("view", ["index", "breakeven"], "index"),
+  housing: pick("housing", ["rent", "buy"], "rent"),
+  si: (() => {
+    const want = Number(params.get("salary") || store.get("salary") || D.start);
+    let best = 0;
+    D.salaries.forEach((s, i) => { if (Math.abs(s - want) < Math.abs(D.salaries[best] - want)) best = i; });
+    return best;
+  })(),
+  jobs: (params.get("jobs") || store.get("jobs") || "1") !== "0",
+};
+if (!D.has_buy) state.housing = "rent";
+
+// The number a metro is colored by, and its bin: higher is always better (blue).
+function value(m) {
+  if (state.view === "index") {
+    const arr = m[state.housing];
+    return arr ? arr[state.si] : null;
+  }
+  return m["be_" + state.housing];
+}
+function quality(m) {               // index, or reference / break-even (same scale: 1.00 = break even at home pay)
+  const v = value(m);
+  if (v == null) return null;
+  return state.view === "index" ? v : REF / v;
+}
+function bin(q) {
+  if (q == null) return -1;
+  let i = 0;
+  while (i < EDGES.length && q >= EDGES[i]) i++;
+  return i;
+}
+const fill = b => b < 0 ? css("nodata") : css(BINS[b]);
+
+// ---- map
+const map = L.map("map", {zoomSnap: 0.5, preferCanvas: false, maxZoom: 10, minZoom: 2}).fitBounds([[24.5, -125], [49.5, -66.5]]);
+// State outlines (US Census boundaries via the us-atlas package): no map tiles, keys or tile limits.
+// If the outlines can't load, the dots still show on the plain background.
+map.attributionControl.addAttribution('States: <a href="https://github.com/topojson/us-atlas">us-atlas</a> (US Census)');
+let states;
+function styleStates() { if (states) states.setStyle({color: css("border"), weight: 0.8, fillColor: css("land"), fillOpacity: 1}); }
+fetch("https://cdn.jsdelivr.net/npm/us-atlas@3.0.1/states-10m.json")
+  .then(r => r.json())
+  .then(topo => {
+    states = L.geoJSON(topojson.feature(topo, topo.objects.states), {interactive: false}).addTo(map);
+    states.bringToBack();
+    styleStates();
+  })
+  .catch(e => console.warn("State outlines unavailable:", e));
+
+const metroLayer = L.layerGroup().addTo(map);
+const jobLayer = L.layerGroup();
+const dots = D.metros.map(m => {
+  const dot = L.circleMarker([m.lat, m.lon], {radius: m.home ? 8 : 6.5, weight: 1, color: css("ring"), fillOpacity: 0.92});
+  dot.bindTooltip(() => tooltip(m), {direction: "top", offset: [0, -6], className: "tip"});
+  dot.bindPopup(() => popup(m), {maxWidth: 320});
+  dot.addTo(metroLayer);
+  return dot;
+});
+const home = D.metros.find(m => m.home);
+if (home) {
+  L.marker([home.lat, home.lon], {icon: L.divIcon({className: "", html: '<div class="home-mark"></div>', iconSize: [22, 22]}),
+    interactive: false, keyboard: false}).addTo(metroLayer);
+}
+
+function tooltip(m) {
+  const v = value(m);
+  const what = state.view === "index"
+    ? `${idx(v)} ${state.housing === "buy" ? "buying" : "renting"} at ${money(D.salaries[state.si])}`
+    : `break-even ${money(v)} ${state.housing === "buy" ? "buying" : "renting"}`;
+  return `<b>${esc(m.name)}</b>${m.home ? " · your home" : ""}<br><span class="num">${v == null ? "no " + state.housing + " data" : what}</span>`;
+}
+function popup(m) {
+  const s = D.salaries[state.si];
+  const rows = [
+    [`Pay index at ${money(s)}, renting`, idx(m.rent[state.si])],
+    [`Pay index at ${money(s)}, buying`, m.buy ? idx(m.buy[state.si]) : "–"],
+    ["Break-even salary, renting", dollars(m.be_rent)],
+    ["Break-even salary, buying", dollars(m.be_buy)],
+    ["Price level (BEA RPP, US = 100)", m.rpp.toFixed(1)],
+    ["HUD 4-bedroom rent", m.fmr4 ? dollars(m.fmr4) + "/mo" : "–"],
+    ["Zillow 4-bedroom home", money(m.home4)],
+  ];
+  return `<div class="pop"><h3>${esc(m.name)}</h3><table>${rows.map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join("")}</table>` +
+    (m.own_note ? `<div class="note">${esc(m.own_note)}</div>` : "") +
+    `<div class="note">${m.home ? "Your home: renting and buying both mean staying in your house." : "Metro-wide; a job's own number also blends in its city's prices and taxes."}</div></div>`;
+}
+
+const icon = kind => L.divIcon({className: "", html: `<div class="job ${kind}"></div>`, iconSize: [14, 14], iconAnchor: [7, 7]});
+const jobLine = j => [
+  j.fit != null ? `fit ${j.fit}` : "", j.step_up != null && j.kind === "step" ? `step up ${j.step_up}` : "",
+  j.rent != null ? `rent ${idx(j.rent)}` : "", j.buy != null ? `buy ${idx(j.buy)}` : "",
+].filter(Boolean).join(" · ");
+function jobPopup(j) {
+  return `<div class="pop"><h3><a href="${esc(j.url)}" target="_blank" rel="noopener">${esc(j.title)}</a></h3>` +
+    `<div>${esc(j.company)} · ${esc(j.location)}${j.salary ? " · " + esc(j.salary) : ""}${j.age ? " · " + esc(j.age) : ""}</div>` +
+    `<div class="note">${jobLine(j)}${j.kind === "step" && j.step_up_note ? "<br>" + esc(j.step_up_note) : ""}</div>` +
+    (j.stories.length ? `<div class="note">Stories: ${j.stories.map(esc).join(" · ")}</div>` : "") + `</div>`;
+}
+D.jobs.forEach(j => {
+  L.marker([j.lat, j.lon], {icon: icon(j.kind), title: j.title, riseOnHover: true, zIndexOffset: 500})
+    .bindTooltip(`<b>${esc(j.title)}</b><br>${esc(j.company)}${jobLine(j) ? " · " + jobLine(j) : ""}`, {direction: "top", offset: [0, -8]})
+    .bindPopup(() => jobPopup(j), {maxWidth: 320})
+    .addTo(jobLayer);
+});
+
+// ---- legend
+const legend = L.control({position: "bottomleft"});
+// Starts collapsed on narrow screens (phones, small HA cards); a tap on its title opens it.
+let legendCollapsed = (store.get("legend") ?? (innerWidth < 600 || innerHeight < 500 ? "closed" : "open")) === "closed";
+legend.onAdd = () => {
+  const div = L.DomUtil.create("div", "legend");
+  L.DomEvent.disableClickPropagation(div);
+  L.DomEvent.disableScrollPropagation(div);
+  div.addEventListener("click", e => {
+    if (!e.target.closest("button.head")) return;
+    legendCollapsed = !legendCollapsed;
+    store.set("legend", legendCollapsed ? "closed" : "open");
+    drawLegend();
+  });
+  return div;
+};
+legend.addTo(map);
+function legendHtml() {
+  const housing = state.housing === "buy" ? "buying" : "renting";
+  const labels = state.view === "index"
+    ? ["below 0.67", "0.67–0.80", "0.80–0.93", "0.93–1.07", "1.07–1.25", "1.25–1.50", "1.50 and up"]
+    : (() => {   // break-even salary for each bin: REF / edge
+        const e = EDGES.map(x => money(REF / x));
+        return [`over ${e[0]}`, `${e[1]}–${e[0]}`, `${e[2]}–${e[1]}`, `${e[3]}–${e[2]}`, `${e[4]}–${e[3]}`, `${e[5]}–${e[4]}`, `under ${e[5]}`];
+      })();
+  const title = state.view === "index"
+    ? `Pay index at ${money(D.salaries[state.si])}, ${housing}`
+    : `Salary to match ${money(REF)} at home, ${housing}`;
+  const notes = ["much worse off", "", "", "about the same", "", "", "much better off"];
+  let html = `<button type="button" class="head" aria-expanded="${!legendCollapsed}">${title}</button><div class="body">`;
+  for (let i = BINS.length - 1; i >= 0; i--) {
+    html += `<div class="row"><span class="sw" style="background:${css(BINS[i])}"></span><span>${labels[i]}${notes[i] ? " · " + notes[i] : ""}</span></div>`;
+  }
+  html += `<div class="row"><span class="sw" style="background:transparent"></span><span>no data</span></div><hr>`;
+  html += `<div class="row"><span class="sw" style="width:16px;height:16px;border:3px solid var(--ink)"></span><span>your home</span></div>`;
+  if (state.jobs && D.jobs.length) {
+    html += `<div class="row"><span style="display:inline-block;width:12px;height:12px;margin:0 2px;background:var(--ink);transform:rotate(45deg)"></span><span>top job</span></div>`;
+    if (D.jobs.some(j => j.kind === "step")) {
+      html += `<div class="row"><span style="display:inline-block;width:12px;height:12px;border-radius:50%;border:3px solid var(--ink)"></span><span>step-up job</span></div>`;
+    }
+  }
+  return html + "</div>";
+}
+
+function drawLegend() {
+  const div = legend.getContainer();
+  div.innerHTML = legendHtml();
+  div.classList.toggle("collapsed", legendCollapsed);
+}
+
+// ---- controls
+const salary = document.getElementById("salary");
+const salaryOut = document.getElementById("salary-out");
+salary.max = D.salaries.length - 1;
+document.querySelectorAll("[data-view]").forEach(b => b.addEventListener("click", () => { state.view = b.dataset.view; update(); }));
+document.querySelectorAll("[data-housing]").forEach(b => b.addEventListener("click", () => { state.housing = b.dataset.housing; update(); }));
+if (!D.has_buy) document.querySelector('[data-housing="buy"]').disabled = true;
+salary.addEventListener("input", () => { state.si = Number(salary.value); update(); });
+document.getElementById("show-jobs").addEventListener("change", e => { state.jobs = e.target.checked; update(); });
+
+function update() {
+  document.querySelectorAll("[data-view]").forEach(b => b.setAttribute("aria-pressed", b.dataset.view === state.view));
+  document.querySelectorAll("[data-housing]").forEach(b => b.setAttribute("aria-pressed", b.dataset.housing === state.housing));
+  document.getElementById("salary-wrap").hidden = state.view !== "index";
+  salary.value = state.si;
+  salaryOut.textContent = money(D.salaries[state.si]);
+  document.getElementById("show-jobs").checked = state.jobs;
+  D.metros.forEach((m, i) => {
+    const b = bin(quality(m));
+    dots[i].setStyle({fillColor: fill(b), color: css("ring"), fillOpacity: b < 0 ? 0 : 0.92});
+    if (dots[i].isTooltipOpen()) dots[i].setTooltipContent(tooltip(m));
+  });
+  if (state.jobs) jobLayer.addTo(map); else jobLayer.remove();
+  drawLegend();
+  document.getElementById("sub").textContent = state.view === "index"
+    ? `1.00 = as well off as ${money(REF)} staying in your home (take-home pay against local prices). Blue is better, red is worse.`
+    : `The salary that leaves you as well off as ${money(REF)} staying in your home. Blue needs less, red needs more.`;
+  store.set("view", state.view); store.set("housing", state.housing);
+  store.set("salary", D.salaries[state.si]); store.set("jobs", state.jobs ? "1" : "0");
+  renderTable();
+}
+
+// ---- panel: jobs off the map, sortable table, sources
+const panel = document.getElementById("panel");
+const openBtn = document.getElementById("open-panel");
+openBtn.addEventListener("click", () => { panel.hidden = false; openBtn.setAttribute("aria-expanded", "true"); document.getElementById("close-panel").focus(); });
+document.getElementById("close-panel").addEventListener("click", () => { panel.hidden = true; openBtn.setAttribute("aria-expanded", "false"); openBtn.focus(); });
+document.addEventListener("keydown", e => { if (e.key === "Escape" && !panel.hidden) document.getElementById("close-panel").click(); });
+
+document.getElementById("unplaced").innerHTML = D.unplaced.length
+  ? D.unplaced.map(j => `<li><a href="${esc(j.url)}" target="_blank" rel="noopener">${esc(j.title)}</a> · ${esc(j.company)}<br>` +
+      `<span>${esc(j.location || "no location")} (${esc(j.where)})${jobLine(j) ? " · " + jobLine(j) : ""}</span></li>`).join("")
+  : '<li class="empty">Every listed job is on the map.</li>';
+
+const COLS = [
+  {key: "name", label: "Metro", get: m => m.name, fmt: (v, m) => `<span class="sw" style="background:${fill(bin(quality(m)))}"></span>${esc(v)}${m.home ? " (home)" : ""}`},
+  {key: "rent", label: "Rent", get: m => m.rent[state.si], fmt: idx},
+  {key: "buy", label: "Buy", get: m => m.buy ? m.buy[state.si] : null, fmt: idx},
+  {key: "be_rent", label: "Break-even rent", get: m => m.be_rent, fmt: money},
+  {key: "be_buy", label: "Break-even buy", get: m => m.be_buy, fmt: money},
+  {key: "fmr4", label: "4-bed rent", get: m => m.fmr4, fmt: v => v ? "$" + v.toLocaleString("en-US") : "–"},
+  {key: "home4", label: "4-bed home", get: m => m.home4, fmt: money},
+];
+let sort = {key: "rent", dir: -1};
+const filterBox = document.getElementById("filter");
+filterBox.addEventListener("input", renderTable);
+function renderTable() {
+  if (panel.hidden && renderTable.done) return;
+  renderTable.done = true;
+  const head = document.querySelector("#grid thead");
+  head.innerHTML = "<tr>" + COLS.map(c => `<th scope="col" data-key="${c.key}" aria-sort="${sort.key === c.key ? (sort.dir > 0 ? "ascending" : "descending") : "none"}">${c.label}</th>`).join("") + "</tr>";
+  head.querySelectorAll("th").forEach(th => th.addEventListener("click", () => {
+    const k = th.dataset.key;
+    sort = {key: k, dir: sort.key === k ? -sort.dir : (k === "name" || k.startsWith("be_") || k === "fmr4" || k === "home4" ? 1 : -1)};
+    renderTable();
+  }));
+  const col = COLS.find(c => c.key === sort.key);
+  const q = filterBox.value.trim().toLowerCase();
+  const rows = D.metros.filter(m => !q || m.name.toLowerCase().includes(q)).sort((a, b) => {
+    const x = col.get(a), y = col.get(b);
+    if (x == null) return 1; if (y == null) return -1;
+    return (x < y ? -1 : x > y ? 1 : 0) * sort.dir;
+  });
+  document.getElementById("table-title").textContent = `All metros (${rows.length}) · indexes at ${money(D.salaries[state.si])}`;
+  document.querySelector("#grid tbody").innerHTML = rows.map(m =>
+    "<tr>" + COLS.map(c => `<td>${c.fmt(c.get(m), m)}</td>`).join("") + "</tr>").join("");
+}
+openBtn.addEventListener("click", renderTable);
+
+document.getElementById("about").innerHTML =
+  `<p>The pay index compares take-home pay (after federal, state and local taxes) with local prices for your household, ` +
+  `against ${money(REF)} at home. Renting prices 40% of spending at the metro's HUD 4-bedroom rent; buying prices it at ` +
+  `the monthly cost of owning a typical 4-bedroom home there. At home, both mean staying in your own house.</p>` +
+  `<p>Dots show the metro as a whole. A job's own index (on its marker) also blends in its city's prices and taxes, ` +
+  `so it can differ a little from its metro's dot. Selling and moving costs aren't included.</p>` +
+  `<p>Reference: ${esc(D.reference.label)}</p>` +
+  `<p>Sources: ${D.sources.map(esc).join("; ")}. Map positions: U.S. Census Bureau Gazetteer.</p>` +
+  `<p>Prices built ${esc(D.data_built)}; page generated ${esc(D.generated.replace("T", " "))} UTC.</p>`;
+
+if (params.get("panel") === "1") openBtn.click();
+window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { styleStates(); update(); });
+update();
+</script>
+</body>
+</html>

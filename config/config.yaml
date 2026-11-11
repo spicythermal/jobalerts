@@ -256,6 +256,8 @@ scoring:
   step_up_threshold: 75     # AI "step up" score >= this (a clear, credible promotion): phone alert too, even
                             # when the fit score is lower. Its own ranking is in `jobalerts top`; 0 = off
   daily_max_calls: 500      # all Claude calls a day: scoring + pre-screen (~75 scored + ~50 pre-screen calls typical)
+                            # The day is UTC (resets 4-5 PM Pacific). When it's spent, new matches go to the digest.
+  backfill_reserve: 150     # `backfill` and `--rescore` stop with this many calls left for new jobs; run again to continue
 
 # ---------------------------------------------------------------- AI second look at rejected titles
 # Jobs the keywords turn down (but no title_exclude / seniority_exclude did) wait here and get a cheap
@@ -362,6 +364,15 @@ homeassistant:
   top_n: 10                 # best fits, and separately the biggest step ups (attribute `step_ups`)
   days: 7
   interval: 3000             # refresh every 50 min, and right after new matches
+
+# ---------------------------------------------------------------- cost-of-living map
+# A web page with every US metro's pay index (renting or buying, at any salary), the salary that
+# breaks even with staying home, and your top jobs. Served on this port for a Home Assistant
+# Webpage card (README: "Cost-of-living map"); refreshes with the dashboard above.
+# `jobalerts map --out FILE` writes the same page to a file.
+map:
+  enabled: true
+  port: 8765                # docker-compose.yml publishes the same port
 
 # ---------------------------------------------------------------- broad-net aggregators
 # Slower, catch-all searches for companies not on the watch list. Their matches also

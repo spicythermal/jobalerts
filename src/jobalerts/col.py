@@ -91,6 +91,8 @@ ZORI_URLS = {
 }
 CITY_KEEP = 0.10  # keep a city when its home value or rent differs from its metro's by more than this
 PMMS_URL = "https://www.freddiemac.com/pmms/docs/PMMS_history.csv"  # Freddie Mac's weekly mortgage survey
+# Census Gazetteer: an internal point (lat, lon) per metro, for the map. Published each summer.
+GAZETTEER_URL = "https://www2.census.gov/geo/docs/maps-data/data/gazetteer/{0}_Gazetteer/{0}_Gaz_cbsa_national.zip"
 
 STATES = {
     "AL": "Alabama", "AK": "Alaska", "AZ": "Arizona", "AR": "Arkansas", "CA": "California", "CO": "Colorado",
@@ -508,6 +510,53 @@ def _metro_home(metro: str, homes: dict[tuple[str, str], float]) -> float | None
     return None
 
 
+def _gazetteer_points(blob: bytes) -> dict[str, tuple[float, float]]:
+    """Census CBSA name ("Abilene, TX") -> (lat, lon) from the Gazetteer zip (pipe-separated text)."""
+    with zipfile.ZipFile(io.BytesIO(blob)) as z:
+        text = z.read(next(n for n in z.namelist() if n.endswith(".txt"))).decode("utf-8-sig")
+    lines = text.splitlines()
+    head = [h.strip() for h in lines[0].split("|")]
+    name_i, lat_i, lon_i = head.index("NAME"), head.index("INTPTLAT"), head.index("INTPTLONG")
+    out = {}
+    for line in lines[1:]:
+        f = line.split("|")
+        if len(f) > max(name_i, lat_i, lon_i):
+            name = re.sub(r"\s+(Metro|Micro) Area$", "", f[name_i].strip())
+            out[name] = (float(f[lat_i]), float(f[lon_i]))
+    return out
+
+
+def metro_coords(metros, points: dict[str, tuple[float, float]]) -> dict[str, list[float]]:
+    """BEA metro name -> [lat, lon]: the Census point of the same name (BEA suffixes stripped), else the
+    Census metro that shares its first principal city and state (names change with new delineations)."""
+    by_city = {}
+    for name in points:
+        cities, _, states = name.rpartition(", ")
+        by_city.setdefault((re.split(r"[-/]", cities)[0].strip().lower(), states.split("-")[0]), name)
+    out = {}
+    for metro in metros:
+        clean = re.sub(r"\s*\*$|\s*Metropolitan Statistical Area$", "", metro).strip()
+        cities, _, states = clean.rpartition(", ")
+        match = clean if clean in points else by_city.get(
+            (re.split(r"[-/]", cities)[0].strip().lower(), states.split("-")[0]))
+        if match:
+            out[metro] = [round(points[match][0], 4), round(points[match][1], 4)]
+    return out
+
+
+async def _gazetteer(client: httpx.AsyncClient) -> tuple[int, dict[str, tuple[float, float]]]:
+    """The newest Gazetteer that's out (this year's appears mid-year). Raises if none can be read."""
+    error: Exception | None = None
+    for year in range(date.today().year, date.today().year - 3, -1):
+        try:
+            r = await client.get(GAZETTEER_URL.format(year))
+            r.raise_for_status()
+            return year, _gazetteer_points(r.content)
+        except (httpx.HTTPError, zipfile.BadZipFile, ValueError, StopIteration) as e:
+            error = e
+    raise RuntimeError(f"no Census Gazetteer could be read: {error}")
+
+
 def _pmms_rate(text: str) -> tuple[str, float]:
     """(ISO date, percent) of the latest 30-year fixed rate in Freddie Mac's PMMS history CSV."""
     latest = None
@@ -603,6 +652,11 @@ async def build_data(client: httpx.AsyncClient | None = None) -> dict:
         r = await client.get(PMMS_URL)
         r.raise_for_status()
         rate_day, rate = _pmms_rate(r.text)
+        try:  # only the map needs these: a failed download keeps the coordinates already on disk
+            gaz_year, gaz_points = await _gazetteer(client)
+        except Exception as e:
+            log.warning("Metro coordinates not updated: %s", e)
+            gaz_year, gaz_points = None, {}
     finally:
         if own:
             await client.aclose()
@@ -662,7 +716,9 @@ async def build_data(client: httpx.AsyncClient | None = None) -> dict:
             "homes": f"Zillow Home Value Index (ZHVI), 4 bedrooms, metro, state and city, {zillow_month}; "
                      f"city rents vs metro from the Zillow Observed Rent Index; data by Zillow Group",
             "mortgage": f"Freddie Mac PMMS 30-year fixed rate, week of {rate_day}",
+            **({"places": f"U.S. Census Bureau Gazetteer, CBSA internal points, {gaz_year}"} if gaz_points else {}),
         },
+        **({"us_metro_coords": metro_coords(metros, gaz_points)} if gaz_points else {}),
         "mortgage_rate": rate,
         "us_cities": _city_table(metro_parts, city_homes, city_rents, metro_rents),
         "us_metros": metros, "us_nonmetro": nonmetro, "us_states": states, "countries": countries,
@@ -853,6 +909,22 @@ class PayIndex:
         return None
 
     # -- the index
+    def metro_place(self, name: str) -> Place:
+        """The place for a BEA metro by name (as in data["us_metros"]), priced like a job there."""
+        return self._metro(name)
+
+    def ratios(self, gross_usd: float, place: Place) -> tuple[float, float | None]:
+        """(rent index, buy index or None) for a gross salary in USD at a place."""
+        return self._ratios(self._net(gross_usd, place), place)
+
+    def _ratios(self, net: float, place: Place) -> tuple[float, float | None]:
+        ref_net = self._net(self.reference_salary, self.home)
+        rent = net / place.level / (ref_net / self.home.level)
+        buy = None
+        if self.ownership and place.buy_level:
+            buy = net / place.buy_level / (ref_net / self.home.buy_level)
+        return rent, buy
+
     def take_home(self, gross_usd: float, place: Place) -> TakeHome | None:
         """Pay after taxes where the place is; None with taxes off."""
         if not self.taxes:
@@ -883,13 +955,7 @@ class PayIndex:
         lo_usd, hi_usd = self.to_usd(lo, currency), self.to_usd(hi, currency)
         if lo_usd is None or hi_usd is None:
             return None
-        ref_net, net_lo, net_hi = self._net(self.reference_salary, self.home), self._net(lo_usd, place), self._net(hi_usd, place)
-        reference = ref_net / self.home.level
-        low, high = net_lo / place.level / reference, net_hi / place.level / reference
-        buy_low = buy_high = None
-        if self.ownership and place.buy_level:
-            buy_ref = ref_net / self.home.buy_level
-            buy_low, buy_high = net_lo / place.buy_level / buy_ref, net_hi / place.buy_level / buy_ref
+        (low, buy_low), (high, buy_high) = self.ratios(lo_usd, place), self.ratios(hi_usd, place)
         return PayResult((low + high) / 2, low, high, Pay(pay.low, pay.high, currency, pay.period), place,
                          buy_low, buy_high)
 

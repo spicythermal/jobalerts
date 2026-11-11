@@ -56,6 +56,7 @@ class Scoring(BaseModel):
     digest_threshold: int = 50
     step_up_threshold: int = 75          # AI "step up" score (a credible promotion) at or above this -> pushed too (0 = off)
     daily_max_calls: int = 300
+    backfill_reserve: int = 150          # backfill / --rescore stop with this many of today's calls left for new jobs
 
 
 class Prescreen(BaseModel):
@@ -125,6 +126,14 @@ class HomeAssistant(BaseModel):
     top_n: int = 10
     days: int = 7                        # matches posted in the last N days
     interval: int = 300                  # seconds between refreshes (also refreshed right after new matches)
+
+
+class MapConfig(BaseModel):
+    """The cost-of-living map page (colmap.py), served on a LAN port for a Home Assistant Webpage card.
+    It refreshes with the dashboard (homeassistant.interval, and right after new matches)."""
+    enabled: bool = False
+    bind: str = "0.0.0.0"                # listen address inside the container
+    port: int = 8765
 
 
 class AggregatorConfig(BaseModel):
@@ -213,6 +222,7 @@ class Config(BaseModel):
     pay: PayConfig = PayConfig()
     notify: Notify = Notify()
     homeassistant: HomeAssistant = HomeAssistant()
+    map: MapConfig = MapConfig()
     aggregators: Aggregators = Aggregators()
     companies: list[Company] = []
     config_dir: Path = Path(".")

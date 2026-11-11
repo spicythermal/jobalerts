@@ -97,7 +97,7 @@ best-fitting stories** ("Your best stories: …") and which resume version to ap
 scoring falls back to the full resumes.
 A score of 75 or more is pushed now, 50–74 goes to the evening digest, and anything
 lower is only stored. If scoring fails or the daily cap is reached, keyword matches are
-still pushed.
+still pushed, except when the daily AI budget is used up: then they wait in the digest.
 
 The same call also gives a separate **step-up score** (0–100): how big a career step up the role
 is (title level, scope, team size, budget, authority) *and* how credibly you could win it. It is
@@ -293,10 +293,49 @@ Add a `user` block for each other login you use (Zigbee2MQTT and so on), and res
 add-on. Mosquitto drops a publish the list doesn't allow without telling jobalerts, so if the
 sensor doesn't appear, check this file first.
 
+### Cost-of-living map
+
+jobalerts serves a map page on port 8765 (`map:` in `config.yaml`, published in
+`docker-compose.yml`). Every US metro is a dot colored by how well off you'd be there compared with
+`pay.reference_salary` staying in your own home: blue is better, gray about the same, red worse.
+
+- **Pay index** at any salary (slider, $100K–$400K), **renting** or **buying**.
+- **Break-even salary**: what a metro must pay to match your current pay at home. Renting or buying.
+- **Jobs**: your top matches (diamonds) and biggest step ups (rings) at their metro, with fit, pay
+  index and top stories; jobs abroad or in an unknown place are listed under *Table & details*.
+- **Table & details**: every metro's numbers, sortable and filterable, plus the sources.
+
+The numbers are the same ones `jobalerts pay` shows. A dot is metro-wide; a job's own index also
+blends in its city, so a job in Tacoma can differ a little from the Seattle dot. Selling and moving
+costs aren't in either. The page refreshes with the dashboard (`homeassistant.interval`, and right
+after new matches) and after the price data is rebuilt.
+
+**Home Assistant:** add a Webpage card (Edit dashboard → Add card → Webpage, or Manual):
+
+```yaml
+type: iframe
+url: http://<jobalerts-host>:8765/?view=breakeven&housing=buy
+aspect_ratio: 75%
+title: Where the move pays
+```
+
+The URL can preset the view, so several cards can show different maps:
+`view=index|breakeven`, `housing=rent|buy`, `salary=250000`, `jobs=0`, `theme=dark|light` (the page
+otherwise follows the browser), `panel=1` (opens the table). Changes you make in the page are
+remembered per browser.
+
+The browser opening Home Assistant loads the map straight from jobalerts, so it must reach
+`<jobalerts-host>:8765`. If you open Home Assistant over **https** (Nabu Casa, or a reverse proxy),
+the browser blocks a plain-http page inside it: put the map behind the same proxy with TLS (for
+Caddy, `map.home.lan { reverse_proxy <jobalerts-host>:8765 }`) and use that https URL in the card.
+The page loads Leaflet and the state outlines from public CDNs, so it needs internet access too.
+
+`jobalerts map --out FILE` writes the same page to a file you can open anywhere.
+
 ## Commands
 
 ```
-jobalerts [-c CONFIG] [-v] {run,poll,discover,test-notify,digest,top,stats,backfill,pay}
+jobalerts [-c CONFIG] [-v] {run,poll,discover,test-notify,digest,top,stats,backfill,pay,map}
 
   run                  the service: poll every board on its tier interval, forever
   poll [--once] [--dry-run] [--board TEXT] [--score N]
@@ -308,11 +347,13 @@ jobalerts [-c CONFIG] [-v] {run,poll,discover,test-notify,digest,top,stats,backf
   top [-n N] [--days D] [--push]
                        best recent matches; --push also updates the Home Assistant sensor
   stats                board health, request rates, detection delay, AI spend
-  backfill [--dry-run] [--push] [--days N]
+  backfill [--dry-run] [--push] [--days N] [--rescore]
                        re-check the pay index of processed matches, then AI-score the
-                       matches that were already open at the first poll
+                       matches that were already open at the first poll; --rescore also
+                       re-scores matches scored before the current stories and profile
   pay [SALARY LOCATION] [--remote] [--update]
                        explain the cost-of-living pay index; --update downloads fresh price data
+  map [--out FILE]     write the cost-of-living map page to a file (default data/map.html)
 ```
 
 `-c` defaults to `config/config.yaml` (or `$JOBALERTS_CONFIG`). `$JOBALERTS_DB` overrides the
@@ -413,6 +454,12 @@ window is scored again (~$0.001 each, so a few dimes for a full window) and gets
 summary and top stories. It moves jobs between the digest and "low" to match the new score, but
 never pushes, and a job already pushed or sent in a digest keeps its status. Restart the container
 first so it reads the new stories.
+
+Both `backfill` and `--rescore` share the daily AI budget (`scoring.daily_max_calls`, counted per UTC
+day, so it resets at 4–5 PM Pacific) and stop when only `scoring.backfill_reserve` calls (150) are left,
+so new postings can still be scored that day. Run them again after the reset to continue: `--rescore`
+skips jobs already scored against the current stories and profile. If the budget does run out, new
+matches go to the digest unscored instead of being pushed, and one phone notice says so.
 
 ## Living with it
 

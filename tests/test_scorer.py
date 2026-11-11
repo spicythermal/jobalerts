@@ -149,3 +149,15 @@ def test_step_up_is_asked_for_separately_and_clamped():
     assert "a level up" in messages.calls[0]["system"][0]["text"]
     s, _, _ = scorer(response({"score": 50, "summary": "x", "red_flags": []}))  # an answer without it: 0
     assert run(s.score(JOB)).step_up == 0
+
+
+def test_cap_logs_once_a_day_and_basis_follows_the_prompt(caplog):
+    import logging
+    s, messages, store = scorer(response({"score": 50, "summary": "ok", "red_flags": []}), daily_max_calls=1)
+    assert s.calls_left() == 1 and run(s.score(JOB)).basis == s.basis and s.capped()
+    with caplog.at_level(logging.WARNING, logger="jobalerts.scorer"):
+        assert run(s.score(JOB)) is None and run(s.score(JOB)) is None
+    assert sum("daily cap" in r.message for r in caplog.records) == 1 and len(messages.calls) == 1
+    other, _, _ = scorer(response(None))
+    other.system += " changed stories"
+    assert Scorer(Scoring(), store, "different profile", client=other.client).basis != s.basis

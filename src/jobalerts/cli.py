@@ -276,7 +276,7 @@ def print_repriced(repriced, cfg: Config) -> None:
 def print_rescored(rescored) -> None:
     scored = [r for r in rescored if r[3] is not None]
     closed = sum(1 for r in rescored if r[2] == "closed")
-    print(f"Re-scored {len(scored)} of {len(rescored)} matches already scored"
+    print(f"Re-scored {len(scored)} of {len(rescored)} matches scored before the current stories and profile"
           + (f" ({closed} taken down since: closed)" if closed else "")
           + (f"; {len(rescored) - len(scored) - closed} couldn't be scored, run again to retry" if
              len(rescored) - len(scored) - closed else "") + ".")
@@ -312,8 +312,11 @@ async def cmd_backfill(cfg: Config, args) -> int:
         if repriced:
             print_repriced(repriced, cfg)
         if args.rescore and runner.scorer and not args.dry_run:
-            rescored = await runner.rescore(cfg.boards(), days=days)
+            rescored, left = await runner.rescore(cfg.boards(), days=days)
             print_rescored(rescored)
+            if left:
+                print(f"Stopped with {cfg.scoring.backfill_reserve} of today's AI calls kept for new jobs "
+                      f"(scoring.backfill_reserve); {left} jobs left. Run it again after 00:00 UTC to continue.\n")
         elif args.rescore and args.dry_run:
             print("--rescore is skipped in a dry run (it makes AI calls and saves the new scores).\n")
         if not runner.scorer:
@@ -354,6 +357,22 @@ async def cmd_backfill(cfg: Config, args) -> int:
                 print("Home Assistant sensor updated.")
             except Exception as e:
                 print(f"Home Assistant (MQTT) update failed: {type(e).__name__}: {e}")
+    return 0
+
+
+async def cmd_map(cfg: Config, args) -> int:
+    """Write the cost-of-living map page to a file (the service serves the same page on map.port)."""
+    has_db = Path(cfg.database).is_file()
+    async with open_runner(cfg, dry_run=True, memory_store=not has_db) as runner:
+        if not runner.pay:
+            print("The pay index is off (pay.enabled: false), so there's no map.")
+            return 1
+        html = await runner.map_page()
+    out = Path(args.out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(html, encoding="utf-8")
+    jobs = "" if has_db else " (no database yet, so no jobs on it)"
+    print(f"Wrote {out} ({len(html) // 1024} KB){jobs}. Open it in a browser.")
     return 0
 
 
@@ -542,7 +561,8 @@ async def cmd_pay(cfg: Config, args) -> int:
 
 
 COMMANDS = {"run": cmd_run, "poll": cmd_poll, "discover": cmd_discover, "test-notify": cmd_test_notify,
-            "digest": cmd_digest, "top": cmd_top, "stats": cmd_stats, "backfill": cmd_backfill, "pay": cmd_pay}
+            "digest": cmd_digest, "top": cmd_top, "stats": cmd_stats, "backfill": cmd_backfill, "pay": cmd_pay,
+            "map": cmd_map}
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -580,6 +600,9 @@ def build_parser() -> argparse.ArgumentParser:
     b.add_argument("--rescore", action="store_true",
                    help="also AI-score again the matches already scored (after editing stories/ or profile.md; "
                         "~$0.001 each, never pushed)")
+    m = sub.add_parser("map", help="write the cost-of-living map (every metro's pay index, break-even salaries, "
+                                   "top jobs) to an HTML file")
+    m.add_argument("--out", default="data/map.html", help="where to write it (default: data/map.html)")
     y = sub.add_parser("pay", help="explain the cost-of-living pay index for a salary and location, or "
                                    "--update its data from BEA and the World Bank")
     y.add_argument("salary", nargs="?", help='e.g. "$150K-180K" or "EUR 90,000"')

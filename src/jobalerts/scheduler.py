@@ -10,11 +10,12 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from . import col, discover
+from . import col, colmap, discover
 from .dashboard import MqttPublisher, ai_cost, top_matches
 from .config import Board, Config
 from .filters import JobFilter
 from .http import HttpClient, posting_gone
+from .mapserver import MapServer
 from .models import Job, normalize_company, utcnow
 from .notify import Notifier
 from .prescreen import Prescreener
@@ -55,7 +56,8 @@ def _score_cols(score: FitScore | None) -> dict:
     return {"score": score.score, "score_summary": score.summary,
             "red_flags": "; ".join(score.red_flags) or None, "best_resume": score.best_resume or None,
             "step_up": score.step_up, "step_up_note": score.step_up_note or None,
-            "top_stories": json.dumps(list(zip(score.top_stories, score.top_story_titles))) if score.top_stories else None}
+            "top_stories": json.dumps(list(zip(score.top_stories, score.top_story_titles))) if score.top_stories else None,
+            "score_basis": score.basis or None}
 
 
 class Runner:
@@ -73,6 +75,8 @@ class Runner:
         self._failure_alerted: set[str] = set()
         self.homeassistant = homeassistant
         self._dashboard_stale = asyncio.Event()  # set after new matches so Home Assistant updates right away
+        self.map_server: MapServer | None = None  # started by run_forever when map.enabled
+        self._cap_noticed = ""                     # UTC day of the last "AI daily cap reached" push
         self.pay: col.PayIndex | None = None
         self.pay_problem = ""  # shown in the digest until fixed
         self.load_pay()
@@ -142,6 +146,10 @@ class Runner:
             board = by_slug.get((job.source, job.board))
             if board is None or (job.age_days() or 0) > days or not self.filter.check_basic(job)[0]:
                 continue
+            if self._backfill_budget_spent():
+                log.warning("backfill: stopping with %d of today's AI calls kept for new jobs; run it again after "
+                            "00:00 UTC to score the rest", self.cfg.scoring.backfill_reserve)
+                break
             try:
                 status, score = await self._process(job, board, SOURCES[job.source])
             except Exception as e:
@@ -223,18 +231,31 @@ class Runner:
             self._dashboard_stale.set()
         return out
 
-    async def rescore(self, boards: list[Board], days: int | None = None) -> list[tuple[Job, str, str, FitScore | None]]:
+    def _backfill_budget_spent(self) -> bool:
+        """True when backfill / rescore should stop: only scoring.backfill_reserve calls are left today."""
+        return bool(self.scorer) and self.scorer.calls_left() <= self.cfg.scoring.backfill_reserve
+
+    async def rescore(self, boards: list[Board], days: int | None = None) -> tuple[list[tuple[Job, str, str, FitScore | None]], int]:
         """AI-score again the matches already scored and posted within max_age_days (or `days`), e.g. after
         the work stories or profile changed. The new score, summary and top stories replace the old ones and
         the job moves between digest and low to match; it is never pushed, and a job already delivered
         (pushed or in a digest) keeps its status. Pay is left alone: reprice handles it.
-        Returns (job, old status, new status, new score or None if it couldn't be scored)."""
+        Jobs already scored on the scorer's current basis are skipped, and it stops (before fetching the next
+        posting) when only scoring.backfill_reserve calls are left today, so running it again continues.
+        Returns ([(job, old status, new status, new score or None if it couldn't be scored)], jobs left)."""
         if not self.scorer:
-            return []
+            return [], 0
         by_slug = {(b.source, b.slug): b for b in boards}
         since = utcnow() - timedelta(days=days or self.cfg.criteria.max_age_days)
+        todo = [r for r in self.store.scored_since(since) if r["score_basis"] != self.scorer.basis]
         out = []
-        for row in self.store.scored_since(since):
+        for n, row in enumerate(todo):
+            if self._backfill_budget_spent():
+                log.warning("rescore: stopping with %d of today's AI calls kept for new jobs; %d jobs left, "
+                            "run it again after 00:00 UTC", self.cfg.scoring.backfill_reserve, len(todo) - n)
+                if out:
+                    self._dashboard_stale.set()
+                return out, len(todo) - n
             job, old = job_from_row(row), row["status"]
             board = by_slug.get((job.source, job.board))
             if board is not None:
@@ -259,7 +280,7 @@ class Runner:
             out.append((job, old, status, fit))
         if out:
             self._dashboard_stale.set()
-        return out
+        return out, 0
 
     async def _process(self, job: Job, board: Board, source: Source) -> tuple[str, FitScore | None]:
         if self.store.seen_elsewhere(job):
@@ -309,6 +330,9 @@ class Runner:
 
         score = await self.scorer.score(job) if self.scorer else None
         status = self.route(score.score, score.step_up) if score else self.route(None)
+        if score is None and self.scorer and self.scorer.capped():
+            status = "digest"  # the day's AI budget is spent: no unscored pushes, it waits in the digest
+            await self._cap_notice()
         if pay is None and score is not None:  # pay the AI read from the posting
             pay = self.pay_index(job, score)
             if self._pay_too_low(job, pay, score):
@@ -480,11 +504,29 @@ class Runner:
             self.pay_problem = f"cost-of-living refresh failed ({type(e).__name__}: {e}); using data built {built}"
             log.warning(self.pay_problem)
             return self.pay_problem
+        if "us_metro_coords" not in data and self.pay and self.pay.data.get("us_metro_coords"):
+            data["us_metro_coords"] = self.pay.data["us_metro_coords"]  # Census was down: keep the map's points
+            data["sources"]["places"] = self.pay.data["sources"].get("places", "")
         path = self._pay_paths()[1]
         col.write_data(data, path)
         self.pay_problem = ""
         self.load_pay()
+        self._dashboard_stale.set()  # the map's numbers changed
         return f"Cost-of-living data rebuilt into {path}: {data['sources']['us']}; {len(data['countries'])} countries"
+
+    async def _cap_notice(self) -> None:
+        today = utcnow().date().isoformat()
+        if self._cap_noticed == today:
+            return
+        self._cap_noticed = today
+        try:
+            await self.notifier.send(
+                "AI daily cap reached",
+                f"All {self.cfg.scoring.daily_max_calls} of today's Claude calls are used (scoring.daily_max_calls). "
+                "New matches go to the digest unscored until 00:00 UTC instead of being pushed.",
+                priority=3, tags=["warning"])
+        except Exception as e:
+            log.warning("Couldn't send the AI cap notice: %s", e)
 
     async def _notify(self, job: Job, score: FitScore | None) -> int:
         pay = self.pay_index(job, score)
@@ -523,9 +565,19 @@ class Runner:
         if self.prescreener:
             tasks.append(asyncio.create_task(self._prescreen_loop(boards), name="prescreen"))
         tasks.append(asyncio.create_task(self.refresh_pay_data(), name="col-refresh"))
-        if self.homeassistant:
-            tasks.append(asyncio.create_task(self._homeassistant_loop(), name="homeassistant"))
-        await asyncio.gather(*tasks)
+        if self.cfg.map.enabled:
+            if self.pay:
+                self.map_server = MapServer(self.cfg.map.bind, self.cfg.map.port)
+                self.map_server.start()
+            else:
+                log.warning("map.enabled is set but the pay index is off (pay.enabled); no map")
+        if self.homeassistant or self.map_server:
+            tasks.append(asyncio.create_task(self._dashboard_loop(), name="dashboard"))
+        try:
+            await asyncio.gather(*tasks)
+        finally:
+            if self.map_server:
+                self.map_server.stop()
 
     async def _board_loop(self, board: Board) -> None:
         # Spread the first polls over the first couple of minutes instead of one burst.
@@ -585,14 +637,21 @@ class Runner:
             except Exception:
                 log.exception("Digest failed")
 
-    async def _homeassistant_loop(self) -> None:
+    async def _dashboard_loop(self) -> None:
+        """Home Assistant sensor and map page, every homeassistant.interval and right after new matches."""
         cfg = self.cfg.homeassistant
         while True:
             self._dashboard_stale.clear()
-            try:
-                await self.publish_dashboard()
-            except Exception as e:  # HA down or token wrong: log it, keep polling jobs
-                log.warning("Home Assistant (MQTT) update failed: %s", e)
+            if self.homeassistant:
+                try:
+                    await self.publish_dashboard()
+                except Exception as e:  # HA down or token wrong: log it, keep polling jobs
+                    log.warning("Home Assistant (MQTT) update failed: %s", e)
+            if self.map_server:
+                try:
+                    self.map_server.update(await self.map_page())
+                except Exception as e:  # never let the map stop the dashboard
+                    log.exception("Map page update failed: %s", e)
             try:
                 await asyncio.wait_for(self._dashboard_stale.wait(), cfg.interval)
             except asyncio.TimeoutError:
@@ -602,6 +661,13 @@ class Runner:
         """Best recent matches by AI fit score, or with by="step_up" the biggest credible promotions."""
         cfg = self.cfg.homeassistant
         return top_matches(self.store, self.filter, days or cfg.days, n or cfg.top_n, self.pay, by)
+
+    async def map_page(self) -> str:
+        """The cost-of-living map with the current top jobs (the price math runs off the event loop)."""
+        _, jobs = self.top_matches()
+        _, step_ups = self.top_matches(by="step_up")
+        pay = self.pay
+        return await asyncio.to_thread(lambda: colmap.render(colmap.build_map_data(pay, jobs, step_ups)))
 
     async def publish_dashboard(self) -> int:
         total, jobs = self.top_matches()

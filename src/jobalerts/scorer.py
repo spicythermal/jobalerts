@@ -6,6 +6,7 @@ Claude Haiku 5.5 costs $0.10/M input and $0.50/M output tokens, so a typical pos
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 
@@ -14,7 +15,7 @@ from pydantic import BaseModel, ValidationError
 
 from .col import Pay
 from .config import Scoring
-from .models import Job
+from .models import Job, utcnow
 from .resumes import Resume
 from .stories import Story
 from .store import Store
@@ -116,6 +117,7 @@ class FitScore(BaseModel):
     best_resume: str = ""
     top_stories: list[str] = []          # story ids, best first (at most 3)
     top_story_titles: list[str] = []     # filled in by the Scorer, not the model
+    basis: str = ""                      # filled in by the Scorer: which prompt (stories, profile, model) it used
     pay_min: float = 0
     pay_max: float = 0
     pay_currency: str = ""
@@ -181,12 +183,27 @@ class Scorer:
         self.system = SYSTEM.format(profile=profile.strip() or "(no profile provided)",
                                     evidence=evidence, experience=experience)
         self.client = client or anthropic.AsyncAnthropic(max_retries=3, timeout=90.0)
+        # Changes when the stories, resumes, profile, prompt or model change: --rescore skips jobs already
+        # scored on the current basis, so an interrupted rescore picks up where it stopped.
+        self.basis = hashlib.sha256(f"{cfg.model}\n{self.system}".encode()).hexdigest()[:12]
+        self._cap_logged = ""
+
+    def calls_left(self) -> int:
+        """Claude calls left today (UTC) under scoring.daily_max_calls."""
+        return max(0, self.cfg.daily_max_calls - self.store.ai_calls_today())
+
+    def capped(self) -> bool:
+        return self.calls_left() <= 0
 
     async def score(self, job: Job) -> FitScore | None:
         """Returns None when scoring isn't possible (budget spent, API error, refusal); callers then
         fall back to keyword-only routing so a match is never silently dropped."""
-        if self.store.ai_calls_today() >= self.cfg.daily_max_calls:
-            log.warning("AI daily cap (%d) reached; not scoring %s", self.cfg.daily_max_calls, job.key)
+        if self.capped():
+            today = utcnow().date().isoformat()
+            if self._cap_logged != today:  # once a day, not once per job
+                self._cap_logged = today
+                log.warning("AI daily cap (%d) reached; no AI scores until 00:00 UTC", self.cfg.daily_max_calls)
+            log.debug("AI daily cap: not scoring %s", job.key)
             return None
         try:
             response = await self.client.messages.create(
@@ -225,4 +242,5 @@ class Scorer:
         ids = [i.strip() for i in result.top_stories]
         result.top_stories = [i for n, i in enumerate(ids) if i in self.story_titles and i not in ids[:n]][:3]
         result.top_story_titles = [self.story_titles[i] for i in result.top_stories]
+        result.basis = self.basis
         return result
