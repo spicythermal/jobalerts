@@ -51,6 +51,7 @@ class Scoring(BaseModel):
     effort: Literal["low", "medium", "high"] = "low"
     profile_path: str = "profile.md"     # relative to the config directory
     resume_dir: str = "../resume_reference"  # PDF/.md/.txt resumes, relative to the config directory
+    stories_dir: str = "../stories"      # work stories (*.md); when there are any, fit is judged from them
     push_threshold: int = 75
     digest_threshold: int = 50
     step_up_threshold: int = 75          # AI "step up" score (a credible promotion) at or above this -> pushed too (0 = off)

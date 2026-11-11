@@ -42,8 +42,9 @@ Then edit the config (next section), and run `jobalerts test-notify` to check yo
 | `config/config.yaml` | Search criteria, polling tiers, scoring thresholds, digest time, aggregators. |
 | `config/companies.yaml` | The watch list, generated from `config/candidates.txt`. |
 | `config/candidates.txt` | Companies to resolve into the watch list, one per line (see below). |
-| `resume_reference/` | Your resumes (PDF, `.md` or `.txt`). AI scoring compares every posting against all of them. Committed (private repo) and mounted read-only into the container. |
-| `config/profile.md` | What the resumes don't say: target roles, location, salary floor, deal-breakers. |
+| `stories/` | Your work stories, one project per file (format in `stories/README.md`). AI scoring judges fit against all of them and names the best 3 for each job. Mounted read-only. |
+| `resume_reference/` | Your resumes (PDF, `.md` or `.txt`). With stories, the AI only uses their opening section to say which version to apply with; without stories, it scores against the full resumes. Committed (private repo) and mounted read-only into the container. |
+| `config/profile.md` | What the stories and resumes don't say: target roles, location, salary floor, deal-breakers. |
 
 **Criteria** (`config.yaml` → `criteria`) are case-insensitive whole-word phrases that also
 match plurals ("beam" matches "Beams"); a `*` at either end lets a phrase run into a longer word
@@ -86,10 +87,14 @@ commit and push.
 each TheirStack poll only asks for jobs found since the last poll, and `limit` caps a poll's cost.
 When the credits run out the board reports "out of API credits (402)" and backs off until they refill.
 
-**AI scoring:** put your resumes in `resume_reference/`, fill in `config/profile.md`, and set
-`ANTHROPIC_API_KEY`. Keyword matches are scored 0–100 by
-Claude Haiku 5.5 against the resumes and profile (about $0.001 each with two resumes). Each
-alert says which resume version to apply with ("Apply with: …"), and so does the digest.
+**AI scoring:** write your work stories in `stories/`, put your resumes in `resume_reference/`,
+fill in `config/profile.md`, and set `ANTHROPIC_API_KEY`. Keyword matches are scored 0–100 by
+Claude Haiku 5.5 against the stories and profile (about $0.001 each). A story library sees more
+than any one resume: every project, your role in it and its results. Unfinished parts marked
+`TODO` and the talk and slide notes are left out of the prompt. Each alert lists **your 3
+best-fitting stories** ("Your best stories: …") and which resume version to apply with
+("Apply with: …"), and so do the digest, `jobalerts top` and Home Assistant. With no stories,
+scoring falls back to the full resumes.
 A score of 75 or more is pushed now, 50–74 goes to the evening digest, and anything
 lower is only stored. If scoring fails or the daily cap is reached, keyword matches are
 still pushed.
@@ -187,7 +192,7 @@ Assistant's MQTT broker. It never gets a Home Assistant token, only an MQTT logi
    appears (MQTT discovery). Its state is the number of matches, and its `jobs` attribute
    holds the top matches with their AI score (`score`), step-up score (`step_up`, `step_up_note`)
    and pay indexes (renting `pay_index`, range `pay_low`–`pay_high`; buying `buy_index`,
-   `buy_low`–`buy_high`), and its `step_ups` attribute the biggest step ups in the same form. It refreshes every 5 minutes and right after new matches. The messages
+   `buy_low`–`buy_high`), the ids of its 3 best-fitting work stories (`story_ids`), and its `step_ups` attribute the biggest step ups in the same form. It refreshes every 5 minutes and right after new matches. The messages
    are retained, so the sensor survives Home Assistant restarts. It turns "unavailable" if
    jobalerts stops updating it for 15 minutes.
 4. Add a Markdown card to a dashboard (Edit dashboard → Add card → Manual). Under each job it shows
@@ -210,6 +215,9 @@ content: |-
   {{ j.company }} · {{ j.location }}{% if j.salary %} · {{ j.salary }}{% endif %} · {{ j.age }}{% if j.score is not none %} · fit {{ j.score }}{% endif %}
   {%- if j.pay_index is not none %}
   {{ scale('Rent', j.pay_index, j.pay_low, j.pay_high) }}{% if j.buy_index is not none %} · {{ scale('Buy', j.buy_index, j.buy_low, j.buy_high) }}{% endif %}
+  {%- endif %}
+  {%- if j.story_ids %}
+  <small>Stories: {{ j.story_ids | join(' · ') }}</small>
   {%- endif %}
   {%- if j.best_resume %}
   <small>Apply with {{ j.best_resume }}</small>
@@ -237,6 +245,9 @@ content: |-
   {%- endif %}
   {%- if j.step_up_note %}
   <small>{{ j.step_up_note }}</small>
+  {%- endif %}
+  {%- if j.story_ids %}
+  <small>Stories: {{ j.story_ids | join(' · ') }}</small>
   {%- endif %}
 
   {% else %}
@@ -369,7 +380,7 @@ local edits. Restart the container after any config change.
 ```sh
 cd jobalerts && git pull
 docker compose up -d --build             # rebuilds and recreates the container if the code changed
-docker compose restart                   # needed when only config/ or resume_reference/ changed
+docker compose restart                   # needed when only config/, stories/ or resume_reference/ changed
 ```
 
 ### After the first deploy: score what was already open
@@ -394,7 +405,14 @@ isn't sent to the AI. Other fetch errors are only logged, and the job keeps its 
 docker compose exec jobalerts jobalerts backfill --dry-run   # show the scores, save nothing
 docker compose exec jobalerts jobalerts backfill             # save: 50+ go in the digest, `top` and HA show scores
 docker compose exec jobalerts jobalerts backfill --push      # same, but 75+ are pushed to your phone now
+docker compose exec jobalerts jobalerts backfill --rescore   # also AI-score again the matches already scored
 ```
+
+`--rescore` is for after you change `stories/` or `profile.md`: every match already scored in the
+window is scored again (~$0.001 each, so a few dimes for a full window) and gets the new score,
+summary and top stories. It moves jobs between the digest and "low" to match the new score, but
+never pushes, and a job already pushed or sent in a digest keeps its status. Restart the container
+first so it reads the new stories.
 
 ## Living with it
 
@@ -403,6 +421,8 @@ docker compose exec jobalerts jobalerts backfill --push      # same, but 75+ are
   rate limits, failing boards). It's sent even on quiet days, so silence never means broken.
 - **Health pushes:** a board failing 5 times in a row (bad slug, site change) sends one
   alert, and another when it recovers. A source missing its API key is disabled with an alert.
+- **Stories:** after editing `stories/`, push, `git pull` and `docker compose restart` on the
+  server; new jobs are scored against the new stories, and `backfill --rescore` updates the rest.
 - **`jobalerts stats`** shows detection delay (first seen minus published) and per-host
   request and 304 counts. Use it to tune tiers.
 

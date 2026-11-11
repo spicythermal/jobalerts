@@ -19,6 +19,7 @@ from .models import utcnow
 from .notify import Notifier
 from .prescreen import Prescreener
 from .resumes import load_resumes
+from .stories import load_stories
 from .scheduler import Runner
 from .scorer import Scorer, ai_cost_usd
 from .sources import without_missing_keys
@@ -30,14 +31,15 @@ log = logging.getLogger("jobalerts")
 def _profile_and_resumes(cfg: Config):
     profile_path = cfg.resolve(cfg.scoring.profile_path)
     profile = profile_path.read_text(encoding="utf-8") if profile_path.is_file() else ""
-    return profile_path, profile, load_resumes(cfg.resolve(cfg.scoring.resume_dir))
+    return (profile_path, profile, load_resumes(cfg.resolve(cfg.scoring.resume_dir)),
+            load_stories(cfg.resolve(cfg.scoring.stories_dir)))
 
 
 def make_prescreener(cfg: Config, store: Store, scorer: Scorer | None) -> Prescreener | None:
     """The AI second look at jobs the keywords turned down; needs scoring, since its picks get scored."""
     if not cfg.prescreen.enabled or scorer is None:
         return None
-    _, profile, resumes = _profile_and_resumes(cfg)
+    _, profile, resumes, _ = _profile_and_resumes(cfg)
     log.info("AI pre-screen on: jobs the keywords turn down get a second look every %d min",
              cfg.prescreen.interval // 60)
     return Prescreener(cfg.prescreen, cfg.scoring, store, profile, resumes, client=scorer.client)
@@ -47,14 +49,19 @@ def make_scorer(cfg: Config, store: Store) -> Scorer | None:
     if not cfg.scoring.enabled:
         log.info("AI scoring off (scoring.enabled: false); alerts use keywords only")
         return None
-    profile_path, profile, resumes = _profile_and_resumes(cfg)
-    if not profile and not resumes:
-        log.warning("Scoring enabled but there's no %s and no resumes in %s; alerts will use keywords only",
-                    profile_path, cfg.resolve(cfg.scoring.resume_dir))
+    profile_path, profile, resumes, stories = _profile_and_resumes(cfg)
+    if not profile and not resumes and not stories:
+        log.warning("Scoring enabled but there's no %s, no resumes in %s and no stories in %s; alerts will use "
+                    "keywords only", profile_path, cfg.resolve(cfg.scoring.resume_dir),
+                    cfg.resolve(cfg.scoring.stories_dir))
         return None
-    log.info("AI scoring against %d resume(s): %s", len(resumes), ", ".join(r.name for r in resumes) or "none")
+    if stories:
+        log.info("AI scoring against %d work stories (resumes only pick the version to apply with: %s)",
+                 len(stories), ", ".join(r.name for r in resumes) or "none")
+    else:
+        log.info("AI scoring against %d resume(s): %s", len(resumes), ", ".join(r.name for r in resumes) or "none")
     try:
-        return Scorer(cfg.scoring, store, profile, resumes=resumes)
+        return Scorer(cfg.scoring, store, profile, resumes=resumes, stories=stories)
     except Exception as e:  # e.g. no Anthropic credentials configured
         log.warning("AI scoring unavailable (%s); alerts will use keywords only", e)
         return None
@@ -168,6 +175,8 @@ async def preview_scores(cfg: Config, runner: Runner, boards, jobs) -> None:
         print(f"  {s.score if s else '--':>3}  {job.company}: {job.title}")
         if s:
             print(f"       {s.summary}" + (f"  ⚠ {'; '.join(s.red_flags)}" if s.red_flags else ""))
+            if s.top_story_titles:
+                print("       stories: " + "; ".join(s.top_story_titles))
             if s.best_resume:
                 print(f"       apply with: {s.best_resume}")
 
@@ -264,6 +273,21 @@ def print_repriced(repriced, cfg: Config) -> None:
     print()
 
 
+def print_rescored(rescored) -> None:
+    scored = [r for r in rescored if r[3] is not None]
+    closed = sum(1 for r in rescored if r[2] == "closed")
+    print(f"Re-scored {len(scored)} of {len(rescored)} matches already scored"
+          + (f" ({closed} taken down since: closed)" if closed else "")
+          + (f"; {len(rescored) - len(scored) - closed} couldn't be scored, run again to retry" if
+             len(rescored) - len(scored) - closed else "") + ".")
+    for job, old, new, fit in sorted(scored, key=lambda r: r[3].score, reverse=True):
+        change = f"{old} -> {new}" if new != old else new
+        print(f"  [{fit.score:>3}] {change:18} {job.company}: {job.title}")
+        if fit.top_story_titles:
+            print("        stories: " + "; ".join(fit.top_story_titles))
+    print()
+
+
 async def cmd_backfill(cfg: Config, args) -> int:
     if not Path(cfg.database).is_file():
         print(f"No database at {cfg.database}: run the service first so it records each board's baseline.")
@@ -287,13 +311,18 @@ async def cmd_backfill(cfg: Config, args) -> int:
                 real.close()
         if repriced:
             print_repriced(repriced, cfg)
+        if args.rescore and runner.scorer and not args.dry_run:
+            rescored = await runner.rescore(cfg.boards(), days=days)
+            print_rescored(rescored)
+        elif args.rescore and args.dry_run:
+            print("--rescore is skipped in a dry run (it makes AI calls and saves the new scores).\n")
         if not runner.scorer:
             print("AI scoring isn't configured: set ANTHROPIC_API_KEY in .env (and scoring.enabled: true).")
             return 0 if repriced else 1
         results = await runner.backfill(cfg.boards(), push=args.push and not args.dry_run, days=days)
         if not results:
             print(f"No unscored baseline matches posted in the last {days} days.")
-            if repriced and runner.homeassistant and not args.dry_run:
+            if (repriced or args.rescore) and runner.homeassistant and not args.dry_run:
                 await runner.publish_dashboard()
             return 0
         print(f"\n{len(results)} baseline matches posted in the last {days} days:")
@@ -306,6 +335,8 @@ async def cmd_backfill(cfg: Config, args) -> int:
                   f"                 {job.url}")
             if score:
                 print(f"                 {score.summary}" + (f"  ⚠ {'; '.join(score.red_flags)}" if score.red_flags else ""))
+                if score.top_story_titles:
+                    print("                 stories: " + "; ".join(score.top_story_titles))
                 if score.best_resume:
                     print(f"                 apply with: {score.best_resume}")
         if args.dry_run:
@@ -370,6 +401,8 @@ def _print_top(jobs: list[dict], step_up: bool = False) -> None:
             print(f"     step up: {j['step_up_note']} (fit {j['score']})")
         elif j["summary"]:
             print(f"     {j['summary']}")
+        if j["stories"]:
+            print("     stories: " + "; ".join(j["stories"]))
         if j["best_resume"]:
             print(f"     apply with: {j['best_resume']}")
 
@@ -544,6 +577,9 @@ def build_parser() -> argparse.ArgumentParser:
     b.add_argument("--dry-run", action="store_true", help="score and print only: store nothing, send nothing")
     b.add_argument("--push", action="store_true", help="push strong fits to your phone (default: next digest)")
     b.add_argument("--days", type=int, default=0, help="look back N days (default: criteria.max_age_days)")
+    b.add_argument("--rescore", action="store_true",
+                   help="also AI-score again the matches already scored (after editing stories/ or profile.md; "
+                        "~$0.001 each, never pushed)")
     y = sub.add_parser("pay", help="explain the cost-of-living pay index for a salary and location, or "
                                    "--update its data from BEA and the World Bank")
     y.add_argument("salary", nargs="?", help='e.g. "$150K-180K" or "EUR 90,000"')

@@ -1,6 +1,7 @@
 """SQLite state: every job ever seen, board health, AI usage, suggestions, per-host request stats."""
 from __future__ import annotations
 
+import json
 import sqlite3
 from collections import Counter
 from datetime import datetime, timedelta
@@ -39,7 +40,8 @@ CREATE TABLE IF NOT EXISTS jobs (
     buy_low       REAL,
     buy_high      REAL,
     step_up       INTEGER,          -- AI: how big a credible career step up the role is, 0-100
-    step_up_note  TEXT
+    step_up_note  TEXT,
+    top_stories   TEXT              -- JSON [[id, title], ...]: the work stories that best fit the job
 );
 CREATE INDEX IF NOT EXISTS jobs_fingerprint ON jobs(fingerprint);
 CREATE INDEX IF NOT EXISTS jobs_status ON jobs(status);
@@ -117,7 +119,8 @@ class Store:
         if "description" not in columns:  # databases created before the AI pre-screen
             self.db.execute("ALTER TABLE jobs ADD COLUMN description TEXT")
         for name, kind in (("buy_index", "REAL"), ("buy_low", "REAL"), ("buy_high", "REAL"),
-                           ("step_up", "INTEGER"), ("step_up_note", "TEXT")):  # before rent/buy and step-ups
+                           ("step_up", "INTEGER"), ("step_up_note", "TEXT"),  # before rent/buy and step-ups
+                           ("top_stories", "TEXT")):  # before scoring against work stories
             if name not in columns:
                 self.db.execute(f"ALTER TABLE jobs ADD COLUMN {name} {kind}")
         usage_columns = {r["name"] for r in self.db.execute("PRAGMA table_info(ai_usage)")}
@@ -211,7 +214,7 @@ class Store:
                    pay_low: float | None = None, pay_high: float | None = None,
                    pay_note: str | None = None, buy_index: float | None = None, buy_low: float | None = None,
                    buy_high: float | None = None, step_up: int | None = None,
-                   step_up_note: str | None = None) -> None:
+                   step_up_note: str | None = None, top_stories: str | None = None) -> None:
         self.db.execute(
             """UPDATE jobs SET status=?, reason=COALESCE(?, reason), score=COALESCE(?, score),
                    score_summary=COALESCE(?, score_summary), red_flags=COALESCE(?, red_flags),
@@ -220,9 +223,10 @@ class Store:
                    pay_note=COALESCE(?, pay_note), buy_index=COALESCE(?, buy_index),
                    buy_low=COALESCE(?, buy_low), buy_high=COALESCE(?, buy_high),
                    step_up=COALESCE(?, step_up), step_up_note=COALESCE(?, step_up_note),
+                   top_stories=COALESCE(?, top_stories),
                    description=CASE WHEN ?='prescreen' THEN description END WHERE key=?""",
             (status, reason, score, score_summary, red_flags, best_resume, pay_index, pay_low, pay_high,
-             pay_note, buy_index, buy_low, buy_high, step_up, step_up_note, status, key),
+             pay_note, buy_index, buy_low, buy_high, step_up, step_up_note, top_stories, status, key),
         )
 
     def mark_notified(self, key: str, status: str = "alerted") -> None:
@@ -253,6 +257,12 @@ class Store:
         return self.db.execute(
             """SELECT * FROM jobs WHERE status IN ('alert','alerted','digest','digested','notify_failed','low_pay')
                AND COALESCE(published_at, first_seen_at)>=?""", (_iso(since),)).fetchall()
+
+    def scored_since(self, since: datetime) -> list[sqlite3.Row]:
+        """Matches the AI already scored, posted since `since` (for re-scoring; low_pay jobs aren't scored)."""
+        return self.db.execute(
+            """SELECT * FROM jobs WHERE status IN ('alert','alerted','digest','digested','notify_failed','low')
+               AND score IS NOT NULL AND COALESCE(published_at, first_seen_at)>=?""", (_iso(since),)).fetchall()
 
     def low_pay_since(self, since: datetime) -> list[sqlite3.Row]:
         return self.db.execute("SELECT * FROM jobs WHERE status='low_pay' AND first_seen_at>=? "
@@ -345,3 +355,11 @@ class Store:
                                  (since,)):
             out.setdefault(r[0], Counter())[r[1]] = r[2]
         return out
+
+
+def stories_from_row(row) -> list[tuple[str, str]]:
+    """The job's best-fitting work stories as (id, title), best first."""
+    try:
+        return [tuple(pair) for pair in json.loads(row["top_stories"] or "[]")]
+    except (ValueError, TypeError):
+        return []

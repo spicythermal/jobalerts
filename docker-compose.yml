@@ -9,7 +9,8 @@ services:
     volumes:
       - ./config:/app/config   # config.yaml, companies.yaml, profile.md, taxes.yaml, tax_data.json
       - ./data:/app/data       # SQLite database
-      - ./resume_reference:/app/resume_reference:ro   # PDF/.md resumes the AI scorer compares against
+      - ./resume_reference:/app/resume_reference:ro   # PDF/.md resumes (which version to apply with)
+      - ./stories:/app/stories:ro                     # work stories the AI scorer judges fit against
     logging:
       driver: json-file
       options:

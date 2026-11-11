@@ -149,3 +149,13 @@ def test_sensor_attributes_carry_the_step_ups():
     pub = MqttPublisher(HomeAssistant(mqtt_host="h"))
     attrs = json.loads(pub.messages(1, [{"company": "A", "title": "T"}], None, [{"title": "Director"}])[1][1])
     assert attrs["step_ups"] == [{"title": "Director"}]
+
+
+def test_mqtt_attributes_carry_story_ids_not_titles():
+    from jobalerts.config import HomeAssistant
+    from jobalerts.dashboard import MqttPublisher
+    pub = MqttPublisher(HomeAssistant(mqtt_host="h"))
+    job = {"company": "A", "title": "T", "stories": ["Long title"], "story_ids": ["gun"]}
+    attrs = json.loads(dict(pub.messages(1, [job], step_ups=[job]))[pub.attributes_topic])
+    assert attrs["jobs"][0]["story_ids"] == ["gun"] and "stories" not in attrs["jobs"][0]
+    assert "stories" not in attrs["step_ups"][0] and job["stories"] == ["Long title"]  # caller's dict untouched

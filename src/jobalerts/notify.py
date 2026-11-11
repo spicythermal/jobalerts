@@ -61,6 +61,8 @@ class Notifier:
                 lines.append(f"Step up {score.step_up}/100" + (f": {score.step_up_note}" if score.step_up_note else ""))
             if score.red_flags:
                 lines.append("Watch out: " + "; ".join(score.red_flags))
+            if score.top_story_titles:
+                lines.append("Your best stories: " + "; ".join(score.top_story_titles))
             if score.best_resume:
                 lines.append(f"Apply with: {score.best_resume}")
         age = job.age_days()

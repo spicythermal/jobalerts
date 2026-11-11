@@ -1,4 +1,5 @@
-"""AI fit scoring with Claude: one cheap call per keyword-matched job, against your resumes and profile.md.
+"""AI fit scoring with Claude: one cheap call per keyword-matched job, against your work stories
+(stories/*.md) and profile.md, or your resumes when there are no stories.
 
 Claude Haiku 5.5 costs $0.10/M input and $0.50/M output tokens, so a typical posting
 (~3K tokens in, a few hundred out) is about $0.0005; 100 matches a day is ~5 cents.
@@ -15,6 +16,7 @@ from .col import Pay
 from .config import Scoring
 from .models import Job
 from .resumes import Resume
+from .stories import Story
 from .store import Store
 
 log = logging.getLogger(__name__)
@@ -43,19 +45,21 @@ Score each posting 0-100 for how strongly this candidate should apply right now:
 - below 50: skip
 
 Compare the posting's must-have qualifications against the candidate's actual experience in \
-their resumes: domain, seniority, people leadership, tools, and track record. Weigh the \
+{evidence}: domain, seniority, people leadership, tools, and track record. Weigh the \
 candidate's stated priorities, the real impact and scope of the role, and their deal-breakers \
 above simple keyword overlap. Postings are often vague; judge from what is actually stated \
 and don't invent requirements.
 
 Return:
 - score: integer 0-100
-- summary: one sentence (at most 25 words) naming the strongest resume overlap or the main gap, \
-written for a phone notification
-- red_flags: concrete concerns such as a must-have the resumes don't show, clearance required, \
+- summary: one sentence (at most 25 words) naming the strongest overlap with their experience or \
+the main gap, written for a phone notification
+- red_flags: concrete concerns such as a must-have their experience doesn't show, clearance required, \
 wrong location, or contract-only. Use an empty list if there are none.
 - best_resume: the file name of the resume version to apply with, exactly as given in the resumes \
 below (empty string if none are provided)
+- top_stories: the ids of up to 3 work stories that best show the candidate can do this job, best \
+first, exactly as given in the work stories below (empty list if none are provided or none fit)
 - pay_min, pay_max: the posted base salary range as plain numbers (the same number twice if only one \
 figure is given; 0 and 0 if the posting states no pay). Base pay only: no bonus, equity or benefits. \
 If the range differs by location, use the one for the job's location, or for the candidate's home \
@@ -78,7 +82,7 @@ doesn't carry over, scores low. A strong fit at the same level is a high score b
 Don't let pay move the score. The program compares base pay with the candidate's salary floor \
 itself, adjusted for the local cost of living, so a lower number in a cheaper place isn't a red flag.
 
-{resumes}
+{experience}
 
 <candidate_profile>
 {profile}
@@ -91,6 +95,7 @@ SCHEMA = {
         "summary": {"type": "string"},
         "red_flags": {"type": "array", "items": {"type": "string"}},
         "best_resume": {"type": "string"},
+        "top_stories": {"type": "array", "items": {"type": "string"}},
         "pay_min": {"type": "number"},
         "pay_max": {"type": "number"},
         "pay_currency": {"type": "string"},
@@ -98,7 +103,7 @@ SCHEMA = {
         "step_up": {"type": "integer"},
         "step_up_note": {"type": "string"},
     },
-    "required": ["score", "summary", "red_flags", "best_resume", "pay_min", "pay_max", "pay_currency", "pay_period",
+    "required": ["score", "summary", "red_flags", "best_resume", "top_stories", "pay_min", "pay_max", "pay_currency", "pay_period",
                  "step_up", "step_up_note"],
     "additionalProperties": False,
 }
@@ -109,6 +114,8 @@ class FitScore(BaseModel):
     summary: str
     red_flags: list[str] = []
     best_resume: str = ""
+    top_stories: list[str] = []          # story ids, best first (at most 3)
+    top_story_titles: list[str] = []     # filled in by the Scorer, not the model
     pay_min: float = 0
     pay_max: float = 0
     pay_currency: str = ""
@@ -124,11 +131,30 @@ class FitScore(BaseModel):
         return Pay(min(self.pay_min, self.pay_max) or high, high, self.pay_currency.upper().strip(), self.pay_period or "year")
 
 
-def resumes_block(resumes: list[Resume]) -> str:
+RESUME_SUMMARY_CHARS = 1_500  # with stories, each resume is only there to pick the version to apply with
+
+
+def resumes_block(resumes: list[Resume], summary_only: bool = False) -> str:
     if not resumes:
         return "<resumes>(none provided; judge from the profile only)</resumes>"
-    parts = [f'<resume file="{r.name}">\n{r.text}\n</resume>' for r in resumes]
-    return "<resumes>\n" + "\n".join(parts) + "\n</resumes>"
+    parts = [f'<resume file="{r.name}">\n{r.text[:RESUME_SUMMARY_CHARS] if summary_only else r.text}\n</resume>'
+             for r in resumes]
+    note = ("Resume versions, opening section only. Use them to pick best_resume; judge fit from the "
+            "work stories.\n" if summary_only else "")
+    return "<resumes>\n" + note + "\n".join(parts) + "\n</resumes>"
+
+
+def stories_block(stories: list[Story]) -> str:
+    parts = [f'<story id="{s.id}" title="{s.title}">\n{s.text}\n</story>' for s in stories]
+    return ("<work_stories>\nOne story per project: what the candidate did, their role in it and the results.\n"
+            + "\n".join(parts) + "\n</work_stories>")
+
+
+def experience_prompt(resumes: list[Resume], stories: list[Story]) -> tuple[str, str]:
+    """(how the prompt names the candidate's experience, the block that holds it)."""
+    if stories:
+        return ("their work stories", stories_block(stories) + "\n\n" + resumes_block(resumes, summary_only=True))
+    return "their resumes", resumes_block(resumes)
 
 
 def job_prompt(job: Job) -> str:
@@ -146,12 +172,14 @@ def job_prompt(job: Job) -> str:
 
 class Scorer:
     def __init__(self, cfg: Scoring, store: Store, profile: str, client: anthropic.AsyncAnthropic | None = None,
-                 resumes: list[Resume] | None = None):
+                 resumes: list[Resume] | None = None, stories: list[Story] | None = None):
         self.cfg = cfg
         self.store = store
         self.resume_names = [r.name for r in resumes or []]
+        self.story_titles = {s.id: s.title for s in stories or []}
+        evidence, experience = experience_prompt(resumes or [], stories or [])
         self.system = SYSTEM.format(profile=profile.strip() or "(no profile provided)",
-                                    resumes=resumes_block(resumes or []))
+                                    evidence=evidence, experience=experience)
         self.client = client or anthropic.AsyncAnthropic(max_retries=3, timeout=90.0)
 
     async def score(self, job: Job) -> FitScore | None:
@@ -194,4 +222,7 @@ class Scorer:
         result.step_up = max(0, min(100, result.step_up))
         if result.best_resume not in self.resume_names:
             result.best_resume = ""
+        ids = [i.strip() for i in result.top_stories]
+        result.top_stories = [i for n, i in enumerate(ids) if i in self.story_titles and i not in ids[:n]][:3]
+        result.top_story_titles = [self.story_titles[i] for i in result.top_stories]
         return result

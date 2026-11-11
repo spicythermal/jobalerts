@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import random
 from dataclasses import dataclass, field
@@ -19,7 +20,7 @@ from .notify import Notifier
 from .prescreen import Prescreener
 from .scorer import FitScore, Scorer
 from .sources import SOURCES, Source, SourceConfigError, without_missing_keys
-from .store import Store, job_from_row
+from .store import Store, job_from_row, stories_from_row
 from .taxes import Taxes
 
 log = logging.getLogger(__name__)
@@ -53,7 +54,8 @@ def _score_cols(score: FitScore | None) -> dict:
         return {}
     return {"score": score.score, "score_summary": score.summary,
             "red_flags": "; ".join(score.red_flags) or None, "best_resume": score.best_resume or None,
-            "step_up": score.step_up, "step_up_note": score.step_up_note or None}
+            "step_up": score.step_up, "step_up_note": score.step_up_note or None,
+            "top_stories": json.dumps(list(zip(score.top_stories, score.top_story_titles))) if score.top_stories else None}
 
 
 class Runner:
@@ -218,6 +220,44 @@ class Runner:
                 store.update_job(job.key, status=status, reason=reason, **_pay_cols(pay, fit), **_score_cols(fit))
             out.append((job, old, status, pay, fit is not None))
         if out and write:
+            self._dashboard_stale.set()
+        return out
+
+    async def rescore(self, boards: list[Board], days: int | None = None) -> list[tuple[Job, str, str, FitScore | None]]:
+        """AI-score again the matches already scored and posted within max_age_days (or `days`), e.g. after
+        the work stories or profile changed. The new score, summary and top stories replace the old ones and
+        the job moves between digest and low to match; it is never pushed, and a job already delivered
+        (pushed or in a digest) keeps its status. Pay is left alone: reprice handles it.
+        Returns (job, old status, new status, new score or None if it couldn't be scored)."""
+        if not self.scorer:
+            return []
+        by_slug = {(b.source, b.slug): b for b in boards}
+        since = utcnow() - timedelta(days=days or self.cfg.criteria.max_age_days)
+        out = []
+        for row in self.store.scored_since(since):
+            job, old = job_from_row(row), row["status"]
+            board = by_slug.get((job.source, job.board))
+            if board is not None:
+                try:
+                    await SOURCES[job.source].enrich(job, board, self.http)
+                except Exception as e:
+                    if posting_gone(e):
+                        self.store.update_job(job.key, status="closed",
+                                              reason=f"posting taken down (HTTP {e.response.status_code})")
+                        out.append((job, old, "closed", None))
+                        continue
+                    log.warning("rescore: couldn't fetch %s: %s", job.key, e)
+            fit = await self.scorer.score(job)
+            if fit is None:  # API down, daily cap: keep the old score
+                out.append((job, old, old, None))
+                continue
+            status = old
+            if old in ("alert", "digest", "low"):
+                status = self.route(fit.score, fit.step_up).replace("alert", "digest")
+            self.store.update_job(job.key, status=status, reason="rescored" if status != old else None,
+                                  **_score_cols(fit))
+            out.append((job, old, status, fit))
+        if out:
             self._dashboard_stale.set()
         return out
 
@@ -584,6 +624,8 @@ class Runner:
                     lines.append(f"  {r['pay_note']}")
                 if r["step_up"] is not None and r["step_up"] >= STEP_UP_SHOWN:
                     lines.append(f"  step up {r['step_up']}: {r['step_up_note'] or ''}".rstrip(": "))
+                if stories := stories_from_row(r):
+                    lines.append("  stories: " + "; ".join(title for _, title in stories))
                 if r["best_resume"]:
                     lines.append(f"  apply with: {r['best_resume']}")
         else:

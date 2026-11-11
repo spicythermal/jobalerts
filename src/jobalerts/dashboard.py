@@ -11,7 +11,7 @@ from .config import HomeAssistant, Scoring
 from .filters import JobFilter
 from .models import parse_dt, utcnow
 from .scorer import ai_cost_usd
-from .store import Store, job_from_row
+from .store import Store, job_from_row, stories_from_row
 
 log = logging.getLogger(__name__)
 
@@ -61,6 +61,8 @@ def top_matches(store: Store, job_filter: JobFilter, days: int, n: int, pay=None
             "step_up_note": r["step_up_note"] or "",
             "summary": r["score_summary"] or "",
             "best_resume": r["best_resume"] or "",
+            "stories": [title for _, title in stories_from_row(r)],   # best-fitting work stories, best first
+            "story_ids": [sid for sid, _ in stories_from_row(r)],
             "posted": r["published_at"] or r["first_seen_at"],
             "age": _age(published or parse_dt(r["first_seen_at"])),
             "pushed": r["status"] == "alerted",
@@ -151,7 +153,9 @@ class MqttPublisher:
                  step_ups: list[dict] | None = None) -> list[tuple[str, str]]:
         top = f"{jobs[0]['company']}: {jobs[0]['title']}" if jobs else "none"
         updated = utcnow().isoformat(timespec="seconds")
-        attributes = {"days": self.cfg.days, "top": top[:250], "jobs": jobs, "step_ups": step_ups or [],
+        # Story titles stay out of Home Assistant (ids are enough for a card) to keep the attributes small.
+        lean = lambda rows: [{k: v for k, v in r.items() if k != "stories"} for r in rows or []]
+        attributes = {"days": self.cfg.days, "top": top[:250], "jobs": lean(jobs), "step_ups": lean(step_ups),
                       "updated": updated}
         out = [(self.discovery_topic, json.dumps(self.discovery())),
                (self.attributes_topic, json.dumps(attributes)),

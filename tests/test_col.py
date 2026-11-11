@@ -14,7 +14,7 @@ from jobalerts.http import HttpClient
 from jobalerts.notify import Notifier
 from jobalerts.scheduler import Runner
 from jobalerts.scorer import FitScore
-from jobalerts.store import Store
+from jobalerts.store import Store, stories_from_row
 
 from conftest import REPO, run
 from test_pipeline import FakeSource, make_job
@@ -769,3 +769,39 @@ def test_backfill_closes_a_taken_down_baseline_job_without_scoring_it(pay_env):
     assert [(job.job_id, status) for job, status, _ in run(runner.backfill([board]))] == [("0", "closed")]
     assert scorer.calls == 0
     assert store.db.execute("SELECT status FROM jobs WHERE job_id='0'").fetchone()[0] == "closed"
+
+
+def test_top_stories_reach_db_alert_and_dashboard(pay_env):
+    fake, runner, board, store, notifier = pay_env
+    runner.scorer = PayScorer(FitScore(score=90, summary="fit", top_stories=["gun", "beam"],
+                                       top_story_titles=["Designed an electron gun", "Halved beam loss"]))
+    fake.jobs.append(make_job(20, location="Portland, OR"))
+    run(runner.poll_board(board))
+    assert json.loads(store.db.execute("SELECT top_stories FROM jobs WHERE job_id='20'").fetchone()[0]) == [
+        ["gun", "Designed an electron gun"], ["beam", "Halved beam loss"]]
+    assert "Your best stories: Designed an electron gun; Halved beam loss" in notifier.sent[-1]["message"]
+    top = {j["url"]: j for j in runner.top_matches(10, 7)[1]}["https://x/20"]
+    assert top["stories"] == ["Designed an electron gun", "Halved beam loss"] and top["story_ids"] == ["gun", "beam"]
+
+
+def test_rescore_updates_scores_and_never_pushes(pay_env):
+    fake, runner, board, store, notifier = pay_env
+    for n, status, score in [(21, "digest", 60), (22, "low", 40), (23, "alerted", 90), (24, "digest", 70)]:
+        job = make_job(n, location="Portland, OR")
+        store.insert_job(job, "processing")
+        store.update_job(job.key, status=status, score=score)
+    _gone(fake, {"24"})
+    runner.scorer = PayScorer(FitScore(score=95, summary="new", top_stories=["gun"],
+                                       top_story_titles=["Designed an electron gun"]))
+    sent = len(notifier.sent)
+    out = {job.job_id: (old, new, fit) for job, old, new, fit in run(runner.rescore([board]))}
+    assert {k: v[:2] for k, v in out.items()} == {"21": ("digest", "digest"), "22": ("low", "digest"),
+                                                  "23": ("alerted", "alerted"), "24": ("digest", "closed")}
+    assert len(notifier.sent) == sent                                   # nothing pushed
+    rows = {r["job_id"]: r for r in store.db.execute("SELECT * FROM jobs WHERE job_id IN ('21','22','23')")}
+    assert all(r["score"] == 95 and r["score_summary"] == "new" for r in rows.values())
+    assert stories_from_row(rows["22"]) == [("gun", "Designed an electron gun")]
+
+    runner.scorer = PayScorer(FitScore(score=30, summary="worse"))
+    out = {job.job_id: new for job, _, new, _ in run(runner.rescore([board]))}
+    assert out == {"21": "low", "22": "low", "23": "alerted"}
