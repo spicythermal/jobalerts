@@ -935,6 +935,33 @@ class PayIndex:
         th = self.take_home(gross_usd, place)
         return th.net if th else gross_usd
 
+    def explain(self, result: PayResult) -> list[tuple[str, str]]:
+        """How a pay index was worked out, as (label, text) lines: `jobalerts pay` and the job page."""
+        place, home, ref = result.place, self.home, self.reference_salary
+        lo, hi = result.pay.annual()
+        amount = f"{lo:,.0f}" if lo == hi else f"{lo:,.0f}-{hi:,.0f}"
+        out = [("pay", f"{result.pay.text()} = {result.pay.currency} {amount} a year"),
+               ("place", f"{place.label}: prices {place.level:.3f}x the US average")]
+        top_usd = self.to_usd(hi, result.pay.currency)
+        ref_th = self.take_home(ref, home)
+        th = self.take_home(top_usd, place) if ref_th and top_usd is not None else None
+        if th:
+            out += [("taxes", f"{th.where}, at the top of the range (${top_usd:,.0f}):\n{th.text()}"),
+                    ("take-home", f"${th.net:,.0f} / {place.level:.3f} = ${th.net / place.level:,.0f} in US-average prices"),
+                    ("reference", f"${ref:,.0f} in {ref_th.where}: {ref_th.text()}\n"
+                                  f"take-home ${ref_th.net:,.0f} / {home.level:.3f} = ${ref_th.net / home.level:,.0f}")]
+        else:
+            out.append(("reference", f"${ref:,.0f} / {home.level:.3f} = ${ref / home.level:,.0f} in US-average prices"))
+        if result.buy_low is not None:
+            out += [("renting", f"prices {place.level:.3f}x US ({self.housing_share:.0%} housing at the 4-bedroom FMR)"),
+                    ("buying", f"prices {place.buy_level:.3f}x US; {place.buy_note}\n"
+                               f"reference: {home.buy_note} (prices {home.buy_level:.3f}x US)"),
+                    ("pay index", f"{result.index:.2f} renting (range {result.low:.2f}-{result.high:.2f}), "
+                                  f"{result.buy_index:.2f} buying (range {result.buy_low:.2f}-{result.buy_high:.2f})")]
+        else:
+            out.append(("pay index", f"{result.index:.2f} (range {result.low:.2f}-{result.high:.2f})"))
+        return out
+
     def to_usd(self, amount: float, currency: str) -> float | None:
         if currency == "USD":
             return amount

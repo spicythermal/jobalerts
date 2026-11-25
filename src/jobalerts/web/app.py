@@ -22,6 +22,8 @@ from fastapi.templating import Jinja2Templates
 
 from ..vault import secret_key
 from . import auth
+from .boards_pages import add_board_routes
+from .jobs_pages import add_job_routes
 from .settings_pages import SUBNAV, add_settings_routes
 
 log = logging.getLogger(__name__)
@@ -221,11 +223,6 @@ def create_app(runner, key: bytes) -> FastAPI:
         return RedirectResponse("/", 303)
 
     # ------------------------------------------------------------------ pages
-    @app.get("/")
-    async def home(request: Request):
-        total, jobs = runner.top_matches()
-        return page(request, "home.html", total=total, jobs=jobs)
-
     @app.get("/map")
     async def map_page(request: Request):
         return page(request, "map.html", enabled=bool(runner.pay and cfg.map.enabled))
@@ -277,6 +274,8 @@ def create_app(runner, key: bytes) -> FastAPI:
         state.store.set_meta(META_SHARE, auth.new_token())
         return RedirectResponse("/settings/account?saved=share", 303)
 
+    add_job_routes(app, state, page, require_csrf)
+    add_board_routes(app, state, page, require_csrf)
     add_settings_routes(app, state, page, require_csrf)
 
     @app.get("/{rest:path}")

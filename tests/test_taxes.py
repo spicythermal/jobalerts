@@ -17,9 +17,15 @@ from conftest import REPO, run
 from test_col import DATA
 
 
+# A household the hand checks below are worked out for: married, one earner, two children under 17,
+# one older dependent, 6% into a pre-tax 401(k).
+HOUSEHOLD = {"filing": "joint", "children": 2, "other_dependents": 1, "k401_rate": 0.06}
+RULES, TABLES = REPO / "config" / "taxes.yaml", REPO / "config" / "tax_data"
+
+
 @pytest.fixture(scope="module")
 def taxes():
-    return Taxes.load(REPO / "config" / "taxes.yaml", REPO / "config" / "tax_data.json")
+    return Taxes.load(RULES, TABLES, HOUSEHOLD)
 
 
 def part(th, label):
@@ -29,7 +35,7 @@ def part(th, label):
 def test_federal_and_fica_by_hand(taxes):
     # $155K, married filing jointly, 6% 401(k): taxable 155,000 - 9,300 - 32,200 standard deduction = 113,500
     th = taxes.take_home(155_000, "USA", "TX", "austin")
-    # less the credits for the dependents (ages 4, 8, 18): two $2,200 child tax credits + $500 other-dependent credit
+    # less the credits for the dependents: two $2,200 child tax credits + the $500 other-dependent credit
     assert part(th, "federal income tax") == pytest.approx(0.10 * 24_800 + 0.12 * 76_000 + 0.22 * 12_700 - 4_900, abs=1)
     # 401(k) money still pays Social Security and Medicare
     assert part(th, "Social Security + Medicare") == pytest.approx(0.0765 * 155_000, abs=1)
@@ -101,17 +107,58 @@ def test_abroad_rates(taxes):
     assert "not listed" in taxes.take_home(100_000, "XYZ").where
 
 
-def test_problem_when_stale_or_built_for_another_household(taxes):
+def test_problem_when_stale(taxes):
     assert taxes.problem(date(taxes.year, 6, 1)) == ""
     assert "rebuild" in taxes.problem(date(taxes.year + 1, 1, 2))
-    other = Taxes(dict(taxes.rules, household=dict(taxes.household, k401_rate=0.1)), taxes.data)
-    assert "different household" in other.problem(date(taxes.year, 6, 1))
 
 
-def test_committed_table_covers_every_state_and_locality(taxes):
-    assert len([k for k in taxes.places if len(k) == 2 and k != "US"]) == 51 and "US" in taxes.places
-    assert taxes.data["household"] == taxes.household
-    assert taxes.household["dependents"] == [4, 8, 18]
+def test_every_household_has_a_table_for_every_state_and_locality():
+    from jobalerts.taxes import variant_name
+    for filing in ("single", "joint"):
+        for children in range(5):
+            for other in range(2):
+                h = {"filing": filing, "children": children, "other_dependents": other}
+                t = Taxes.load(RULES, TABLES, h)
+                assert t.data["household"] == h and t.data["k401"] == 0 and t.data["source"] == "PolicyEngine-US 2.88.9"
+                assert len([k for k in t.places if len(k) == 2 and k != "US"]) == 51 and "US" in t.places
+    assert variant_name({"filing": "joint", "children": 6, "other_dependents": 3}) == "joint-4-1"   # most there is
+    assert variant_name({}) == "single-0-0"
+
+
+def test_dependents_and_filing_change_the_taxes():
+    single = Taxes.load(RULES, TABLES, {"filing": "single", "k401_rate": 0}).take_home(155_000, "USA", "TX")
+    joint = Taxes.load(RULES, TABLES, {"filing": "joint", "k401_rate": 0}).take_home(155_000, "USA", "TX")
+    kids = Taxes.load(RULES, TABLES, {"filing": "joint", "children": 2, "k401_rate": 0}).take_home(155_000, "USA", "TX")
+    fed = "federal income tax"
+    assert part(single, fed) > part(joint, fed) > part(kids, fed)
+    assert part(joint, fed) - part(kids, fed) == pytest.approx(2 * 2_200, abs=1)
+
+
+def test_401k_lowers_income_taxes_but_not_payroll_or_wage_taxes():
+    none = Taxes.load(RULES, TABLES, dict(HOUSEHOLD, k401_rate=0))
+    six = Taxes.load(RULES, TABLES, HOUSEHOLD)
+    for state, city in (("TX", ""), ("NY", "brooklyn"), ("PA", "philadelphia"), ("OR", "portland")):
+        a, b = none.take_home(155_000, "USA", state, city), six.take_home(155_000, "USA", state, city)
+        assert part(b, "federal income tax") == pytest.approx(part(a, "federal income tax") - 0.22 * 9_300, abs=2)
+        assert part(b, "Social Security + Medicare") == part(a, "Social Security + Medicare")
+        assert part(b, "state payroll (SDI, paid leave)") == part(a, "state payroll (SDI, paid leave)")
+    # Pennsylvania and Philadelphia's wage tax count 401(k) money; New York City's tax doesn't
+    pa0, pa6 = none.take_home(155_000, "USA", "PA", "philadelphia"), six.take_home(155_000, "USA", "PA", "philadelphia")
+    assert part(pa6, "state income tax") == part(pa0, "state income tax")
+    assert part(pa6, "local income tax") == part(pa0, "local income tax")
+    ny0, ny6 = none.take_home(155_000, "USA", "NY", "brooklyn"), six.take_home(155_000, "USA", "NY", "brooklyn")
+    assert part(ny6, "local income tax") < part(ny0, "local income tax")
+    # the deferral stops at the IRS limit
+    rich = six.take_home(600_000, "USA", "TX")
+    assert part(rich, fed := "federal income tax") == pytest.approx(
+        part(none.take_home(600_000 - 24_500, "USA", "TX"), fed), abs=1)
+
+
+def test_old_single_household_tables_are_refused():
+    rules = {"localities": {}}
+    with pytest.raises(ValueError, match="rebuild"):
+        Taxes(rules, {"year": 2026, "wages": [0, 1], "places": {"US": {}}})
+    assert Taxes(rules, {"year": 2026, "k401": 0, "wages": [0, 1], "places": {"US": {}}}).describe().startswith("single")
 
 
 # ---------------------------------------------------------------------------- the index on take-home
@@ -146,14 +193,14 @@ def test_runner_loads_the_tax_tables_and_flags_a_stale_year(tmp_path, monkeypatc
     cfg_dir = tmp_path / "config"
     cfg_dir.mkdir()
     (cfg_dir / "col_data.json").write_text(json.dumps(DATA))
-    for name in ("taxes.yaml", "tax_data.json"):
-        shutil.copy(REPO / "config" / name, cfg_dir / name)
+    shutil.copy(RULES, cfg_dir / "taxes.yaml")
+    shutil.copytree(TABLES, cfg_dir / "tax_data")
     cfg = Config(database=str(tmp_path / "data" / "jobs.db"), config_dir=cfg_dir)
     runner = Runner(cfg, Store(":memory:"), HttpClient(), Notifier(cfg.notify, dry_run=True))
     assert runner.pay.taxes is not None and runner.pay_problem == ""
     year = runner.pay.taxes.year
     monkeypatch.setattr("jobalerts.taxes.date", type("D", (), {"today": staticmethod(lambda: date(year + 1, 1, 5))}))
-    assert "rebuild config/tax_data.json" in run(runner.send_digest(mark=False))
+    assert "rebuild config/tax_data/" in run(runner.send_digest(mark=False))
 
 
 def test_missing_tax_tables_fall_back_to_gross_with_a_note(tmp_path):

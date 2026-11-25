@@ -12,7 +12,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from . import col, colmap, discover
-from .dashboard import MqttPublisher, ai_cost, top_matches
+from .dashboard import MqttPublisher, ai_cost, job_link, top_matches
 from .config import Board, Config
 from .filters import JobFilter
 from .http import HttpClient, posting_gone
@@ -80,6 +80,9 @@ class Runner:
         self.ui_settings = None             # settings.UiSettings, set by cli.open_runner / the web app
         self.base_cfg = cfg                 # config.yaml + config.local.yaml, before the UI's settings
         self.rebuild = None                 # (cfg, store) -> (scorer, prescreener, homeassistant); cli.open_runner
+        self.running = False                # True inside run_forever (board loops are live)
+        self.board_tasks: dict[str, tuple[Board, asyncio.Task]] = {}
+        self.next_poll: dict[str, float] = {}  # board key -> unix time of its next poll
         self._map_built = 0.0
         self._cap_noticed = ""                     # UTC day of the last "AI daily cap reached" push
         self.pay: col.PayIndex | None = None
@@ -100,6 +103,7 @@ class Runner:
             self.prescreener = prescreener if self.scorer else None
         self.map_html = None
         self._dashboard_stale.set()
+        self.sync_boards()   # a key saved in Settings starts its aggregator searches
 
     # ------------------------------------------------------------------ pipeline
     async def poll_board(self, board: Board) -> PollResult:
@@ -517,7 +521,8 @@ class Runner:
         taxes = None
         if cfg.taxes:
             try:
-                taxes = Taxes.load(self.cfg.resolve(cfg.tax_rules), self.cfg.resolve(cfg.tax_data))
+                taxes = Taxes.load(self.cfg.resolve(cfg.tax_rules), self.cfg.resolve(cfg.tax_data),
+                                   self.cfg.household.model_dump())
             except (OSError, KeyError, TypeError, ValueError) as e:
                 self.pay_problem = f"tax tables unusable ({type(e).__name__}: {e}); comparing gross pay"
                 log.warning("Pay index: %s", self.pay_problem)
@@ -580,7 +585,8 @@ class Runner:
     async def _notify(self, job: Job, score: FitScore | None) -> int:
         pay = self.pay_index(job, score)
         try:
-            await self.notifier.job_alert(job, score, pay.text() if pay else "", STEP_UP_SHOWN)
+            await self.notifier.job_alert(job, score, pay.text() if pay else "", STEP_UP_SHOWN,
+                                          link=job_link(self.cfg.web.public_url, job.key))
         except Exception as e:
             log.error("Notification failed for %s: %s (will go in the digest)", job.key, e)
             self.store.update_job(job.key, status="notify_failed")
@@ -609,10 +615,12 @@ class Runner:
         log.info("Watching %d boards", len(boards))
         await self.notifier.send("Job alerts running", f"Watching {len(boards)} boards.{note}",
                                  priority=2, tags=["eyes"])
-        tasks = [asyncio.create_task(self._board_loop(b), name=b.key) for b in boards]
-        tasks.append(asyncio.create_task(self._daily_loop(), name="digest"))
+        self.running = True
+        self.sync_boards()
+        tasks = [asyncio.create_task(self._supervise_boards(), name="boards"),
+                 asyncio.create_task(self._daily_loop(), name="digest")]
         if self.prescreener:
-            tasks.append(asyncio.create_task(self._prescreen_loop(boards), name="prescreen"))
+            tasks.append(asyncio.create_task(self._prescreen_loop(), name="prescreen"))
         tasks.append(asyncio.create_task(self.refresh_pay_data(), name="col-refresh"))
         if self.cfg.map.enabled and not self.pay:
             log.warning("map.enabled is set but the pay index is off (pay.enabled); no map")
@@ -623,9 +631,53 @@ class Runner:
             tasks.append(asyncio.create_task(serve(self), name="web"))
         await asyncio.gather(*tasks)
 
+    # ------------------------------------------------------------------ the boards being polled
+    def active_boards(self) -> list[Board]:
+        return without_missing_keys(self.cfg.boards())[0]
+
+    def sync_boards(self) -> None:
+        """Start, stop or restart board loops to match the watch list and the keys that are set
+        (after an edit on the Boards page or a key saved in Settings). Only while the service runs."""
+        if not self.running:
+            return
+        wanted = {b.key: b for b in self.active_boards()}
+        for key, (board, task) in list(self.board_tasks.items()):
+            if wanted.get(key) != board:
+                task.cancel()
+                del self.board_tasks[key]
+                self.next_poll.pop(key, None)
+                log.info("Stopped polling %s", key)
+        for key, board in wanted.items():
+            if key not in self.board_tasks:
+                self.board_tasks[key] = (board, asyncio.create_task(self._board_loop(board), name=key))
+
+    async def _supervise_boards(self) -> None:
+        """Waits on the board loops (they run until stopped); returns when none are left."""
+        while self.board_tasks:
+            tasks = {task for _, task in self.board_tasks.values()}
+            done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+            for key, (board, task) in list(self.board_tasks.items()):
+                if task in done:
+                    del self.board_tasks[key]
+                    if not task.cancelled() and task.exception():
+                        log.error("Board loop %s crashed: %r", key, task.exception())
+
+    def reload_watchlist(self) -> None:
+        """Re-read companies.yaml after the Boards page changed it, and poll accordingly."""
+        from .config import Company
+        from .watchlist import load
+        companies = [Company.model_validate(c) for c in load(self.cfg.resolve(self.cfg.companies_file))]
+        self.base_cfg.companies = companies
+        self.cfg.companies = companies
+        self.watched = {normalize_company(name) for name in self.cfg.watched_companies()}
+        self.sync_boards()
+        self._dashboard_stale.set()
+
     async def _board_loop(self, board: Board) -> None:
         # Spread the first polls over the first couple of minutes instead of one burst.
-        await asyncio.sleep(random.uniform(0, min(board.interval, 120)))
+        first = random.uniform(0, min(board.interval, 120))
+        self.next_poll[board.key] = time.time() + first
+        await asyncio.sleep(first)
         jitter = self.cfg.polling.jitter
         while True:
             delay = board.interval
@@ -653,13 +705,15 @@ class Runner:
                         priority=3, tags=["warning"])
             finally:
                 self.store.add_host_stats(self.http.drain_stats())
-            await asyncio.sleep(delay * random.uniform(1 - jitter, 1 + jitter))
+            wait = delay * random.uniform(1 - jitter, 1 + jitter)
+            self.next_poll[board.key] = time.time() + wait
+            await asyncio.sleep(wait)
 
-    async def _prescreen_loop(self, boards: list[Board]) -> None:
+    async def _prescreen_loop(self) -> None:
         while True:
             await asyncio.sleep(self.cfg.prescreen.interval)
             try:
-                await self.run_prescreen(boards)
+                await self.run_prescreen(self.active_boards())
             except Exception:
                 log.exception("Pre-screen run failed")
 
@@ -704,7 +758,8 @@ class Runner:
     def top_matches(self, n: int | None = None, days: int | None = None, by: str = "score") -> tuple[int, list[dict]]:
         """Best recent matches by AI fit score, or with by="step_up" the biggest credible promotions."""
         cfg = self.cfg.homeassistant
-        return top_matches(self.store, self.filter, days or cfg.days, n or cfg.top_n, self.pay, by)
+        return top_matches(self.store, self.filter, days or cfg.days, n or cfg.top_n, self.pay, by,
+                           self.cfg.web.public_url)
 
     @property
     def map_enabled(self) -> bool:
@@ -791,7 +846,9 @@ class Runner:
                 f"{b['key']} ({b['failures']}x: {(b['last_error'] or '')[:80]})" for b in failing[:5]))
 
         message = "\n".join(lines)
-        await self.notifier.send(f"Job digest: {len(rows)} to review", message, priority=3, tags=["clipboard"])
+        home = self.cfg.web.public_url.rstrip("/")
+        await self.notifier.send(f"Job digest: {len(rows)} to review", message, priority=3, tags=["clipboard"],
+                                 click=f"{home}/" if home else None)
         if mark:
             self.store.mark_digested([r["key"] for r in rows])
             self.store.mark_suggestions_reported([s["company_key"] for s, _ in suggestions])

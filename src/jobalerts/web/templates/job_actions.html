@@ -1,0 +1,12 @@
+<div class="actions">
+  {% for value, label in states.items() %}
+    {% if job.user_state == value %}
+    <button type="button" class="chip on" hx-post="/jobs/{{ job.key|urlencode }}/state" hx-vals='{"state": "clear", "where": "{{ where }}"}'
+            hx-target="closest .actions" hx-swap="outerHTML" aria-pressed="true">{{ label }} ✓</button>
+    {% else %}
+    <button type="button" class="chip" hx-post="/jobs/{{ job.key|urlencode }}/state" hx-vals='{"state": "{{ value }}", "where": "{{ where }}"}'
+            {% if where == "list" and value == "dismissed" %}hx-target="closest .job" hx-swap="outerHTML"{% else %}hx-target="closest .actions" hx-swap="outerHTML"{% endif %}
+            aria-pressed="false">{{ {"saved": "Save", "dismissed": "Dismiss", "applied": "Applied"}[value] }}</button>
+    {% endif %}
+  {% endfor %}
+</div>

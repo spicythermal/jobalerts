@@ -1,0 +1,13 @@
+{% if error %}<p class="error">{{ error }}</p>{% endif %}
+{% for row in found %}
+{% set f = row.f %}
+<form method="post" action="/boards/add" class="found">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <input type="hidden" name="ats" value="{{ f.ats }}"><input type="hidden" name="slug" value="{{ f.slug }}">
+  <input type="hidden" name="url" value="{{ f.url }}"><input type="hidden" name="region" value="{{ f.region }}">
+  <label class="grow">Name <input name="name" value="{{ f.name }}"></label>
+  <span class="mono small">{{ f.ats }} · {{ f.slug or f.url }} · {{ f.jobs }} open jobs</span>
+  <label>Tier <select name="tier">{% for t in tiers %}<option value="{{ t }}"{% if t == row.tier %} selected{% endif %}>{{ t }}</option>{% endfor %}</select></label>
+  <button type="submit">Add</button>
+</form>
+{% endfor %}

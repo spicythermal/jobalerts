@@ -129,7 +129,8 @@ class Store:
             self.db.execute("ALTER TABLE jobs ADD COLUMN description TEXT")
         for name, kind in (("buy_index", "REAL"), ("buy_low", "REAL"), ("buy_high", "REAL"),
                            ("step_up", "INTEGER"), ("step_up_note", "TEXT"),  # before rent/buy and step-ups
-                           ("top_stories", "TEXT"), ("score_basis", "TEXT")):  # before work stories
+                           ("top_stories", "TEXT"), ("score_basis", "TEXT"),  # before work stories
+                           ("user_state", "TEXT"), ("user_state_at", "TEXT")):  # before the web UI's jobs page
             if name not in columns:
                 self.db.execute(f"ALTER TABLE jobs ADD COLUMN {name} {kind}")
         usage_columns = {r["name"] for r in self.db.execute("PRAGMA table_info(ai_usage)")}
@@ -266,6 +267,34 @@ class Store:
         return self.db.execute(
             """SELECT * FROM jobs WHERE status IN ('alert','alerted','digest','digested','notify_failed','baseline')
                AND COALESCE(published_at, first_seen_at)>=?""", (_iso(since),)).fetchall()
+
+    # ---- the web UI's jobs page ----
+    PAGE_STATUSES = ("alert", "alerted", "digest", "digested", "notify_failed", "baseline", "low", "low_pay")
+
+    def jobs_since(self, since: datetime, statuses: tuple[str, ...] = PAGE_STATUSES) -> list[sqlite3.Row]:
+        marks = ",".join("?" * len(statuses))
+        return self.db.execute(f"SELECT * FROM jobs WHERE status IN ({marks}) AND COALESCE(published_at, first_seen_at)>=?",
+                               (*statuses, _iso(since))).fetchall()
+
+    def jobs_by_user_state(self, state: str) -> list[sqlite3.Row]:
+        return self.db.execute("SELECT * FROM jobs WHERE user_state=? ORDER BY user_state_at DESC", (state,)).fetchall()
+
+    def matches_by_board(self, since: datetime) -> dict[str, int]:
+        """Keyword matches first seen since `since`, per board key (source:board)."""
+        rows = self.db.execute(
+            """SELECT source || ':' || board AS k, COUNT(*) AS n FROM jobs
+               WHERE status IN ('alert','alerted','digest','digested','notify_failed','low','low_pay') AND first_seen_at>=?
+               GROUP BY k""", (_iso(since),)).fetchall()
+        return {r["k"]: r["n"] for r in rows}
+
+    def get_job(self, key: str) -> sqlite3.Row | None:
+        return self.db.execute("SELECT * FROM jobs WHERE key=?", (key,)).fetchone()
+
+    def set_user_state(self, key: str, state: str | None) -> bool:
+        """saved | dismissed | applied, or None to clear. False if there's no such job."""
+        cur = self.db.execute("UPDATE jobs SET user_state=?, user_state_at=? WHERE key=?",
+                              (state or None, _iso(utcnow()) if state else None, key))
+        return cur.rowcount > 0
 
     def count_status(self, statuses: tuple[str, ...]) -> int:
         marks = ",".join("?" * len(statuses))

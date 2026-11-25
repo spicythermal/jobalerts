@@ -5,14 +5,15 @@ import asyncio
 import json
 import logging
 from datetime import timedelta
+from urllib.parse import quote
 
-from .vault import secret
 from .col import NO_PAY, parse_salary
 from .config import HomeAssistant, Scoring
 from .filters import JobFilter
 from .models import parse_dt, utcnow
 from .scorer import ai_cost_usd
 from .store import Store, job_from_row, stories_from_row
+from .vault import secret
 
 log = logging.getLogger(__name__)
 
@@ -24,56 +25,87 @@ def _age(published) -> str:
     return f"{hours:.0f}h ago" if hours < 48 else f"{hours / 24:.0f}d ago"
 
 
+MQTT_FIELDS = ("company", "title", "location", "salary", "pay_index", "pay_low", "pay_high", "buy_index", "buy_low",
+               "buy_high", "pay", "url", "link", "score", "step_up", "step_up_note", "summary", "best_resume",
+               "story_ids", "posted", "age", "pushed")
+
+
+def job_link(public_url: str, key: str) -> str:
+    """The job's page in the web UI, when its address is known (web.public_url); else ""."""
+    return f"{public_url.rstrip('/')}/jobs/{quote(key, safe='')}" if public_url else ""
+
+
+def job_row(r, pay=None, public_url: str = "") -> dict:
+    """One stored job as the web UI, `top` and Home Assistant show it. `pay` (a col.PayIndex) fills in
+    the pay index for jobs stored without one (baseline jobs, never scored)."""
+    published = parse_dt(r["published_at"])
+    pay_index, low, high = r["pay_index"], r["pay_low"], r["pay_high"]
+    buy_index, buy_low, buy_high = r["buy_index"], r["buy_low"], r["buy_high"]
+    pay_note = "" if r["pay_note"] == NO_PAY else r["pay_note"] or ""
+    if pay_index is None and pay and (result := pay.index(parse_salary(r["salary"] or ""), r["location"] or "",
+                                                          bool(r["remote"]))):
+        pay_index, low, high, pay_note = result.index, result.low, result.high, result.text()
+        buy_index, buy_low, buy_high = result.buy_index, result.buy_low, result.buy_high
+    stories = stories_from_row(r)
+    return {
+        "key": r["key"],
+        "company": r["company"] or "",
+        "title": r["title"] or "",
+        "location": r["location"] or "",
+        "remote": bool(r["remote"]),
+        "salary": r["salary"] or "",
+        "pay_index": round(pay_index, 2) if pay_index is not None else None,
+        "pay_low": round(low, 2) if low is not None else None,
+        "pay_high": round(high, 2) if high is not None else None,
+        "buy_index": round(buy_index, 2) if buy_index is not None else None,
+        "buy_low": round(buy_low, 2) if buy_low is not None else None,
+        "buy_high": round(buy_high, 2) if buy_high is not None else None,
+        "pay": pay_note,
+        "url": r["url"] or "",
+        "link": job_link(public_url, r["key"]),
+        "score": r["score"],
+        "step_up": r["step_up"],
+        "step_up_note": r["step_up_note"] or "",
+        "summary": r["score_summary"] or "",
+        "red_flags": r["red_flags"] or "",
+        "best_resume": r["best_resume"] or "",
+        "stories": [title for _, title in stories],   # best-fitting work stories, best first
+        "story_ids": [sid for sid, _ in stories],
+        "posted": r["published_at"] or r["first_seen_at"],
+        "first_seen": r["first_seen_at"],
+        "age": _age(published or parse_dt(r["first_seen_at"])),
+        "status": r["status"],
+        "reason": r["reason"] or "",
+        "pushed": r["status"] == "alerted",
+        "user_state": r["user_state"] or "",
+        "source": r["source"],
+    }
+
+
+def rank(rows: list[dict], by: str = "score") -> list[dict]:
+    """Newest first, then by AI score (or step-up score; jobs without one left out)."""
+    rows = sorted(rows, key=lambda m: m["posted"] or "", reverse=True)
+    if by == "step_up":
+        return sorted((m for m in rows if m["step_up"] is not None), key=lambda m: m["step_up"], reverse=True)
+    return sorted(rows, key=lambda m: -1 if m["score"] is None else m["score"], reverse=True)
+
+
 def top_matches(store: Store, job_filter: JobFilter, days: int, n: int, pay=None,
-                by: str = "score") -> tuple[int, list[dict]]:
+                by: str = "score", public_url: str = "") -> tuple[int, list[dict]]:
     """(number of matches posted in the last `days`, the best `n` of them).
 
     Ranked by AI score (or with by="step_up" by the AI's step-up score, for the best promotions;
     jobs without one are left out), then newest first. Jobs that were already open when a board was
     first polled (baseline) count too if they pass the title/location filter, so the list isn't empty
-    right after a deploy. `pay` (a col.PayIndex) fills in the pay index for jobs stored without one."""
+    right after a deploy. Jobs you dismissed on the web UI are left out."""
     matches = []
     for r in store.recent_candidates(utcnow() - timedelta(days=days)):
-        published = parse_dt(r["published_at"])
+        if r["user_state"] == "dismissed":
+            continue
         if r["status"] == "baseline" and not job_filter.check_basic(job_from_row(r))[0]:
             continue
-        pay_index, low, high = r["pay_index"], r["pay_low"], r["pay_high"]
-        buy_index, buy_low, buy_high = r["buy_index"], r["buy_low"], r["buy_high"]
-        pay_note = "" if r["pay_note"] == NO_PAY else r["pay_note"] or ""
-        if pay_index is None and pay and (result := pay.index(parse_salary(r["salary"] or ""), r["location"] or "",
-                                                              bool(r["remote"]))):
-            pay_index, low, high, pay_note = result.index, result.low, result.high, result.text()
-            buy_index, buy_low, buy_high = result.buy_index, result.buy_low, result.buy_high
-        matches.append({
-            "company": r["company"] or "",
-            "title": r["title"] or "",
-            "location": r["location"] or "",
-            "salary": r["salary"] or "",
-            "pay_index": round(pay_index, 2) if pay_index is not None else None,
-            "pay_low": round(low, 2) if low is not None else None,
-            "pay_high": round(high, 2) if high is not None else None,
-            "buy_index": round(buy_index, 2) if buy_index is not None else None,
-            "buy_low": round(buy_low, 2) if buy_low is not None else None,
-            "buy_high": round(buy_high, 2) if buy_high is not None else None,
-            "pay": pay_note,
-            "url": r["url"] or "",
-            "score": r["score"],
-            "step_up": r["step_up"],
-            "step_up_note": r["step_up_note"] or "",
-            "summary": r["score_summary"] or "",
-            "best_resume": r["best_resume"] or "",
-            "stories": [title for _, title in stories_from_row(r)],   # best-fitting work stories, best first
-            "story_ids": [sid for sid, _ in stories_from_row(r)],
-            "posted": r["published_at"] or r["first_seen_at"],
-            "age": _age(published or parse_dt(r["first_seen_at"])),
-            "pushed": r["status"] == "alerted",
-        })
-    matches.sort(key=lambda m: m["posted"], reverse=True)
-    if by == "step_up":
-        ranked = sorted((m for m in matches if m["step_up"] is not None), key=lambda m: m["step_up"], reverse=True)
-        return len(matches), ranked[:n]
-    matches.sort(key=lambda m: -1 if m["score"] is None else m["score"], reverse=True)
-    return len(matches), matches[:n]
+        matches.append(job_row(r, pay, public_url))
+    return len(matches), rank(matches, by)[:n]
 
 
 def ai_cost(store: Store, scoring: Scoring) -> dict | None:
@@ -154,8 +186,8 @@ class MqttPublisher:
                  step_ups: list[dict] | None = None) -> list[tuple[str, str]]:
         top = f"{jobs[0]['company']}: {jobs[0]['title']}" if jobs else "none"
         updated = utcnow().isoformat(timespec="seconds")
-        # Story titles stay out of Home Assistant (ids are enough for a card) to keep the attributes small.
-        lean = lambda rows: [{k: v for k, v in r.items() if k != "stories"} for r in rows or []]
+        # Only what a card shows: Home Assistant caps attribute size (story ids are enough, no titles).
+        lean = lambda rows: [{k: r[k] for k in MQTT_FIELDS if k in r} for r in rows or []]
         attributes = {"days": self.cfg.days, "top": top[:250], "jobs": lean(jobs), "step_ups": lean(step_ups),
                       "updated": updated}
         out = [(self.discovery_topic, json.dumps(self.discovery())),

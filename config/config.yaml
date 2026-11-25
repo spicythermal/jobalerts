@@ -285,11 +285,12 @@ pay:
   min_index: 1.05           # skip AI scoring and alerts when even the top of the stated range is under this,
                             # renting AND buying (a job passes if either index clears it); 0 = off.
                             # (no stated pay: scored anyway). Skipped jobs are listed in the digest.
+  move_min_index: 1.15      # the same for jobs that need a move, when intent.move is "open"
   col_data: col_data.json   # committed seed; refreshed copies go to data/col_data.json
   refresh_days: 30          # re-download BEA + World Bank data when older than this (checked daily); 0 = never
   taxes: true               # index on take-home pay: after federal, state, local and payroll taxes where the job is
-  tax_rules: taxes.yaml     # household (married filing jointly, 6% pre-tax 401k), local taxes, rates abroad
-  tax_data: tax_data.json   # US taxes by salary and place; rebuild each January with tools/build_tax_data.py
+  tax_rules: taxes.yaml     # local taxes, rates abroad; your household (filing, dependents, 401k) is under household:
+  tax_data: tax_data        # US taxes by salary, place and household; rebuild each January with tools/build_tax_data.py
   housing_share: 0.40       # family housing: rent + utilities as a share of spending, priced at HUD's 4-bedroom
                             # Fair Market Rent for the metro (see col.py). 0.40 fits a family renting a
                             # 3-4 bedroom home; 0 = plain BEA RPP.
@@ -340,6 +341,19 @@ pay:
     "PUN MIC": "Pune, India"
     "HEL AA": "Helsinki, Finland"
     "Los Alamos": NM
+
+# Your household, for the taxes in the pay index (Settings page): filing single | joint (married,
+# one earner), children under 17 (0-4), other dependents (0-1), pre-tax 401(k) share of base pay.
+household:
+  filing: single
+  children: 0
+  other_dependents: 0
+  k401_rate: 0.06
+
+# What you'd do about moving (Settings page): stay = drop jobs that need a move; open = they must
+# clear pay.move_min_index; any = the same pay floor as local jobs.
+intent:
+  move: any
 
 # ---------------------------------------------------------------- phone notifications (ntfy)
 notify:

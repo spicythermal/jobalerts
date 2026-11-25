@@ -13,7 +13,7 @@ from typing import Literal
 from urllib.parse import urlparse
 
 import yaml
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, Field, model_validator
 
 ATS = Literal["greenhouse", "lever", "ashby", "smartrecruiters", "workday", "ultipro",
               "personio", "workable", "bamboohr", "rippling", "breezy", "successfactors"]
@@ -101,12 +101,20 @@ class PayConfig(BaseModel):
     refresh_days: int = 30               # rebuild from BEA + World Bank when older (0 = never); kept next to the DB
     locations: dict[str, str] = {}       # location text -> US metro name, state code, ISO3 country or "home"
     taxes: bool = True                   # compare take-home pay (after income and payroll taxes) instead of gross
-    tax_rules: str = "taxes.yaml"        # household, localities, local taxes, rates abroad (config dir)
-    tax_data: str = "tax_data.json"      # US taxes by salary and place, built by tools/build_tax_data.py
+    tax_rules: str = "taxes.yaml"        # localities, local taxes, rates abroad (config dir)
+    tax_data: str = "tax_data"           # US taxes by salary, place and household, built by tools/build_tax_data.py
     housing_share: float = 0.40          # share of spending on rent + utilities, priced at HUD 4-bedroom FMRs (0 = plain RPP)
     buy: BuyConfig = BuyConfig()
     current_home: CurrentHomeConfig = CurrentHomeConfig()
     city_weight: float = 0.5             # how far a metro's home prices and rents move toward the job's city's
+
+
+class Household(BaseModel):
+    """Whose taxes the pay index works out (Settings page): filing status, dependents, pre-tax 401(k)."""
+    filing: Literal["single", "joint"] = "single"   # joint = married filing jointly, one earner
+    children: int = Field(0, ge=0, le=4)            # under 17 (child tax credit)
+    other_dependents: int = Field(0, ge=0, le=1)    # 17 or older
+    k401_rate: float = Field(0.06, ge=0, le=1)      # share of base pay into a pre-tax 401(k)
 
 
 class Intent(BaseModel):
@@ -243,6 +251,7 @@ class Config(BaseModel):
     prescreen: Prescreen = Prescreen()
     pay: PayConfig = PayConfig()
     intent: Intent = Intent()
+    household: Household = Household()
     notify: Notify = Notify()
     homeassistant: HomeAssistant = HomeAssistant()
     map: MapConfig = MapConfig()
@@ -258,27 +267,27 @@ class Config(BaseModel):
         p = Path(relative)
         return p if p.is_absolute() else Path(os.path.normpath(self.config_dir / p))
 
+    def company_board(self, c: Company) -> Board:
+        """The board a watch-list entry polls (also for disabled entries, for the Boards page)."""
+        if c.tier not in self.polling.tiers:
+            raise ValueError(f"{c.name}: unknown tier {c.tier!r} (have {sorted(self.polling.tiers)})")
+        params = {"search": c.search, "region": c.region, "pages": c.pages}
+        slug = c.slug
+        if c.ats == "workday":
+            host, tenant, site = parse_workday_url(c.url)
+            params.update(host=host, tenant=tenant, site=site)
+            slug = f"{tenant}/{site}"
+        elif c.ats == "ultipro":
+            host, tenant, board_id = parse_ultipro_url(c.url)
+            params.update(host=host, tenant=tenant, board_id=board_id)
+            slug = f"{tenant}/{board_id[:8]}"
+        elif c.ats == "successfactors":
+            params["url"] = c.url
+            slug = urlparse(c.url).netloc
+        return Board(c.ats, slug, c.name, self.polling.tiers[c.tier], params)
+
     def boards(self) -> list[Board]:
-        out: list[Board] = []
-        for c in self.companies:
-            if not c.enabled:
-                continue
-            if c.tier not in self.polling.tiers:
-                raise ValueError(f"{c.name}: unknown tier {c.tier!r} (have {sorted(self.polling.tiers)})")
-            params = {"search": c.search, "region": c.region, "pages": c.pages}
-            slug = c.slug
-            if c.ats == "workday":
-                host, tenant, site = parse_workday_url(c.url)
-                params.update(host=host, tenant=tenant, site=site)
-                slug = f"{tenant}/{site}"
-            elif c.ats == "ultipro":
-                host, tenant, board_id = parse_ultipro_url(c.url)
-                params.update(host=host, tenant=tenant, board_id=board_id)
-                slug = f"{tenant}/{board_id[:8]}"
-            elif c.ats == "successfactors":
-                params["url"] = c.url
-                slug = urlparse(c.url).netloc
-            out.append(Board(c.ats, slug, c.name, self.polling.tiers[c.tier], params))
+        out: list[Board] = [self.company_board(c) for c in self.companies if c.enabled]
         for source in AGGREGATORS:
             agg: AggregatorConfig = getattr(self.aggregators, source)
             if not agg.enabled:

@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Boards · Job alerts{% endblock %}
+{% block content %}
+<h1>Boards</h1>
+{% if saved == "added" %}<p class="ok" role="status">Added. {% if running %}It's polled from now on.{% else %}It's polled when the service runs.{% endif %}</p>
+{% elif saved == "already" %}<p class="muted" role="status">That board is already on the list.</p>
+{% elif saved == "removed" %}<p class="ok" role="status">Removed from the watch list.</p>
+{% elif saved %}<p class="ok" role="status">Saved.</p>{% endif %}
+{% if error %}<p class="error" role="alert">That entry couldn't be added ({{ error }}).</p>{% endif %}
+<section class="card stack">
+  <h2>Add a company</h2>
+  <form class="inline" hx-post="/boards/discover" hx-target="#found" hx-swap="innerHTML">
+    <input name="target" placeholder="Company name or careers page URL" aria-label="Company name or careers page URL" required>
+    <button type="submit">Find its job board</button>
+  </form>
+  <div id="found" aria-live="polite"></div>
+  <p class="help">Looks for a public board on Greenhouse, Lever, Ashby, SmartRecruiters, Workday, UKG, Personio,
+  Workable, BambooHR, Rippling, Breezy or SuccessFactors. LinkedIn and Indeed are never scraped.</p>
+</section>
+<div hx-get="/boards/table" hx-trigger="every 30s" hx-swap="innerHTML">
+{% include "boards_table.html" %}
+</div>
+<p class="muted small">Watch list: <code>{{ file }}</code>{% if not running %} · the service isn't running in this process
+(<code>jobalerts web</code>), so there are no next-poll times{% endif %}</p>
+{% endblock %}

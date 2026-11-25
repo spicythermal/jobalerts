@@ -589,11 +589,8 @@ async def cmd_pay(cfg: Config, args) -> int:
             print("Housing: plain RPP (this price table has no HUD rents; run `jobalerts pay --update`)")
         if pi.taxes:
             t = pi.taxes
-            hh = t.household
-            kids = hh.get("dependents") or []
-            deps = f"{len(kids)} dependents (ages {', '.join(map(str, kids))})" if kids else "no dependents"
-            print(f"Taxes: {t.year}, {t.data.get('source')} (built {t.data.get('built')}); married filing jointly, "
-                  f"one earner, {deps}, {hh['k401_rate']:.0%} pre-tax 401(k); abroad approximate")
+            print(f"Taxes: {t.year}, {t.data.get('source')} (built {t.data.get('built')}); {t.describe()}; "
+                  "abroad approximate")
             if problem := t.problem():
                 print(f"  note: {problem}")
         else:
@@ -610,29 +607,9 @@ async def cmd_pay(cfg: Config, args) -> int:
         if result is None:
             print(f"\nNo exchange rate for {pay.currency}.")
             return 1
-        lo, hi = result.pay.annual()
         print(f"\n{args.salary!r} in {args.location!r}{' (remote)' if args.remote else ''}:")
-        amount = f"{lo:,.0f}" if lo == hi else f"{lo:,.0f}-{hi:,.0f}"
-        print(f"  pay:         {result.pay.text()} = {result.pay.currency} {amount} a year")
-        print(f"  place:       {place.label}: prices {place.level:.3f}x the US average")
-        top_usd = pi.to_usd(hi, result.pay.currency)
-        ref_th = pi.take_home(ref, home)
-        if ref_th and (th := pi.take_home(top_usd, place)):
-            print(f"  taxes:       {th.where}, at the top of the range (${top_usd:,.0f}):\n"
-                  f"               {th.text()}")
-            print(f"  take-home:   ${th.net:,.0f} / {place.level:.3f} = ${th.net / place.level:,.0f} in US-average prices")
-            print(f"  reference:   ${ref:,.0f} in {ref_th.where}: {ref_th.text()}\n"
-                  f"               take-home ${ref_th.net:,.0f} / {home.level:.3f} = ${ref_th.net / home.level:,.0f}")
-        else:
-            print(f"  reference:   ${ref:,.0f} / {home.level:.3f} = ${ref / home.level:,.0f} in US-average prices")
-        if result.buy_low is not None:
-            print(f"  renting:     prices {place.level:.3f}x US ({pi.housing_share:.0%} housing at the 4-bedroom FMR)")
-            print(f"  buying:      prices {place.buy_level:.3f}x US; {place.buy_note}\n"
-                  f"               reference: {home.buy_note} (prices {home.buy_level:.3f}x US)")
-            print(f"  pay index:   {result.index:.2f} renting (range {result.low:.2f}-{result.high:.2f}), "
-                  f"{result.buy_index:.2f} buying (range {result.buy_low:.2f}-{result.buy_high:.2f})")
-        else:
-            print(f"  pay index:   {result.index:.2f} (range {result.low:.2f}-{result.high:.2f})")
+        for label, text in pi.explain(result):
+            print(f"  {label + ':':<12} " + text.replace("\n", "\n" + " " * 15))
     return 0
 
 

@@ -34,7 +34,7 @@ CREATE TABLE IF NOT EXISTS settings (
 class Field:
     key: str
     label: str
-    kind: str                 # money | int | number | text | bool | choice | lines | time | timezone | email
+    kind: str                 # money | int | number | percent | text | bool | choice | lines | time | timezone | email
     section: str
     help: str = ""
     sensitive: bool = False   # stored encrypted; never published (MQTT, logs)
@@ -62,6 +62,13 @@ FIELDS: list[Field] = [
           "Repairs and maintenance, roughly 1% of the home's value a year, per month.", True),
     Field("pay.current_home.rate", "Mortgage rate (%)", "number", "situation",
           "Your locked-in rate, e.g. 4.5. Shown in explanations; buying elsewhere means today's rate.", True),
+    Field("household.filing", "Filing status", "choice", "situation",
+          "For the taxes in the pay index. Single with dependents is worked out as head of household.", True,
+          choices=(("single", "Single"), ("joint", "Married filing jointly (one earner)"))),
+    Field("household.children", "Children under 17", "int", "situation", "0–4 (child tax credit).", True),
+    Field("household.other_dependents", "Other dependents (17 or older)", "int", "situation", "0 or 1.", True),
+    Field("household.k401_rate", "Pre-tax 401(k) (% of base pay)", "percent", "situation",
+          "e.g. 6. That money still counts as yours; it only lowers income tax.", True),
     Field("intent.move", "Stay or move", "choice", "situation",
           "Stay: jobs that need a move are dropped. Open: they must clear the move pay floor below. "
           "Anywhere: moves are held to the same pay floor as local jobs. The AI is told too.",
@@ -137,6 +144,11 @@ def parse(field: Field, raw: str | None):
             return int(text)
         if field.kind == "number":
             return float(text or "0")
+        if field.kind == "percent":
+            value = float(text.rstrip("%").strip() or "0") / 100
+            if not 0 <= value <= 1:
+                raise ValueError
+            return round(value, 4)
         if field.kind == "lines":
             return [line.strip() for line in (raw or "").splitlines() if line.strip()]
         if field.kind == "time":
@@ -158,7 +170,8 @@ def parse(field: Field, raw: str | None):
         return text
     except (ValueError, KeyError, OSError):
         raise FieldError(field.key, {"money": "Enter an amount, e.g. 155000 or 155K.", "int": "Enter a whole number.",
-                                     "number": "Enter a number.", "time": "Enter a time as HH:MM.",
+                                     "number": "Enter a number.", "percent": "Enter a percentage, e.g. 6.",
+                                     "time": "Enter a time as HH:MM.",
                                      "timezone": "Not a known time zone (e.g. America/Denver).",
                                      "email": "Not an email address.", "choice": "Pick one of the options."}
                          .get(field.kind, "Not a valid value.")) from None
@@ -189,6 +202,8 @@ def format_value(field: Field, value) -> str:
         return f"{value:,.0f}"
     if field.kind == "number":
         return f"{value:g}"
+    if field.kind == "percent":
+        return f"{value * 100:g}"
     return str(value)
 
 

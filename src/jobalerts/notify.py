@@ -64,7 +64,9 @@ class Notifier:
                 log.warning("ntfy send failed (%s); retrying", e)
                 await asyncio.sleep(3 * (attempt + 1))
 
-    async def job_alert(self, job: Job, score=None, pay: str = "", step_up_shown: int = 60) -> None:
+    async def job_alert(self, job: Job, score=None, pay: str = "", step_up_shown: int = 60, link: str = "") -> None:
+        """A push for one job. Tapping it opens `link` (its page on the web UI) when there is one, else
+        the posting; the \"Open posting\" button always goes to the employer."""
         lines = [" · ".join(filter(None, [job.location or None, "Remote" if job.remote and
                                            "remote" not in job.location.lower() else None, job.salary or None]))]
         if pay:
@@ -90,6 +92,6 @@ class Notifier:
             "\n".join(line for line in lines if line),
             priority=priority,
             tags=["rocket"] if score is not None and score.step_up >= step_up_shown else ["briefcase"],
-            click=job.url,
+            click=link or job.url,
             actions=[{"action": "view", "label": "Open posting", "url": job.url, "clear": True}],
         )

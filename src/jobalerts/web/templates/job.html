@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}{{ job.title }} · Job alerts{% endblock %}
+{% block content %}
+<p><a href="/">← Jobs</a></p>
+<h1>{{ job.title }}</h1>
+<p class="muted">{{ job.company }} · {{ job.location or "place not stated" }}{% if job.salary %} · {{ job.salary }}{% endif %} · posted {{ job.age }}
+  {% if status_text.get(job.status) %}· {{ status_text[job.status] }}{% endif %}</p>
+<div class="row start">
+  {% set where = "page" %}{% include "job_actions.html" %}
+  <a class="button" href="{{ job.url }}" rel="noopener noreferrer" target="_blank">Open posting ↗</a>
+</div>
+<section class="card stack">
+  <h2>Fit</h2>
+  {% if job.score is not none %}
+  <p><span class="badge">fit {{ job.score }}</span>{% if job.step_up is not none %} <span class="badge up">step up {{ job.step_up }}</span>{% endif %}</p>
+  {% if job.summary %}<p>{{ job.summary }}</p>{% endif %}
+  {% if job.step_up_note %}<p><strong>Step up:</strong> {{ job.step_up_note }}</p>{% endif %}
+  {% if job.red_flags %}<p><strong>Watch out:</strong> {{ job.red_flags }}</p>{% endif %}
+  {% if job.stories %}<div><strong>Your best stories for it</strong><ol>{% for t in job.stories %}<li>{{ t }}</li>{% endfor %}</ol></div>{% endif %}
+  {% if job.best_resume %}<p><strong>Apply with:</strong> {{ job.best_resume }}</p>{% endif %}
+  {% else %}
+  <p class="muted">Not scored by the AI{% if job.reason %} ({{ job.reason }}){% endif %}.</p>
+  {% endif %}
+</section>
+<section class="card stack">
+  <h2>Pay</h2>
+  {% if job.pay %}<p>{{ job.pay }}</p>{% else %}<p class="muted">No pay index: the posting states no pay, or the place isn't known.</p>{% endif %}
+  {% if explain %}
+  <dl class="explain">
+    {% for label, text in explain %}<dt>{{ label }}</dt><dd>{{ text }}</dd>{% endfor %}
+  </dl>
+  {% endif %}
+</section>
+<p class="muted small">{{ job.source }} · first seen {{ job.first_seen[:16]|replace("T", " ") }} UTC{% if job.reason %} · {{ job.reason }}{% endif %}</p>
+{% endblock %}

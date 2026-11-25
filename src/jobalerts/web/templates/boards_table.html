@@ -1,0 +1,62 @@
+<div class="summary" role="status">
+  <span><strong>{{ counts.ok }}</strong> polling fine</span>
+  <span{% if counts.failing %} class="warn"{% endif %}><strong>{{ counts.failing }}</strong> failing</span>
+  <span><strong>{{ counts.waiting }}</strong> not polled yet</span>
+  <span><strong>{{ counts.disabled }}</strong> off</span>
+  {% if counts.needs_key %}<span><strong>{{ counts.needs_key }}</strong> waiting for an API key</span>{% endif %}
+  <span class="muted">today: {{ "{:,}".format(counts.requests) }} requests, {{ "{:,}".format(counts.not_modified) }} unchanged (304),
+  {{ counts.rate_limited }} rate-limited</span>
+</div>
+<div class="table-wrap">
+<table class="boards">
+  <thead><tr><th>Company</th><th>Board</th><th>Status</th><th>Last OK</th><th>Next</th><th class="num">Listed</th>
+  <th class="num">Matches 7 d</th><th>Tier</th><th></th></tr></thead>
+  <tbody>
+  {% for b in companies %}
+  <tr class="state-{{ b.state }}">
+    <td>{{ b.name }}</td>
+    <td class="mono small">{{ b.ats }}</td>
+    <td><span class="dot" aria-hidden="true"></span>{{ {"ok": "OK", "failing": "failing", "disabled": "off", "waiting": "waiting", "needs_key": "needs key"}[b.state] }}
+      {% if b.detail %}<div class="muted small">{{ b.detail }}</div>{% endif %}</td>
+    <td class="small">{{ b.last_ok }}</td>
+    <td class="small">{{ b.next }}</td>
+    <td class="num">{{ b.listed if b.listed is not none else "" }}</td>
+    <td class="num">{{ b.matches or "" }}</td>
+    <td>
+      <form method="post" action="/boards/{{ b.index }}/tier" class="tier">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <select name="tier" aria-label="Tier for {{ b.name }}">
+          {% for t in tiers %}<option value="{{ t }}"{% if t == b.tier %} selected{% endif %}>{{ t }}</option>{% endfor %}
+        </select>
+        <button type="submit" class="link small">set</button>
+      </form>
+    </td>
+    <td class="row-actions">
+      <form method="post" action="/boards/{{ b.index }}/enabled">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <input type="hidden" name="enabled" value="{{ '0' if b.enabled else '1' }}">
+        <button type="submit" class="link small">{{ "Turn off" if b.enabled else "Turn on" }}</button>
+      </form>
+      <form method="post" action="/boards/{{ b.index }}/remove" hx-confirm="Remove {{ b.name }} from the watch list?">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <button type="submit" class="link small">Remove</button>
+      </form>
+    </td>
+  </tr>
+  {% endfor %}
+  {% if searches %}
+  <tr class="section"><th colspan="9">Aggregator searches (companies you don't watch)</th></tr>
+  {% for b in searches %}
+  <tr class="state-{{ b.state }}">
+    <td>{{ b.name }}</td><td class="mono small">{{ b.ats }}</td>
+    <td><span class="dot" aria-hidden="true"></span>{{ {"ok": "OK", "failing": "failing", "disabled": "off", "waiting": "waiting", "needs_key": "needs key"}[b.state] }}
+      {% if b.detail %}<div class="muted small">{{ b.detail }}</div>{% endif %}</td>
+    <td class="small">{{ b.last_ok }}</td><td class="small">{{ b.next }}</td>
+    <td class="num">{{ b.listed if b.listed is not none else "" }}</td><td class="num">{{ b.matches or "" }}</td>
+    <td class="small">every {{ (b.interval // 60) if b.interval else "?" }} min</td><td></td>
+  </tr>
+  {% endfor %}
+  {% endif %}
+  </tbody>
+</table>
+</div>

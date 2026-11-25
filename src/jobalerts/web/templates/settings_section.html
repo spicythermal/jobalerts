@@ -34,7 +34,7 @@
     </select>
     {% else %}
     <input id="f-{{ loop.index }}" name="{{ f.key }}" value="{{ row.value }}"
-      {% if f.kind in ("money", "int", "number") %}inputmode="decimal"{% endif %}{% if f.sensitive %} autocomplete="off"{% endif %}>
+      {% if f.kind in ("money", "int", "number", "percent") %}inputmode="decimal"{% endif %}{% if f.sensitive %} autocomplete="off"{% endif %}>
     {% endif %}
     {% endif %}
     {% if errors.get(f.key) %}<p class="error">{{ errors[f.key] }}</p>{% endif %}

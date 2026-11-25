@@ -3,21 +3,16 @@
 #   take-home = gross − federal income tax − Social Security/Medicare − state income tax
 #               − state payroll taxes (SDI, paid leave, WA Cares, transit) − local income taxes
 #
-# US taxes come from config/tax_data.json, a table of tax at each salary for every state and the
-# localities below, computed with PolicyEngine-US by tools/build_tax_data.py (rebuild each January:
-# `pip install policyengine-us && python tools/build_tax_data.py`). The household below is baked
-# into that table, so changing it means rebuilding the table.
+# US taxes come from config/tax_data/, one table per household (filing status x dependents) of tax
+# at each salary for every state and the localities below, computed with PolicyEngine-US by
+# tools/build_tax_data.py (rebuild each January: `pip install "policyengine-us==2.88.9" && python
+# tools/build_tax_data.py`, then check the numbers before moving to a newer PolicyEngine). Your household (filing, dependents, 401(k) share) is on the Settings page.
 #
 # Assumes you live where the job is (local taxes mostly follow where you live). Pre-tax 401(k)
 # money counts as yours: it only lowers income tax. Benefits, bonus and equity are not included.
 year: 2026
-
-household:
-  filing: joint          # married filing jointly, one earner (the spouse has no income)
-  k401_rate: 0.06        # pre-tax 401(k) share of base pay (up to the employer match)
-  k401_limit: 24500      # IRS elective deferral limit for the year
-  dependents: [4, 8, 18] # ages in the tax year: 4-year-old, 8-year-old, 18-year-old (child tax credit for
-                         # the two under 17, the $500 other-dependent credit for the 18-year-old)
+k401_limit: 24500        # IRS elective deferral limit for the year
+wage_based_states: [PA]  # their income tax counts 401(k) deferrals as wages (PA-40 instructions)
 
 # Localities with their own income tax that PolicyEngine models, picked by the job's city.
 # `policyengine` holds the inputs that put the household there ("$wage" = the salary).
@@ -37,27 +32,32 @@ localities:
   philadelphia:
     label: Philadelphia
     state: PA
+    base: wages            # a wage tax: 401(k) money is taxed too
     cities: [philadelphia]
     policyengine: {household: {county_str: PHILADELPHIA_COUNTY_PA},
                    person: {pa_philadelphia_wage_tax_resident: true, pa_philadelphia_wage_tax_taxable_wages: $wage}}
   kansas_city:
     label: Kansas City, MO
     state: MO
+    base: wages            # a wage tax: 401(k) money is taxed too
     cities: [kansas city]
     policyengine: {person: {mo_kansas_city_earnings_tax_taxable_earnings: $wage}}
   st_louis:
     label: St. Louis
     state: MO
+    base: wages            # a wage tax: 401(k) money is taxed too
     cities: [st. louis, st louis, saint louis]
     policyengine: {person: {mo_st_louis_earnings_tax_taxable_earnings: $wage}}
   wilmington:
     label: Wilmington, DE
     state: DE
+    base: wages            # a wage tax: 401(k) money is taxed too
     cities: [wilmington]
     policyengine: {household: {county_str: NEW_CASTLE_COUNTY_DE, in_wilmington: true}}
   denver:
     label: Denver
     state: CO
+    base: wages            # a wage tax: 401(k) money is taxed too
     cities: [denver]
     policyengine: {household: {county_str: DENVER_COUNTY_CO}, person: {co_denver_employee_occupational_privilege_tax_months: 12}}
   multnomah:

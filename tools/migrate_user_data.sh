@@ -21,6 +21,7 @@ copy config/profile.md data/profile.md
 copy config/companies.yaml data/companies.yaml
 copy config/candidates.txt data/private/candidates.txt
 [ -e data/config.local.yaml ] || copy config/config.yaml data/config.migrate.yaml
+[ -e data/config.local.yaml ] || copy config/taxes.yaml data/taxes.migrate.yaml   # its household
 for f in stories/*.md; do
   [ -e "$f" ] && [ "$(basename "$f")" != README.md ] && copy "$f" "data/stories/$(basename "$f")"
 done
@@ -29,7 +30,7 @@ for f in resume_reference/*; do [ -e "$f" ] && copy "$f" "data/resumes/$(basenam
 copy relocation data/private/relocation
 
 # The copies are safe in data/; put the tracked files back as committed so `git pull` can go ahead.
-git checkout -- config/config.yaml 2>/dev/null || true
+git checkout -- config/config.yaml config/taxes.yaml 2>/dev/null || true
 for p in config/profile.md config/companies.yaml config/candidates.txt stories resume_reference relocation; do
   git ls-files --error-unmatch "$p" >/dev/null 2>&1 && git checkout -- "$p" || true
 done

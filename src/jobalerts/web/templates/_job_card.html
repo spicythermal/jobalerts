@@ -1,0 +1,22 @@
+<li class="card job">
+  <div class="row head">
+    <a class="title" href="/jobs/{{ job.key|urlencode }}">{{ job.title }}</a>
+    <span class="scores">
+      {% if job.score is not none %}<span class="badge" title="AI fit score">fit {{ job.score }}</span>{% endif %}
+      {% if job.step_up is not none and job.step_up >= 60 %}<span class="badge up" title="Step up: a credible promotion">step up {{ job.step_up }}</span>{% endif %}
+    </span>
+  </div>
+  <div class="muted">{{ job.company }} · {{ job.location or "place not stated" }} · {{ job.age }}
+    {% if status_text.get(job.status) %}<span class="status">· {{ status_text[job.status] }}</span>{% endif %}</div>
+  {% if job.pay_index is not none %}
+  <div class="pay">pay index <strong>{{ "%.2f"|format(job.pay_index) }}</strong> renting
+    {%- if job.buy_index is not none %} · <strong>{{ "%.2f"|format(job.buy_index) }}</strong> buying{% endif %}
+    {% if job.salary %}<span class="muted">({{ job.salary }})</span>{% endif %}</div>
+  {% endif %}
+  {% if job.summary %}<p>{{ job.summary }}</p>{% endif %}
+  {% if job.stories %}<p class="muted small">Stories: {{ job.stories|join("; ") }}</p>{% endif %}
+  <div class="row">
+    {% set where = "list" %}{% include "job_actions.html" %}
+    <a href="{{ job.url }}" rel="noopener noreferrer" target="_blank">Open posting ↗</a>
+  </div>
+</li>

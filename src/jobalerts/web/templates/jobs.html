@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Jobs</h1>
+{% if report %}
+<div class="card notice" role="status">
+  <strong>Since you were away</strong> ({{ report.gap }}): {{ report.summary }}
+  {% if report.note %}<p class="muted small">{{ report.note }}</p>{% endif %}
+</div>
+{% endif %}
+<nav class="tabs" aria-label="Job lists">
+  {% for key, label in tabs %}
+  <a href="/?tab={{ key }}"{% if tab == key %} aria-current="page"{% endif %}>{{ label }}</a>
+  {% endfor %}
+</nav>
+<form class="filters" method="get" action="/">
+  <input type="hidden" name="tab" value="{{ tab }}">
+  <label>Days <input name="days" value="{{ days }}" inputmode="numeric" size="3"></label>
+  <label>Fit at least <input name="min_score" value="{{ min_score }}" inputmode="numeric" size="3"></label>
+  <label>Pay index at least <input name="min_pay" value="{{ min_pay }}" inputmode="decimal" size="4"></label>
+  <label class="grow">Search <input name="q" value="{{ q }}" placeholder="title, company, place"></label>
+  <label class="check"><input type="checkbox" name="remote" value="1"{% if remote %} checked{% endif %}> Remote</label>
+  <button type="submit" class="secondary">Filter</button>
+</form>
+<p class="muted small">{{ total }} job{{ "" if total == 1 else "s" }}{% if total > limit %}, showing the first {{ limit }}{% endif %}.</p>
+<ul class="jobs">
+{% for job in rows %}
+  {% include "_job_card.html" %}
+{% else %}
+  <li class="muted">Nothing here yet.{% if tab == "recommended" %} New matches appear as the boards are polled.{% endif %}</li>
+{% endfor %}
+</ul>
+{% endblock %}

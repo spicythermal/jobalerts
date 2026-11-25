@@ -8,8 +8,9 @@ A missing profile, watch list or story folder is filled from src/jobalerts/examp
 
 Older installs kept their profile, watch list, stories and resumes in the repo. Before pulling the
 version that stopped tracking them, tools/migrate_user_data.sh copies them into data/ and leaves
-the old config.yaml as data/config.migrate.yaml; the next start turns that into config.local.yaml
-(only the values that differ from the new defaults, without the old file locations).
+the old config.yaml as data/config.migrate.yaml (and taxes.yaml as data/taxes.migrate.yaml); the
+next start turns those into config.local.yaml (only the values that differ from the new defaults,
+without the old file locations, plus the household the old taxes.yaml held).
 """
 from __future__ import annotations
 
@@ -75,6 +76,21 @@ def diff_config(old: dict, new: dict, path: tuple = ()) -> dict:
     return out
 
 
+def household_from_old_taxes(path: Path) -> dict | None:
+    """The household an old config/taxes.yaml held (filing, 401(k) share, dependents' ages), in the
+    Settings page's terms. The file is renamed once read."""
+    if not path.is_file():
+        return None
+    old = (yaml.safe_load(path.read_text(encoding="utf-8")) or {}).get("household") or {}
+    path.rename(path.with_suffix(".yaml.done"))
+    if not old:
+        return None
+    ages = [a for a in old.get("dependents") or [] if isinstance(a, (int, float))]
+    return {"filing": "joint" if old.get("filing") == "joint" else "single",
+            "children": min(sum(a < 17 for a in ages), 4), "other_dependents": min(sum(a >= 17 for a in ages), 1),
+            "k401_rate": float(old.get("k401_rate", 0.06))}
+
+
 def migrate_old_config(config_path: Path, local_path: Path) -> bool:
     """data/config.migrate.yaml (an old config.yaml) -> data/config.local.yaml, once."""
     migrate = local_path.with_name("config.migrate.yaml")
@@ -84,6 +100,8 @@ def migrate_old_config(config_path: Path, local_path: Path) -> bool:
     old = yaml.safe_load(migrate.read_text(encoding="utf-8")) or {}
     new = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
     diff = diff_config(old, new)
+    if household := household_from_old_taxes(local_path.with_name("taxes.migrate.yaml")):
+        diff["household"] = household
     local_path.write_text(LOCAL_HEADER + "\n" + yaml.safe_dump(diff, sort_keys=False, allow_unicode=True, width=110),
                           encoding="utf-8")
     migrate.rename(migrate.with_suffix(".yaml.done"))

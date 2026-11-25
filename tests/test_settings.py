@@ -186,3 +186,18 @@ def test_resume_names():
     assert resume_name("../../etc/cv.md") == "cv.md"
     with pytest.raises(ValueError):
         resume_name(".md")
+
+
+def test_household_settings_pick_the_tax_table(env):
+    runner, app, client, _, _ = env
+    form = section_form(client, "situation")
+    assert form["household.k401_rate"] == "6" and form["household.filing"] == "single"
+    form.update({"household.filing": "joint", "household.children": "2", "household.other_dependents": "1",
+                 "household.k401_rate": "6"})
+    assert client.post("/settings/situation", data=form).status_code == 303
+    taxes = runner.pay.taxes
+    assert taxes.data["household"] == {"filing": "joint", "children": 2, "other_dependents": 1}
+    assert "2 children under 17" in taxes.describe() and taxes.k401_rate == 0.06
+    form = section_form(client, "situation")
+    form["household.children"] = "9"
+    assert "less than or equal to 4" in client.post("/settings/situation", data=form).text

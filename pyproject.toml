@@ -26,7 +26,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
-taxes = ["policyengine-us"]   # only to rebuild config/tax_data.json (tools/build_tax_data.py)
+taxes = ["policyengine-us==2.88.9"]   # only to rebuild config/tax_data/ (tools/build_tax_data.py; Python <= 3.14)
 
 [project.scripts]
 jobalerts = "jobalerts.cli:main"

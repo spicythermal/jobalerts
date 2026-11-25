@@ -158,11 +158,15 @@ Take-home pay is base pay after federal income tax, Social Security and Medicare
 state payroll taxes (California SDI, paid-leave programs, WA Cares, Oregon transit) and city or
 county income taxes where the job is, for your household (filing status, dependents and pre-tax
 401(k) share; the 401(k) money counts as yours, it only lowers income tax).
-US taxes come from `config/tax_data.json`, a table of 2026 taxes by salary for every state and the
-localities in `taxes.yaml`, computed with PolicyEngine-US. City taxes PolicyEngine doesn't model
+Set the household on the Settings page (or under `household:`); the 401(k) money only lowers the
+taxes levied on income after it, not Social Security, Medicare or wage taxes such as Philadelphia's.
+US taxes come from `config/tax_data/`, tables of 2026 taxes by salary for every state and the
+localities in `taxes.yaml`, one per household (single or joint, 0–4 children under 17, 0–1 older
+dependents), computed with PolicyEngine-US 2.88.9. City taxes PolicyEngine doesn't model
 (Ohio, Pennsylvania, Michigan and Kentucky cities, Portland Metro's housing tax) and approximate
-rates abroad are in `taxes.yaml` too. Rebuild the table each January (the digest reminds you):
-`pip install policyengine-us && python tools/build_tax_data.py`. `pay.taxes: false` compares gross
+rates abroad are in `taxes.yaml` too. Rebuild the tables each January (the digest reminds you):
+`pip install "policyengine-us==2.88.9" && python tools/build_tax_data.py` (Python 3.10–3.14; review the numbers
+before moving to a newer PolicyEngine). `pay.taxes: false` compares gross
 pay instead. US prices come
 from the BEA's Regional Price Parities (by metro area, else by state), with housing priced for a
 family that moves: `pay.housing_share` (40%) of spending goes to rent plus utilities at HUD's
