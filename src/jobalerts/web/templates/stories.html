@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Stories · Job alerts{% endblock %}
+{% block content %}
+<div class="row"><h1>Stories</h1><a class="button" href="/stories/new">New story</a></div>
+<p class="muted">The AI judges every job against these stories (and names the three that fit best). One story per
+piece of work you'd tell in an interview.</p>
+{% if saved == "deleted" %}<p class="ok" role="status">Story deleted (moved to a .trash folder next to the stories).</p>{% endif %}
+<div id="rescore">{% include "story_rescore.html" %}</div>
+<ul class="jobs">
+{% for s in rows %}
+  <li class="card job">
+    <div class="row head">
+      {% if s.editable %}<a class="title" href="/stories/{{ s.id }}">{{ s.title or s.id }}</a>{% else %}<span class="title">{{ s.title or s.id }}</span>{% endif %}
+      {% if counts.get(s.id) %}<span class="badge" title="Among the best three stories for this many jobs in 30 days">{{ counts[s.id] }} jobs</span>{% endif %}
+    </div>
+    <div class="muted small">{{ s.meta.employer or "" }}{% if s.meta.dates %} · {{ s.meta.dates }}{% endif %}{% if s.meta.role %} · {{ s.meta.role }}{% endif %}
+      {% if s.meta.public %} · public: {{ s.meta.public }}{% endif %}{% if s.todos %} · {{ s.todos }} TODO{{ "s" if s.todos > 1 }}{% endif %}
+      {% if not s.title %} · <span class="error">no title: the AI skips it</span>{% endif %}</div>
+  </li>
+{% else %}
+  <li class="muted">No stories yet. Start with the one you'd tell first in an interview.</li>
+{% endfor %}
+</ul>
+<p class="muted small">Folder: <code>{{ folder }}</code></p>
+{% endblock %}

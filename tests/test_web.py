@@ -171,10 +171,11 @@ def test_security_headers_and_cookie_flags(app):
     assert client.get("/static/htmx.min.js").status_code == 200
 
 
-def test_unknown_pages_are_404_and_nav_pages_say_coming(app):
+def test_unknown_pages_are_404_and_every_nav_page_exists(app):
     client = set_up(app)
     assert client.get("/nope").status_code == 404
-    assert "being built" in client.get("/stories").text
+    for path in ("/", "/boards", "/map", "/stories", "/settings/situation"):
+        assert client.get(path).status_code == 200, path
 
 
 def test_signer_and_passwords():

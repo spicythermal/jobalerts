@@ -1,0 +1,19 @@
+{% if rescore.running %}
+<div class="card notice" hx-get="/stories/rescore" hx-trigger="every 2s" hx-target="#rescore" hx-swap="innerHTML" role="status">
+  Re-scoring: {{ rescore.done }} of {{ rescore.total }}…
+</div>
+{% elif rescore.message %}
+<div class="card notice" role="status">{{ rescore.message }}
+  {% if rescore.todo %}<form class="inline" hx-post="/stories/rescore" hx-target="#rescore" hx-swap="innerHTML">
+    <button type="submit" class="secondary">Re-score the other {{ rescore.todo }}</button></form>{% endif %}
+</div>
+{% elif rescore.todo and rescore.scoring %}
+<div class="card notice">
+  <p>{{ rescore.todo }} job{{ "s" if rescore.todo > 1 }} from the last {{ rescore.days }} days were scored against an older version of
+  your stories, profile or resumes. Re-score {{ "them" if rescore.todo > 1 else "it" }} (about ${{ "%.2f"|format(rescore.cost) }} of AI calls)?
+  Scores change; nothing is pushed.</p>
+  <form hx-post="/stories/rescore" hx-target="#rescore" hx-swap="innerHTML">
+    <button type="submit" class="secondary">Re-score</button>
+  </form>
+</div>
+{% endif %}

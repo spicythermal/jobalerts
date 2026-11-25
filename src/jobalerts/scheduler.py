@@ -260,7 +260,8 @@ class Runner:
         """True when backfill / rescore should stop: only scoring.backfill_reserve calls are left today."""
         return bool(self.scorer) and self.scorer.calls_left() <= self.cfg.scoring.backfill_reserve
 
-    async def rescore(self, boards: list[Board], days: int | None = None) -> tuple[list[tuple[Job, str, str, FitScore | None]], int]:
+    async def rescore(self, boards: list[Board], days: int | None = None,
+                      progress=None) -> tuple[list[tuple[Job, str, str, FitScore | None]], int]:
         """AI-score again the matches already scored and posted within max_age_days (or `days`), e.g. after
         the work stories or profile changed. The new score, summary and top stories replace the old ones and
         the job moves between digest and low to match; it is never pushed, and a job already delivered
@@ -275,6 +276,8 @@ class Runner:
         todo = [r for r in self.store.scored_since(since) if r["score_basis"] != self.scorer.basis]
         out = []
         for n, row in enumerate(todo):
+            if progress:
+                progress(n, len(todo))   # the Stories page shows how far it got
             if self._backfill_budget_spent():
                 log.warning("rescore: stopping with %d of today's AI calls kept for new jobs; %d jobs left, "
                             "run it again after 00:00 UTC", self.cfg.scoring.backfill_reserve, len(todo) - n)
@@ -469,6 +472,14 @@ class Runner:
             return None
         pay = col.parse_salary(job.salary) or col.pay_in_description(job.description) or (score.pay() if score else None)
         return self.pay.index(pay, job.location, job.remote)
+
+    def rescore_todo(self, days: int | None = None) -> int:
+        """How many scored matches a rescore would score again (their score was made with other
+        stories, profile, resumes or model)."""
+        if not self.scorer:
+            return 0
+        since = utcnow() - timedelta(days=days or self.cfg.criteria.max_age_days)
+        return sum(r["score_basis"] != self.scorer.basis for r in self.store.scored_since(since))
 
     def needs_move(self, job: Job) -> bool | None:
         """Would taking the job mean moving? Another metro than home (or another state or country when

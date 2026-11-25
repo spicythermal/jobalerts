@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}{{ meta.title or "New story" }} · Stories{% endblock %}
+{% block content %}
+<p><a href="/stories">← Stories</a></p>
+<h1>{{ meta.title or "New story" }}</h1>
+{% if saved == "1" %}<p class="ok" role="status">Saved. New jobs are scored with it now.</p>{% endif %}
+{% if saved == "copied" %}<p class="ok" role="status">This is a copy; give it its own title.</p>{% endif %}
+{% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+{% if uses %}<p class="muted small">Among the best three stories for {{ uses }} job{{ "s" if uses > 1 }} in the last 30 days.</p>{% endif %}
+<div class="story-edit">
+<form method="post" action="/stories/{{ story_id if not new else 'new' }}" class="card stack" id="story-form"
+      hx-post="/stories/preview" hx-trigger="input delay:600ms" hx-target="#preview" hx-swap="innerHTML">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <label>Title <input name="title" value="{{ meta.title or '' }}" required placeholder="one line, as you'd say it out loud"></label>
+  {% if new %}<label>File name <input name="id" value="" placeholder="made from the title (a-z, 0-9, dashes)" pattern="[a-z0-9][a-z0-9-]*"></label>{% endif %}
+  <div class="two">
+    <label>Employer <input name="employer" value="{{ meta.employer or '' }}"></label>
+    <label>Dates <input name="dates" value="{{ meta.dates or '' }}" placeholder="2022–2024"></label>
+  </div>
+  <div class="two">
+    <label>Your role <select name="role"><option value="">–</option>{% for r in roles %}<option value="{{ r }}"{% if meta.role == r %} selected{% endif %}>{{ r }}</option>{% endfor %}</select></label>
+    <label>Can it be shown outside the employer? <select name="public"><option value="">–</option>{% for p in public %}<option value="{{ p }}"{% if meta.public == p %} selected{% endif %}>{{ p }}</option>{% endfor %}</select></label>
+  </div>
+  <div class="two">
+    <label>Skills it proves <textarea name="skills" rows="3" placeholder="one per line">{{ lists.skills }}</textarea></label>
+    <label>Technology <textarea name="domains" rows="3" placeholder="one per line">{{ lists.domains }}</textarea></label>
+  </div>
+  <div class="two">
+    <label>Numbers you can defend <textarea name="metrics" rows="3" placeholder="one per line">{{ lists.metrics }}</textarea></label>
+    <label>Sources <textarea name="sources" rows="3" placeholder="papers, reports, one per line">{{ lists.sources }}</textarea></label>
+  </div>
+  <label>The story <textarea name="body" rows="22" class="mono">{{ body }}</textarea></label>
+  <p class="help">Situation, Task, Action (first person), Result and resume bullets go to the AI. Talk tracks, slide ideas,
+  questions and anything after "TODO" are for you only.</p>
+  <button type="submit">{{ "Create story" if new else "Save" }}</button>
+</form>
+<aside class="card stack">
+  <h2>What the AI sees</h2>
+  <div id="preview">{% include "story_preview.html" %}</div>
+</aside>
+</div>
+{% if not new %}
+<div class="row start">
+  <form method="post" action="/stories/{{ story_id }}/duplicate"><input type="hidden" name="csrf" value="{{ csrf }}">
+    <button type="submit" class="secondary">Duplicate</button></form>
+  <form method="post" action="/stories/{{ story_id }}/delete" hx-confirm="Delete this story? (It's moved to a .trash folder.)">
+    <input type="hidden" name="csrf" value="{{ csrf }}"><button type="submit" class="link">Delete</button></form>
+</div>
+{% endif %}
+{% endblock %}

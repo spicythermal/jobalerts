@@ -32,7 +32,7 @@ h2 { font-size: 1.1rem; margin: 0; }
 .stack > p, .stack > form, .card > p { margin: 0; }
 .row { display: flex; gap: 8px; align-items: center; justify-content: space-between; }
 label { display: flex; flex-direction: column; gap: 4px; font-weight: 600; font-size: 0.93rem; }
-input, select, textarea { font: inherit; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px;
+input, select, textarea { font: inherit; font-weight: 400; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px;
        background: var(--bg); color: var(--ink); width: 100%; }
 button { font: inherit; font-weight: 600; padding: 8px 14px; border-radius: 6px; border: 1px solid var(--accent);
        background: var(--accent); color: var(--accent-ink); cursor: pointer; align-self: flex-start; }
@@ -128,3 +128,11 @@ table.boards select { width: auto; padding: 3px 6px; font-size: 0.85rem; }
 form.found { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: flex-end; padding: 10px 0; border-top: 1px solid var(--line); }
 form.found .grow { flex: 1; min-width: 180px; }
 form.found select { width: auto; }
+.story-edit { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 16px; align-items: start; }
+.story-edit aside { position: sticky; top: 12px; }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+pre.preview { white-space: pre-wrap; font-size: 0.85rem; margin: 0; max-height: 70vh; overflow: auto; }
+@media (max-width: 860px) {
+  .story-edit, .two { grid-template-columns: 1fr; }
+  .story-edit aside { position: static; }
+}

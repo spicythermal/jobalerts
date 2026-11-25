@@ -25,6 +25,7 @@ from . import auth
 from .boards_pages import add_board_routes
 from .jobs_pages import add_job_routes
 from .settings_pages import SUBNAV, add_settings_routes
+from .stories_pages import add_story_routes
 
 log = logging.getLogger(__name__)
 
@@ -276,13 +277,8 @@ def create_app(runner, key: bytes) -> FastAPI:
 
     add_job_routes(app, state, page, require_csrf)
     add_board_routes(app, state, page, require_csrf)
+    add_story_routes(app, state, page, require_csrf)
     add_settings_routes(app, state, page, require_csrf)
-
-    @app.get("/{rest:path}")
-    async def coming_soon(request: Request, rest: str):
-        if "/" + rest.split("/")[0] in dict(NAV):
-            return page(request, "soon.html", title=dict(NAV)["/" + rest.split("/")[0]])
-        raise HTTPException(404)
 
     return app
 
