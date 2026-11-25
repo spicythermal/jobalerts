@@ -49,7 +49,7 @@ boards (ATS feeds, aggregator searches)
 | Where | What | Tracked |
 |---|---|---|
 | `config/config.yaml` | Shipped defaults | yes |
-| `config/taxes.yaml`, `config/tax_data.json`, `config/col_data.json` | Tax rules and tables, price data seed | yes |
+| `config/taxes.yaml`, `config/tax_data/`, `config/col_data.json` | Tax rules, tax tables per household, price data seed | yes |
 | `data/config.local.yaml` | Your settings (only what differs from the defaults) | no |
 | `data/profile.md`, `data/stories/`, `data/resumes/`, `data/companies.yaml` | Your profile, stories, resumes, watch list (seeded from `src/jobalerts/examples/`) | no |
 | `data/jobalerts.db` | Everything seen, board health, AI usage | no |

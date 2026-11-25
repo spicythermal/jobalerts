@@ -116,7 +116,7 @@ class Taxes:
         return ""
 
     def place_key(self, state: str, city: str) -> str:
-        """The tax_data.json table for a US place: a locality by city, the state's default locality,
+        """The tax table entry for a US place: a locality by city, the state's default locality,
         the state, or "US" (the average of the states) when the state isn't known."""
         if not state or state not in self.places:
             return "US"
