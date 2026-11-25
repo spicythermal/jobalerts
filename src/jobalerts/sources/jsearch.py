@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from ..models import Job, format_salary, parse_dt
 from ..vault import secret
-from .base import Source, SourceConfigError
+from .base import Source, SourceConfigError, lookback_days
 
 HOST = "jsearch.p.rapidapi.com"
 
@@ -15,11 +15,19 @@ class JSearch(Source):
     name = "jsearch"
     env_keys = ("RAPIDAPI_KEY",)
 
+    def __init__(self):
+        self._window: dict[str, str] = {}   # board key -> date_posted for its next poll (after a gap)
+
+    def resume(self, board, last_ok) -> None:
+        days = lookback_days(last_ok, 1, 31)
+        self._window[board.key] = "today" if days <= 1 else "3days" if days <= 3 else "week" if days <= 7 else "month"
+
     async def fetch(self, board, http):
         key = secret("RAPIDAPI_KEY")
         if not key:
-            raise SourceConfigError("RAPIDAPI_KEY must be set in .env or on the Settings page or on the Settings page")
-        params = {"query": board.params.get("query", ""), "page": 1, "num_pages": 1, "date_posted": "today"}
+            raise SourceConfigError("RAPIDAPI_KEY must be set in .env or on the Settings page")
+        params = {"query": board.params.get("query", ""), "page": 1, "num_pages": 1,
+                  "date_posted": self._window.pop(board.key, "today")}
         headers = {"X-RapidAPI-Key": key, "X-RapidAPI-Host": HOST}
         data = await http.get_json(f"https://{HOST}/search", params=params, headers=headers, conditional=False)
         return [self._job(d) for d in data.get("data", [])]

@@ -11,12 +11,12 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from . import col, colmap, discover
+from . import col, colmap, discover, runstate
 from .dashboard import MqttPublisher, ai_cost, job_link, top_matches
 from .config import Board, Config
 from .filters import JobFilter
 from .http import HttpClient, posting_gone
-from .models import Job, normalize_company, utcnow
+from .models import Job, normalize_company, parse_dt, utcnow
 from .notify import Notifier
 from .prescreen import Prescreener
 from .scorer import FitScore, Scorer
@@ -72,7 +72,7 @@ class Runner:
         self.prescreener = prescreener if scorer else None  # its "yes" jobs need the full score
         self.filter = JobFilter(cfg.criteria)
         self.watched = {normalize_company(name) for name in cfg.watched_companies()}
-        self._failure_alerted: set[str] = set()
+        self._failure_alerted: set[str] = set(json.loads(store.get_meta(runstate.FAILURE_ALERTED) or "[]"))
         self.homeassistant = homeassistant
         self._dashboard_stale = asyncio.Event()  # set after new matches so Home Assistant updates right away
         self.map_html: str | None = None    # the latest cost-of-living map page (web UI /map)
@@ -84,7 +84,9 @@ class Runner:
         self.board_tasks: dict[str, tuple[Board, asyncio.Task]] = {}
         self.next_poll: dict[str, float] = {}  # board key -> unix time of its next poll
         self._map_built = 0.0
-        self._cap_noticed = ""                     # UTC day of the last "AI daily cap reached" push
+        self._cap_noticed = store.get_meta(runstate.CAP_NOTICED) or ""  # UTC day of the last "AI daily cap reached" push
+        self._collecting: list | None = None       # during a catch-up pass: (job, score) instead of pushes
+        self._catching_up = False
         self.pay: col.PayIndex | None = None
         self.pay_problem = ""  # shown in the digest until fixed
         self.load_pay()
@@ -584,6 +586,7 @@ class Runner:
         if self._cap_noticed == today:
             return
         self._cap_noticed = today
+        self.store.set_meta(runstate.CAP_NOTICED, today)
         try:
             await self.notifier.send(
                 "AI daily cap reached",
@@ -593,7 +596,13 @@ class Runner:
         except Exception as e:
             log.warning("Couldn't send the AI cap notice: %s", e)
 
+    def _save_failure_alerted(self) -> None:
+        self.store.set_meta(runstate.FAILURE_ALERTED, json.dumps(sorted(self._failure_alerted)))
+
     async def _notify(self, job: Job, score: FitScore | None) -> int:
+        if self._collecting is not None:   # catching up: one summary instead of a push per job
+            self._collecting.append((job, score))
+            return 1
         pay = self.pay_index(job, score)
         try:
             await self.notifier.job_alert(job, score, pay.text() if pay else "", STEP_UP_SHOWN,
@@ -626,10 +635,15 @@ class Runner:
         log.info("Watching %d boards", len(boards))
         await self.notifier.send("Job alerts running", f"Watching {len(boards)} boards.{note}",
                                  priority=2, tags=["eyes"])
+        last = runstate.last_heartbeat(self.store)
+        runstate.beat(self.store)
         self.running = True
+        if last and (runstate.now() - last).total_seconds() > self.cfg.run.catchup_after:
+            await self.catch_up(last)
         self.sync_boards()
         tasks = [asyncio.create_task(self._supervise_boards(), name="boards"),
-                 asyncio.create_task(self._daily_loop(), name="digest")]
+                 asyncio.create_task(self._daily_loop(), name="digest"),
+                 asyncio.create_task(self._heartbeat_loop(), name="heartbeat")]
         if self.prescreener:
             tasks.append(asyncio.create_task(self._prescreen_loop(), name="prescreen"))
         tasks.append(asyncio.create_task(self.refresh_pay_data(), name="col-refresh"))
@@ -684,6 +698,77 @@ class Runner:
         self.sync_boards()
         self._dashboard_stale.set()
 
+    # ------------------------------------------------------------------ catching up after a gap
+    def catchup_report(self) -> dict | None:
+        return runstate.load_report(self.store, self.cfg.run.report_hours)
+
+    async def _heartbeat_loop(self) -> None:
+        """Beat every run.heartbeat seconds; a much longer wall-clock jump means the PC slept."""
+        last = runstate.now()
+        while True:
+            await asyncio.sleep(self.cfg.run.heartbeat)
+            now = runstate.now()
+            if (now - last).total_seconds() > self.cfg.run.catchup_after:
+                log.info("Woke after %s; catching up", runstate.human((now - last).total_seconds()))
+                try:
+                    await self.catch_up(last)
+                except Exception:
+                    log.exception("Catch-up failed")
+                if self.digest_missed():
+                    await self.send_digest()
+            runstate.beat(self.store, now)
+            last = now
+
+    async def catch_up(self, since: datetime) -> dict:
+        """Poll every board now, look back over the gap, pre-screen, then one summary push plus the best
+        few; the rest wait on the jobs page and in the digest. Returns the report it saved."""
+        if self._catching_up:
+            return {}
+        self._catching_up = True
+        gap = (runstate.now() - since).total_seconds()
+        boards = self.active_boards()
+        log.info("Catching up on %d boards after %s away", len(boards), runstate.human(gap))
+        last_ok = {r["key"]: parse_dt(r["last_ok_at"]) for r in self.store.boards()}
+        for board in boards:
+            SOURCES[board.source].resume(board, last_ok.get(board.key) or since)
+        self._collecting = collected = []
+        try:
+            results = await asyncio.gather(*(self.poll_board(b) for b in boards), return_exceptions=True)
+            if self.prescreener:
+                await self.run_prescreen(boards)
+        finally:
+            self._collecting = None
+            self._catching_up = False
+        failed = sum(isinstance(r, Exception) for r in results)
+        new = sum(len(r.matched) for r in results if not isinstance(r, Exception))
+        cfg = self.cfg.scoring
+
+        def strength(item):
+            job, score = item
+            return max(score.score if score else 0, score.step_up if score and cfg.step_up_threshold else 0)
+        ranked = sorted(collected, key=strength, reverse=True)
+        top = ranked[:self.cfg.run.catchup_top_pushes]
+        home = self.cfg.web.public_url.rstrip("/")
+        summary = (f"{new} new match{'es' if new != 1 else ''} since {since.astimezone(ZoneInfo(self.cfg.notify.timezone)):%a %H:%M}"
+                   f" ({len(collected)} strong)")
+        for job, score in ranked[len(top):]:
+            self.store.update_job(job.key, status="digest", reason="catch-up: in the report")
+        report = {"at": runstate.now().isoformat(timespec="seconds"), "since": since.isoformat(timespec="seconds"),
+                  "gap": runstate.human(gap), "summary": summary + (f"; {failed} boards failed" if failed else ""),
+                  "new": new, "strong": len(collected), "note": runstate.HONEST_GAPS}
+        runstate.save_report(self.store, report)
+        if new or collected:
+            await self.notifier.send(f"Catch-up: {summary}",
+                                     f"You were away {runstate.human(gap)}. "
+                                     + (f"The best {len(top)} follow" if top else "None was strong enough to push")
+                                     + (", the rest are on the jobs page." if home else ", the rest are in the digest."),
+                                     priority=3, tags=["inbox_tray"], click=f"{home}/" if home else None)
+        self._collecting = None
+        for job, score in top:
+            await self._notify(job, score)
+        self._dashboard_stale.set()
+        return report
+
     async def _board_loop(self, board: Board) -> None:
         # Spread the first polls over the first couple of minutes instead of one burst.
         first = random.uniform(0, min(board.interval, 120))
@@ -696,6 +781,7 @@ class Runner:
                 await self.poll_board(board)
                 if board.key in self._failure_alerted:
                     self._failure_alerted.discard(board.key)
+                    self._save_failure_alerted()
                     await self.notifier.send(f"Job board recovered: {board.name}", f"{board.key} is polling again.",
                                              priority=2, tags=["white_check_mark"])
             except SourceConfigError as e:
@@ -709,6 +795,7 @@ class Runner:
                 log.warning("%s failed (%d in a row): %s; next try in %ds", board.key, failures, e, delay)
                 if failures >= self.cfg.polling.failure_alert_threshold and board.key not in self._failure_alerted:
                     self._failure_alerted.add(board.key)
+                    self._save_failure_alerted()
                     await self.notifier.send(
                         f"Job board failing: {board.name}",
                         f"{failures} failures in a row. Last error: {type(e).__name__}: {e}\n"
@@ -728,9 +815,28 @@ class Runner:
             except Exception:
                 log.exception("Pre-screen run failed")
 
+    def digest_missed(self, now: datetime | None = None) -> bool:
+        """A digest was due while the service was off: the last one sent is older than the latest
+        scheduled time. (Never true before the first digest.)"""
+        last = self.store.get_meta(runstate.LAST_DIGEST)
+        if not last:
+            return False
+        tz = ZoneInfo(self.cfg.notify.timezone)
+        hour, minute = (int(x) for x in self.cfg.notify.digest_time.split(":"))
+        now = (now or datetime.now(tz)).astimezone(tz)
+        due = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        if due > now:
+            due -= timedelta(days=1)
+        return last < due.date().isoformat()
+
     async def _daily_loop(self) -> None:
         tz = ZoneInfo(self.cfg.notify.timezone)
         hour, minute = (int(x) for x in self.cfg.notify.digest_time.split(":"))
+        if self.digest_missed():
+            try:
+                await self.send_digest()
+            except Exception:
+                log.exception("Missed digest failed")
         while True:
             now = datetime.now(tz)
             target = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
@@ -862,6 +968,8 @@ class Runner:
                                  click=f"{home}/" if home else None)
         if mark:
             self.store.mark_digested([r["key"] for r in rows])
+            today = datetime.now(ZoneInfo(self.cfg.notify.timezone)).date().isoformat()
+            self.store.set_meta(runstate.LAST_DIGEST, today)
             self.store.mark_suggestions_reported([s["company_key"] for s, _ in suggestions])
         return message
 

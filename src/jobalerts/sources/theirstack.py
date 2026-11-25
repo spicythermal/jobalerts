@@ -40,10 +40,16 @@ class TheirStack(Source):
                 body[theirs] = list(params[ours])
         return body
 
+    def resume(self, board, last_ok) -> None:
+        """After a gap: ask for everything found since the last successful poll (each job costs a credit;
+        `limit` still caps one poll)."""
+        if last_ok is not None:
+            self._since[board.key] = min(self._since.get(board.key, last_ok), last_ok)
+
     async def fetch(self, board, http):
         key = secret("THEIRSTACK_API_KEY")
         if not key:
-            raise SourceConfigError("THEIRSTACK_API_KEY must be set in .env or on the Settings page or on the Settings page")
+            raise SourceConfigError("THEIRSTACK_API_KEY must be set in .env or on the Settings page")
         started = datetime.now(timezone.utc)
         # First poll after a start: look back one interval, so a restart doesn't re-buy the last week.
         since = self._since.get(board.key, started - timedelta(seconds=board.interval))

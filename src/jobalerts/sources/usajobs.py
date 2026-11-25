@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from ..models import Job, format_salary, parse_dt
 from ..vault import secret
-from .base import Source, SourceConfigError
+from .base import Source, SourceConfigError, lookback_days
 
 API = "https://data.usajobs.gov/api/search"
 
@@ -12,12 +12,18 @@ class USAJobs(Source):
     name = "usajobs"
     env_keys = ("USAJOBS_API_KEY", "USAJOBS_EMAIL")
 
+    def __init__(self):
+        self._days: dict[str, int] = {}   # board key -> days to look back on its next poll (after a gap)
+
+    def resume(self, board, last_ok) -> None:
+        self._days[board.key] = lookback_days(last_ok, 2, 60)
+
     async def fetch(self, board, http):
         key, email = secret("USAJOBS_API_KEY"), secret("USAJOBS_EMAIL")
         if not key or not email:
-            raise SourceConfigError("USAJOBS_API_KEY and USAJOBS_EMAIL must be set in .env or on the Settings page or on the Settings page")
+            raise SourceConfigError("USAJOBS_API_KEY and USAJOBS_EMAIL must be set in .env or on the Settings page")
         p = board.params
-        params = {"Keyword": p.get("keyword", ""), "DatePosted": 2, "ResultsPerPage": 250,
+        params = {"Keyword": p.get("keyword", ""), "DatePosted": self._days.pop(board.key, 2), "ResultsPerPage": 250,
                   "SortField": "opendate", "SortDirection": "desc"}
         if p.get("location"):
             params["LocationName"] = p["location"]

@@ -154,6 +154,14 @@ class MapConfig(BaseModel):
     enabled: bool = False
 
 
+class RunConfig(BaseModel):
+    """24/7 or a PC that's only on sometimes: after a gap (start or wake), catch up once."""
+    catchup_after: int = 2700            # seconds without a heartbeat that count as a gap (45 min)
+    catchup_top_pushes: int = 3          # the best few found in a catch-up are pushed one by one; the rest are in the report
+    heartbeat: int = 60                  # seconds between heartbeats (a longer jump in wall-clock time = the PC slept)
+    report_hours: int = 24               # the jobs page shows the last catch-up report this long
+
+
 class WebConfig(BaseModel):
     """The web UI (web/app.py), served by `jobalerts run` and `jobalerts web`."""
     enabled: bool = True
@@ -256,6 +264,7 @@ class Config(BaseModel):
     homeassistant: HomeAssistant = HomeAssistant()
     map: MapConfig = MapConfig()
     web: WebConfig = WebConfig()
+    run: RunConfig = RunConfig()
     aggregators: Aggregators = Aggregators()
     companies: list[Company] = []
     config_dir: Path = Path(".")

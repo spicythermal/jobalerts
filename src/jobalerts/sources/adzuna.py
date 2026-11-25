@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from ..models import Job, format_salary, parse_dt, strip_html
 from ..vault import secret
-from .base import Source, SourceConfigError
+from .base import Source, SourceConfigError, lookback_days
 
 CURRENCY = {"gb": "GBP", "at": "EUR", "be": "EUR", "de": "EUR", "es": "EUR", "fr": "EUR", "it": "EUR",
             "nl": "EUR", "ch": "CHF", "pl": "PLN", "in": "INR", "sg": "SGD", "br": "BRL", "mx": "MXN",
@@ -14,13 +14,19 @@ class Adzuna(Source):
     name = "adzuna"
     env_keys = ("ADZUNA_APP_ID", "ADZUNA_APP_KEY")
 
+    def __init__(self):
+        self._days: dict[str, int] = {}   # board key -> days to look back on its next poll (after a gap)
+
+    def resume(self, board, last_ok) -> None:
+        self._days[board.key] = lookback_days(last_ok, 2, 30)
+
     async def fetch(self, board, http):
         app_id, app_key = secret("ADZUNA_APP_ID"), secret("ADZUNA_APP_KEY")
         if not app_id or not app_key:
-            raise SourceConfigError("ADZUNA_APP_ID and ADZUNA_APP_KEY must be set in .env or on the Settings page or on the Settings page")
+            raise SourceConfigError("ADZUNA_APP_ID and ADZUNA_APP_KEY must be set in .env or on the Settings page")
         p = board.params
         params = {"app_id": app_id, "app_key": app_key, "what": p.get("what", ""),
-                  "max_days_old": 2, "sort_by": "date", "results_per_page": 50}
+                  "max_days_old": self._days.pop(board.key, 2), "sort_by": "date", "results_per_page": 50}
         for key in ("what_or", "what_phrase", "where"):  # what_or: any of these words
             if p.get(key):
                 params[key] = p[key]
