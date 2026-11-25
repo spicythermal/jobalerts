@@ -404,7 +404,7 @@ def _runner(tmp_path, built: str):
     seed = dict(DATA, built=built)
     (tmp_path / "config" / "col_data.json").write_text(json.dumps(seed))
     cfg = Config(database=str(tmp_path / "data" / "jobs.db"), config_dir=tmp_path / "config",
-                 pay={"taxes": False})  # gross-pay math here; taxes are tested in test_taxes.py
+                 pay={"taxes": False, "reference_salary": 155_000, "reference_location": "Portland, OR"})  # gross-pay math here; taxes are tested in test_taxes.py
     return Runner(cfg, Store(":memory:"), HttpClient(), Notifier(cfg.notify, dry_run=True))
 
 
@@ -467,7 +467,7 @@ def pay_env(tmp_path, monkeypatch):
     monkeypatch.setattr("jobalerts.scheduler.SOURCES", sources.SOURCES)
     (tmp_path / "col_data.json").write_text(json.dumps(DATA))
     cfg = Config.model_validate({"criteria": {"title_include": ["network engineer"]}, "config_dir": tmp_path,
-                                 "database": str(tmp_path / "db" / "x.db"), "pay": {"taxes": False}})
+                                 "database": str(tmp_path / "db" / "x.db"), "pay": {"reference_salary": 155_000, "reference_location": "Portland, OR", "taxes": False}})
     store = Store(":memory:")
     notifier = Notifier(cfg.notify, dry_run=True)
     runner = Runner(cfg, store, HttpClient(), notifier)
@@ -671,7 +671,7 @@ def buy_env(tmp_path, monkeypatch):
     (tmp_path / "col_data.json").write_text(json.dumps(BUY_DATA))
     cfg = Config.model_validate({"criteria": {"title_include": ["network engineer"]}, "config_dir": tmp_path,
                                  "database": str(tmp_path / "db" / "x.db"),
-                                 "pay": {"taxes": False, "buy": OWN_CFG}})
+                                 "pay": {"reference_salary": 155_000, "reference_location": "Portland, OR", "taxes": False, "buy": OWN_CFG}})
     store = Store(":memory:")
     notifier = Notifier(cfg.notify, dry_run=True)
     runner = Runner(cfg, store, HttpClient(), notifier, PayScorer(FitScore(score=90, summary="fit")))
@@ -755,7 +755,7 @@ def test_city_table_keeps_cities_that_differ_from_their_metro():
 def test_runner_takes_current_home_and_city_weight_from_the_config(tmp_path):
     (tmp_path / "col_data.json").write_text(json.dumps(CITY_DATA))
     cfg = Config.model_validate({"config_dir": tmp_path, "database": str(tmp_path / "x.db"), "pay": {
-        "taxes": False, "buy": OWN_CFG, "city_weight": 0.5,
+        "reference_salary": 155_000, "reference_location": "Portland, OR", "taxes": False, "buy": OWN_CFG, "city_weight": 0.5,
         "current_home": {"payment": 3000, "principal": 500, "upkeep": 300, "rate": 4.5}}})
     runner = Runner(cfg, Store(":memory:"), HttpClient(), Notifier(cfg.notify, dry_run=True))
     assert runner.pay.home.level == pytest.approx(1.096) and "staying" in runner.pay.home.buy_note

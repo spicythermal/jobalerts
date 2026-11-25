@@ -21,3 +21,13 @@ dist/
 .claude/.plan-gate*
 .claude/STOP_AUTORUN
 
+
+# your own data: profile, stories, resumes, watch list, notes (see src/jobalerts/userdata.py)
+/stories/
+/resume_reference/
+/resume_coverletter_tuning/
+/relocation/
+/config/profile.md
+/config/companies.yaml
+/config/candidates.txt
+/config/config.local.yaml

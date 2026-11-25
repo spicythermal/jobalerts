@@ -1,0 +1,25 @@
+# Watch list: the employers whose job boards jobalerts polls directly. This is a small example;
+# replace it with your own on the Boards page, or edit data/companies.yaml.
+#
+# Find a company's board:   jobalerts discover "Company Name" --add
+#                    or:    jobalerts discover https://company.com/careers --add
+#
+# Fields:
+#   ats:    greenhouse | lever | ashby | smartrecruiters | workday | ultipro | personio | workable |
+#           bamboohr | rippling | breezy | successfactors
+#   slug:   board id (not used for workday, ultipro, successfactors)
+#   url:    workday: https://<tenant>.wdN.myworkdayjobs.com/<site>
+#   tier:   priority (3 min) | normal (10 min) | slow (30 min)
+#   search: workday / smartrecruiters only: words that narrow a big board
+#   enabled: false to keep an entry without polling it
+companies:
+  - {"name": "NVIDIA", "ats": "workday", "url": "https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite", "tier": "slow"}
+  - {"name": "SpaceX", "ats": "greenhouse", "slug": "spacex", "tier": "normal"}
+  - {"name": "Anduril Industries", "ats": "greenhouse", "slug": "andurilindustries", "tier": "normal"}
+  - {"name": "Cloudflare", "ats": "greenhouse", "slug": "cloudflare", "tier": "normal"}
+  - {"name": "GitLab", "ats": "greenhouse", "slug": "gitlab", "tier": "normal"}
+  - {"name": "Datadog", "ats": "greenhouse", "slug": "datadog", "tier": "normal"}
+  - {"name": "Palantir", "ats": "lever", "slug": "palantir", "tier": "normal"}
+  - {"name": "OpenAI", "ats": "ashby", "slug": "openai", "tier": "normal"}
+  - {"name": "Ramp", "ats": "ashby", "slug": "ramp", "tier": "normal"}
+  - {"name": "Bosch", "ats": "smartrecruiters", "slug": "BoschGroup", "tier": "slow", "search": "engineer"}

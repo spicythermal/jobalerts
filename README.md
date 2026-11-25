@@ -23,6 +23,34 @@ poll board ─► new job IDs? ─► keyword filter ─► (optional) Claude fi
   watch. Each runs once its API key is in `.env` and is skipped until then. Their matches also feed "hiring for your search, not on your watch list"
   suggestions in the digest.
 
+## Where it's going
+
+jobalerts is being prepared as an open-source project (GPL-3.0). Coming next (tracked in
+`PLAN.md`):
+
+- a web UI next to Home Assistant: **Jobs** (recommendations; where alerts land), **Boards**,
+  the **cost-of-living map**, a **Stories** editor and **Settings** (salary, home, household,
+  stay-or-move preference, thresholds, notifications, write-only API keys), behind a password;
+- secrets and personal numbers stored encrypted on the backend, never sent to the browser;
+- the same program for a 24/7 server and a PC that's only on sometimes: after a gap it catches
+  up, sends one summary push and a report, and sends a missed digest.
+
+Your own files (profile, stories, resumes, watch list, `config.local.yaml`) live in `data/`, which
+git ignores; `config/config.yaml` only holds defaults.
+
+### Upgrading an install from before 2026-11-24
+
+That version kept your profile, watch list, stories and resumes in tracked files, and pulling the
+new one deletes them from the working tree. Move them into `data/` first:
+
+```sh
+git fetch && git show origin/main:tools/migrate_user_data.sh | sh
+git pull && docker compose up -d --build
+```
+
+The script never overwrites anything already in `data/`. Your old `config.yaml` becomes
+`data/config.local.yaml` (only the values you had changed) on the next start.
+
 ## Quick start (local, Windows or Linux)
 
 ```sh
@@ -123,13 +151,13 @@ thirds of those rated 50+; about 17% go on to full scoring, roughly $1 a month. 
 runs it at the end too.
 
 **Cost-of-living pay index:** every match gets a pay index: take-home pay divided by local prices,
-relative to `pay.reference_salary` at `pay.reference_location` ($155K in Portland = 1.00; $155K in
-Austin = 1.18, from no state income tax and slightly lower prices; $155K in New York City = 0.93).
+relative to your current salary where you live now (`pay.reference_salary` at
+`pay.reference_location`, set on the Settings page) = 1.00. The same pay somewhere with no state
+income tax and similar prices scores above 1; a high-tax, high-rent city scores below it.
 Take-home pay is base pay after federal income tax, Social Security and Medicare, state income tax,
 state payroll taxes (California SDI, paid-leave programs, WA Cares, Oregon transit) and city or
-county income taxes where the job is. The household is set in `config/taxes.yaml`: married filing
-jointly, one earner, dependents (ages 4, 8 and 18), 6% pre-tax 401(k) (that money counts as
-yours; it only lowers income tax).
+county income taxes where the job is, for your household (filing status, dependents and pre-tax
+401(k) share; the 401(k) money counts as yours, it only lowers income tax).
 US taxes come from `config/tax_data.json`, a table of 2026 taxes by salary for every state and the
 localities in `taxes.yaml`, computed with PolicyEngine-US. City taxes PolicyEngine doesn't model
 (Ohio, Pennsylvania, Michigan and Kentucky cities, Portland Metro's housing tax) and approximate
@@ -139,9 +167,9 @@ pay instead. US prices come
 from the BEA's Regional Price Parities (by metro area, else by state), with housing priced for a
 family that moves: `pay.housing_share` (40%) of spending goes to rent plus utilities at HUD's
 4-bedroom Fair Market Rent for the metro, and the rest to the RPP's goods and other services. The
-plain all-items RPP weighs housing at about 17% at what all renters pay, so it put San Jose only 5%
-above Portland; with family housing it's about 27% above. States without an FMR use the RPP's
-rents; `housing_share: 0` goes back to the plain RPP.
+plain all-items RPP weighs housing at about 17% at what all renters pay, which understates how much
+dearer family housing is in expensive metros. States without an FMR use the RPP's rents;
+`housing_share: 0` goes back to the plain RPP.
 
 **Renting or buying:** US jobs get two indexes, renting and buying (`pay.buy`). The buying one
 prices the housing share at the monthly cost of owning the area's typical 4-bedroom home instead
@@ -152,20 +180,20 @@ so it's left out; so are the mortgage-interest deduction and what the down payme
 Two settings make it a move-vs-stay comparison:
 
 - `pay.current_home`: what staying in your own home costs now (mortgage payment, less the
-  principal it pays down, plus upkeep and utilities: e.g. $2,500 − $600 + $300 + utilities ≈ $2,550 a
-  month at your locked-in rate). Both indexes compare a move with that, and jobs in your home
-  metro count as staying (1.0 either way). Buying elsewhere means today's rate, so the low
-  locked rate counts against moving. `payment: 0` compares with market rent and price instead.
-- `pay.city_weight` (0.5): a metro's typical home and rent can be far from the job's city's
-  (Palo Alto's 4-bedroom homes cost 2.2x the San Jose metro's). Zillow's city figures (4-bedroom
+  principal it pays down, plus upkeep and utilities: e.g. $2,500 − $600 + $300 + utilities, at
+  your locked-in rate). Both indexes compare a move with that, and jobs in your home metro count
+  as staying (1.0 either way). Buying elsewhere means today's rate, so a low locked rate counts
+  against moving. `payment: 0` compares with market rent and price instead.
+- `pay.city_weight` (0.5): a metro's typical home and rent can be far from the job's city's (a
+  rich suburb's 4-bedroom homes can cost twice the metro's). Zillow's city figures (4-bedroom
   values; typical rents against the metro's) move the metro's numbers halfway toward the job's
   city: living near the job rather than in it. 0 = anywhere in the metro, 1 = in the city.
 
-With both, $250K in Palo Alto is 1.22 renting but 0.48 buying (a $3.0M blended 4-bedroom at
-7.18%: about $20K a month and $600K down), while Austin and Albuquerque stay above 1.1 either
-way. A job passes `pay.min_index` if *either* index clears it, and alerts show both ("pay index
-1.22 rent · 0.48 buy … own $3.00M 4-bed at 7.18%: $20K/mo, $600K down"). Selling and moving
-costs (one-time) aren't in either index. Prices abroad come from the
+In an expensive coastal city the buying index can fall far below the renting one (a multi-million
+4-bedroom at today's rates), while cheaper metros stay close either way. A job passes
+`pay.min_index` if *either* index clears it, and alerts show both ("pay index 1.22 rent · 0.48 buy
+… own $3.00M 4-bed at 7.18%: $20K/mo, $600K down"). Selling and moving costs (one-time) aren't in
+either index. Prices abroad come from the
 World Bank's purchasing-power parity divided by the exchange rate (country-wide). Remote jobs use
 your home prices. The pay comes from the posting's salary field, or else from a salary range stated
 in the description. When even the top of that range is under `pay.min_index` (1.05) renting and buying, the match is

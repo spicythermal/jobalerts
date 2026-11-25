@@ -1,5 +1,6 @@
 import asyncio
 import json
+import os
 from pathlib import Path
 
 import httpx
@@ -8,6 +9,8 @@ from jobalerts.http import HttpClient
 
 FIXTURES = Path(__file__).parent / "fixtures"
 REPO = Path(__file__).parent.parent
+# Tests see the shipped defaults only, never a developer's own data/config.local.yaml.
+os.environ["JOBALERTS_LOCAL_CONFIG"] = str(Path(__file__).parent / "no-local-config.yaml")
 
 
 def load(name: str):
@@ -32,3 +35,14 @@ def json_routes(routes: dict[str, object]):
                 return httpx.Response(200, json=body)
         return httpx.Response(404, json={"error": "not found"})
     return handler
+
+
+def with_reference_home(cfg):
+    """A filled-in pay reference (the shipped defaults leave it to the Settings page): $155K in
+    Portland, OR, staying in a house that costs $3,400 a month. The map and pay tests are worked
+    out against these numbers."""
+    cfg.pay.reference_salary = 155_000
+    cfg.pay.reference_location = "Portland, OR"
+    cfg.pay.current_home = cfg.pay.current_home.model_copy(update={"payment": 3400, "principal": 750,
+                                                                   "upkeep": 450, "rate": 4.5})
+    return cfg

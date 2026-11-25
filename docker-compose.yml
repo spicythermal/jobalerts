@@ -6,13 +6,11 @@ services:
     restart: unless-stopped
     env_file: .env
     ports:
-      - "8765:8765"            # cost-of-living map (map.enabled), for a Home Assistant Webpage card
-    user: "1000:1000"          # must be able to write ./data (and ./config for `discover --add`)
+      - "8765:8765"            # web UI (jobs, boards, map, stories, settings) and the Home Assistant map card
+    user: "1000:1000"          # must be able to write ./data
     volumes:
-      - ./config:/app/config   # config.yaml, companies.yaml, profile.md, taxes.yaml, tax_data.json
-      - ./data:/app/data       # SQLite database
-      - ./resume_reference:/app/resume_reference:ro   # PDF/.md resumes (which version to apply with)
-      - ./stories:/app/stories:ro                     # work stories the AI scorer judges fit against
+      - ./config:/app/config:ro   # shipped defaults: config.yaml, taxes.yaml, price and tax tables
+      - ./data:/app/data          # yours: database, config.local.yaml, profile, stories, resumes, watch list
     logging:
       driver: json-file
       options:

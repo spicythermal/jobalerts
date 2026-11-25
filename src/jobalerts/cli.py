@@ -24,6 +24,7 @@ from .scheduler import Runner
 from .scorer import Scorer, ai_cost_usd
 from .sources import without_missing_keys
 from .store import Store, job_from_row
+from .userdata import seed_user_files
 
 log = logging.getLogger("jobalerts")
 
@@ -622,6 +623,8 @@ def main(argv: list[str] | None = None) -> int:
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("paho").setLevel(logging.CRITICAL)  # its connect errors are re-raised and reported by us
     cfg = load_config(args.config)
+    if args.command in ("run", "web", "poll", "discover", "backfill", "digest"):
+        seed_user_files(cfg)  # a missing profile, watch list or story folder starts from the shipped example
     try:
         return asyncio.run(COMMANDS[args.command](cfg, args)) or 0
     except KeyboardInterrupt:

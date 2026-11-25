@@ -14,7 +14,7 @@ from importlib.resources import files
 from . import col
 from .models import utcnow
 
-SALARIES = list(range(100_000, 400_001, 5_000))   # the slider's steps; 5K keeps $155K on the grid
+SALARIES = list(range(100_000, 400_001, 5_000))   # the slider's steps, $5K apart
 BREAK_EVEN_RANGE = (10_000, 5_000_000)
 JITTER_DEG = 0.18                                 # spreads several jobs in one metro around its point
 

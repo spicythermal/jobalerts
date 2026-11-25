@@ -19,7 +19,7 @@ curl -s http://<jobalerts-host>:8765/healthz     # expect: ok
 Check a few against the command line (`docker compose exec jobalerts jobalerts pay 250000 "<city>"`).
 Open a dot's popup with the slider at $250K.
 
-- [ ] Your home dot (Portland, the ringed one) has a break-even of **$155,000** for renting and buying
+- [ ] Your home dot (the ringed one) has a break-even equal to your reference salary for renting and buying
 - [ ] Albuquerque, Austin and Boston: rent and buy index in the popup match `jobalerts pay` to 0.01
 - [ ] San Jose metro: compare with `jobalerts pay 250000 "Santa Clara, CA"` (rent ≈ 1.28, buy ≈ 0.70)
 - [ ] A city with its own blend (e.g. Tacoma): the job/`pay` number differs a little from the Seattle

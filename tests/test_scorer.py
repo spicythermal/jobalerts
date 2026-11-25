@@ -108,8 +108,8 @@ def test_make_scorer_loads_resume_folder(monkeypatch, tmp_path):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
     (tmp_path / "resumes").mkdir()
     (tmp_path / "resumes" / "mine.md").write_text("Ion optics group leader", encoding="utf-8")
-    cfg = Config(scoring={"enabled": True, "profile_path": "missing.md", "resume_dir": "resumes"},
-                 config_dir=tmp_path)
+    cfg = Config(scoring={"enabled": True, "profile_path": "missing.md", "resume_dir": "resumes",
+                          "stories_dir": "no-stories"}, config_dir=tmp_path)
     s = make_scorer(cfg, Store(":memory:"))
     assert s is not None and s.resume_names == ["mine.md"] and "Ion optics group leader" in s.system
     cfg.scoring.resume_dir = "nothing-here"

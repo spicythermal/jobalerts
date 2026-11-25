@@ -1,13 +1,15 @@
-# jobalerts configuration. Secrets live in .env and are referenced as ${VAR}.
-# Restart the service after editing (docker compose restart jobalerts).
+# jobalerts defaults. Don't put your own values here: change them on the web UI's Settings page,
+# or in data/config.local.yaml (only the settings you change, merged on top of this file; not
+# tracked by git). Secrets live in .env or on the Settings page, referenced here as ${VAR}.
+# Restart the service after editing either file (docker compose restart jobalerts).
 
 contact_email: "${CONTACT_EMAIL}"   # goes in the User-Agent so site operators can reach you
 database: data/jobalerts.db         # relative to the working directory (/app in Docker)
-companies_file: companies.yaml      # relative to this file
+companies_file: ../data/companies.yaml   # your watch list, relative to this file (created from an example)
 
 # ---------------------------------------------------------------- what to match
-# An example for R&D leadership roles (ion/electron/plasma physics,
-# systems engineering, simulation/HPC). A wide net on purpose: AI scoring ranks what gets through.
+# An example for physics, beams, plasma, optics and R&D leadership roles: replace the word lists
+# with your own field. A wide net on purpose: AI scoring ranks what gets through.
 criteria:
   # Phrases are case-insensitive whole words, plurals included ("beam" matches "Beams").
   # A * at either end lets the phrase run into a longer word: "*physicist" matches
@@ -221,9 +223,8 @@ criteria:
     - pasantía
     - becario
   description_exclude: []   # e.g. "active secret clearance"; only checked for keyword matches
-  # Worldwide since 2026-10-27 (US, Europe, Asia, South America): the AI score ranks by
-  # profile.md. To go back to
-  # local only, list places, e.g. [remote, colorado, ", co", denver, boulder].
+  # Worldwide: the AI score and the pay index rank by your profile and stay-or-move preference.
+  # To keep only nearby jobs, list places, e.g. [remote, colorado, ", co", denver, boulder].
   locations: []             # a job must match one (empty = anywhere)
   allow_remote: true        # remote jobs pass the location check
   max_age_days: 7           # a "new" job published longer ago than this is ignored
@@ -249,8 +250,9 @@ scoring:
   enabled: true             # stays off (keywords only) until ANTHROPIC_API_KEY is set in .env
   model: claude-haiku-5-5   # ~$0.001 per scored posting with two resumes in the (cached) prompt
   effort: low
-  profile_path: profile.md  # preferences and deal-breakers the resumes don't say
-  resume_dir: ../resume_reference   # every PDF/.md/.txt resume here is compared against each posting
+  profile_path: ../data/profile.md  # preferences and deal-breakers the resumes don't say
+  resume_dir: ../data/resumes       # every PDF/.md/.txt resume here is compared against each posting
+  stories_dir: ../data/stories      # work stories (*.md); when there are any, fit is judged from them
   push_threshold: 75        # >= this: phone alert now
   digest_threshold: 50      # >= this: evening digest; below: stored only
   step_up_threshold: 75     # AI "step up" score >= this (a clear, credible promotion): phone alert too, even
@@ -272,14 +274,14 @@ prescreen:
   excerpt_chars: 3000       # description characters per posting in pass 2
 
 # ---------------------------------------------------------------- cost-of-living pay index
-# Base pay divided by local prices, relative to the reference: $155K in the Portland metro = 1.0,
-# twice the pay at Portland prices = 2.0. US prices: BEA Regional Price Parities by metro area and
-# state. Abroad: World Bank purchasing-power parity / exchange rate, country-wide. See src/jobalerts/col.py.
+# Take-home pay against local prices, relative to the reference: your current salary where you
+# live = 1.0. Set both on the Settings page. US prices: BEA Regional Price Parities, HUD rents and
+# Zillow home values by metro; abroad: World Bank purchasing-power parity. See src/jobalerts/col.py.
 # Explain one case: jobalerts pay "$150K-180K" "Austin, TX"
 pay:
   enabled: true
-  reference_salary: 155000
-  reference_location: "Portland, OR"
+  reference_salary: 100000  # your current base salary
+  reference_location: "United States"   # where you live now, e.g. "Denver, CO" (US average until set)
   min_index: 1.05           # skip AI scoring and alerts when even the top of the stated range is under this,
                             # renting AND buying (a job passes if either index clears it); 0 = off.
                             # (no stated pay: scored anyway). Skipped jobs are listed in the digest.
@@ -317,10 +319,10 @@ pay:
       NV: 0.006
       HI: 0.003
   current_home:             # staying put is what you compare a move with: both indexes use what your own home costs
-    payment: 3400           # now instead of market rent or price at the reference location (payment 0 = off).
-    principal: 750          # Mortgage payment incl. escrowed tax + insurance; the principal part is saving, not
-    upkeep: 450             # cost; upkeep = repairs (~1% of value a year). Utilities are added at local prices.
-    rate: 4.5               # locked-in rate (for the explanation): buying elsewhere means today's rate instead
+    payment: 0              # now instead of market rent or price at the reference location (payment 0 = off).
+    principal: 0            # Mortgage payment incl. escrowed tax + insurance; the principal part is saving, not
+    upkeep: 0               # cost; upkeep = repairs (~1% of value a year). Utilities are added at local prices.
+    rate: 0                 # locked-in rate (for the explanation): buying elsewhere means today's rate instead
   city_weight: 0.5          # move the metro's home prices and rents this far toward the job's city's (Zillow city
                             # data): 0 = anywhere in the metro, 1 = in the job's city, 0.5 = living near the job
   locations:                # whole words of a location -> a place ("Palo Alto, CA"), state code, ISO3 country or "home"
@@ -344,7 +346,7 @@ notify:
   server: https://ntfy.sh
   topic: "${NTFY_TOPIC}"    # use a long random topic name; anyone who knows it can read it
   token: "${NTFY_TOKEN}"    # optional access token (self-hosted ntfy or ntfy.sh account)
-  timezone: America/Los_Angeles
+  timezone: America/New_York
   digest_time: "18:00"
   digest_max_items: 20
 
@@ -363,7 +365,7 @@ homeassistant:
   base_topic: jobalerts     # writes jobalerts/top/state and jobalerts/top/attributes
   top_n: 10                 # best fits, and separately the biggest step ups (attribute `step_ups`)
   days: 7
-  interval: 3000             # refresh every 50 min, and right after new matches
+  interval: 300             # refresh every 5 min, and right after new matches
 
 # ---------------------------------------------------------------- cost-of-living map
 # A web page with every US metro's pay index (renting or buying, at any salary), the salary that
@@ -385,7 +387,6 @@ aggregators:
       - {keyword: "physicist"}
       - {keyword: "plasma"}
       - {keyword: "accelerator"}
-      - {keyword: "systems engineer", location: "Oregon"}
   adzuna:                   # free key: https://developer.adzuna.com/signup
     enabled: true           # skipped until ADZUNA_APP_ID and ADZUNA_APP_KEY are set in .env
     # New keys get 25 test calls only. "API Access" (GBP 8/month) allows 500 calls/day and 5,000/month.

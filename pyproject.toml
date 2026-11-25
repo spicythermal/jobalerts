@@ -1,12 +1,14 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "jobalerts"
 version = "0.1.0"
-description = "Polls employer ATS job boards directly and pushes matching new postings to your phone via ntfy."
+description = "Watches employer job boards, scores new postings against your work stories with AI, and alerts you; web UI and Home Assistant."
 requires-python = ">=3.11"
+license = "GPL-3.0-or-later"
+license-files = ["LICENSE"]
 dependencies = [
     "httpx>=0.27",
     "pydantic>=2.6",
@@ -28,7 +30,7 @@ jobalerts = "jobalerts.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-jobalerts = ["map_template.html"]
+jobalerts = ["map_template.html", "examples/*", "examples/stories/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

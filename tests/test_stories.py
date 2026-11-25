@@ -46,11 +46,12 @@ def test_load_story_drops_todos_and_presentation_notes(tmp_path):
         assert gone not in story.text, gone
 
 
-def test_repo_stories_all_load():
-    stories = load_stories(REPO / "stories")
-    assert len(stories) >= 15 and all(s.title and "TODO" not in s.text for s in stories)
-    assert len({s.id for s in stories}) == len(stories)
-    assert "lanl-scorpius-beam-spill" in {s.id for s in stories}
+def test_shipped_example_stories_load():
+    from jobalerts.userdata import EXAMPLES
+    stories = load_stories(EXAMPLES / "stories")
+    assert len(stories) == 2 and all(s.title and "TODO" not in s.text for s in stories)
+    assert {s.id for s in stories} == {p.stem for p in (EXAMPLES / "stories").glob("example-*.md")}
+    assert all("**Result:**" in s.text for s in stories)
 
 
 def story_scorer(reply, tmp_path):

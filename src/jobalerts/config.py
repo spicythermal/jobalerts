@@ -1,4 +1,8 @@
-"""Load config.yaml + companies.yaml. Secrets come from the environment / .env, referenced as ${VAR}."""
+"""Load config.yaml, the user's config.local.yaml on top, and the watch list (companies.yaml).
+
+Secrets come from the environment / .env, referenced as ${VAR}. Personal files (profile, stories,
+resumes, watch list, config.local.yaml) live in the data folder; see userdata.py.
+"""
 from __future__ import annotations
 
 import os
@@ -49,9 +53,9 @@ class Scoring(BaseModel):
     enabled: bool = False
     model: str = "claude-haiku-5-5"
     effort: Literal["low", "medium", "high"] = "low"
-    profile_path: str = "profile.md"     # relative to the config directory
-    resume_dir: str = "../resume_reference"  # PDF/.md/.txt resumes, relative to the config directory
-    stories_dir: str = "../stories"      # work stories (*.md); when there are any, fit is judged from them
+    profile_path: str = "../data/profile.md"  # relative to the config directory
+    resume_dir: str = "../data/resumes"  # PDF/.md/.txt resumes, relative to the config directory
+    stories_dir: str = "../data/stories"  # work stories (*.md); when there are any, fit is judged from them
     push_threshold: int = 75
     digest_threshold: int = 50
     step_up_threshold: int = 75          # AI "step up" score (a credible promotion) at or above this -> pushed too (0 = off)
@@ -89,8 +93,8 @@ class CurrentHomeConfig(BaseModel):
 class PayConfig(BaseModel):
     """Cost-of-living pay index (see col.py): reference_salary at reference_location scores 1.0."""
     enabled: bool = True
-    reference_salary: float = 155_000
-    reference_location: str = "Portland, OR"
+    reference_salary: float = 100_000    # your current base salary (Settings page)
+    reference_location: str = "United States"   # where you live now; the US average until set
     min_index: float = 1.05              # top of the stated range below this -> no AI call, no alert (0 = off)
     col_data: str = "col_data.json"      # committed seed, relative to the config directory
     refresh_days: int = 30               # rebuild from BEA + World Bank when older (0 = never); kept next to the DB
@@ -214,7 +218,7 @@ class Board:
 class Config(BaseModel):
     contact_email: str = ""
     database: str = "data/jobalerts.db"
-    companies_file: str = "companies.yaml"
+    companies_file: str = "../data/companies.yaml"   # relative to the config directory
     criteria: Criteria = Criteria()
     polling: Polling = Polling()
     scoring: Scoring = Scoring()
@@ -226,10 +230,13 @@ class Config(BaseModel):
     aggregators: Aggregators = Aggregators()
     companies: list[Company] = []
     config_dir: Path = Path(".")
+    value_sources: dict[str, str] = {}   # dotted setting name -> "local" (config.local.yaml) or "ui"
 
     def resolve(self, relative: str) -> Path:
+        """A path relative to the config directory. `..` is resolved by name, so "../data/x" is the
+        data folder's x even before the config folder exists."""
         p = Path(relative)
-        return p if p.is_absolute() else self.config_dir / p
+        return p if p.is_absolute() else Path(os.path.normpath(self.config_dir / p))
 
     def boards(self) -> list[Board]:
         out: list[Board] = []
@@ -292,14 +299,24 @@ def _read_yaml(path: Path) -> dict:
 
 
 def load_config(path: str | Path) -> Config:
+    from .userdata import EXAMPLES, deep_merge, leaf_keys, local_config_path, migrate_old_config
     path = Path(path).resolve()
     load_dotenv(Path.cwd() / ".env")
     load_dotenv(path.parent.parent / ".env")
-    cfg = Config.model_validate(_read_yaml(path))
+    raw, sources = _read_yaml(path), {}
+    local = local_config_path(path)
+    migrate_old_config(path, local)
+    if local.is_file():
+        over = _read_yaml(local)
+        raw = deep_merge(raw, over)
+        sources = {key: "local" for key in leaf_keys(over)}
+    cfg = Config.model_validate(raw)
     cfg.config_dir = path.parent
+    cfg.value_sources = sources
     companies_path = cfg.resolve(cfg.companies_file)
-    if companies_path.is_file():
-        cfg.companies = [Company.model_validate(c) for c in _read_yaml(companies_path).get("companies") or []]
+    if not companies_path.is_file():  # not created yet (userdata.seed_user_files): the shipped example
+        companies_path = EXAMPLES / "companies.yaml"
+    cfg.companies = [Company.model_validate(c) for c in _read_yaml(companies_path).get("companies") or []]
     if os.environ.get("JOBALERTS_DB"):
         cfg.database = os.environ["JOBALERTS_DB"]
     if not cfg.contact_email:

@@ -7,3 +7,6 @@ tests
 *.egg-info
 .pytest_cache
 resume_reference
+resume_coverletter_tuning
+stories
+relocation

@@ -149,7 +149,7 @@ def test_discover_file_batch_adds_each_found_board(tmp_path, monkeypatch, capsys
     monkeypatch.setattr(discover, "find_by_name", by_name)
     monkeypatch.setattr(discover, "find_by_url", by_url)
     args = cli.build_parser().parse_args(["discover", "--file", str(tmp_path / "list.txt"), "--add"])
-    assert run(cli.cmd_discover(Config(config_dir=tmp_path), args)) == 0
+    assert run(cli.cmd_discover(Config(config_dir=tmp_path, companies_file="companies.yaml"), args)) == 0
     import yaml
     entries = yaml.safe_load((tmp_path / "companies.yaml").read_text(encoding="utf-8"))["companies"]
     assert entries == [

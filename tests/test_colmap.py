@@ -14,12 +14,12 @@ from jobalerts.notify import Notifier
 from jobalerts.scheduler import Runner
 from jobalerts.store import Store
 
-from conftest import REPO, run
+from conftest import REPO, run, with_reference_home
 
 
 @pytest.fixture(scope="module")
 def pay():
-    cfg = load_config(REPO / "config" / "config.yaml")
+    cfg = with_reference_home(load_config(REPO / "config" / "config.yaml"))
     runner = Runner(cfg, Store(":memory:"), HttpClient(), Notifier(cfg.notify, dry_run=True))
     assert runner.pay is not None
     return runner.pay
