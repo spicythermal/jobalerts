@@ -1,0 +1,39 @@
+{% extends "settings_base.html" %}
+{% block settings %}
+<h2>Profile and resumes</h2>
+{% if saved == "profile" %}<p class="ok" role="status">Profile saved. New scores use it; re-score older ones from the Stories page.</p>{% endif %}
+{% if saved == "resume" %}<p class="ok" role="status">Resume added.</p>{% endif %}
+{% if saved == "removed" %}<p class="ok" role="status">Resume removed (moved to a .trash folder next to it).</p>{% endif %}
+{% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+<form method="post" action="/settings/profile" class="card stack">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <label for="profile">Your profile, as the AI reads it</label>
+  <p class="help">What you want next, what makes a role impactful to you, and your deal-breakers: what your
+  stories and resumes don't say. Markdown.</p>
+  <textarea id="profile" name="profile" rows="18" class="mono">{{ profile }}</textarea>
+  <button type="submit">Save profile</button>
+</form>
+<section class="card stack">
+  <h3>Resumes</h3>
+  <p class="help">PDF, Markdown or text. With work stories, the AI judges fit from the stories and uses the resumes
+  only to say which version to apply with.</p>
+  <ul class="plain">
+  {% for r in resumes %}
+    <li class="row">
+      <span>{{ r.name }} <span class="muted small">· {{ "{:,}".format(r.chars) }} characters of text</span></span>
+      <form method="post" action="/settings/resumes/{{ r.name }}/delete">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <button type="submit" class="link">Remove</button>
+      </form>
+    </li>
+  {% else %}
+    <li class="muted">No resumes yet.</li>
+  {% endfor %}
+  </ul>
+  <form method="post" action="/settings/resumes" enctype="multipart/form-data" class="inline">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="file" name="file" accept=".pdf,.md,.txt" required aria-label="Resume file">
+    <button type="submit">Upload</button>
+  </form>
+</section>
+{% endblock %}

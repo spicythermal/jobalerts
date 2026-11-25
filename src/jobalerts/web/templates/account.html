@@ -1,11 +1,10 @@
-{% extends "base.html" %}
-{% block title %}Account · Job alerts{% endblock %}
-{% block content %}
-<h1>Settings</h1>
+{% extends "settings_base.html" %}
+{% block settings %}
+<h2>Account</h2>
 {% if saved == "password" %}<p class="ok" role="status">Password changed. Other devices are logged out.</p>{% endif %}
 {% if saved == "share" %}<p class="ok" role="status">New share link made; the old one no longer works.</p>{% endif %}
 <section class="card stack">
-  <h2>Home Assistant map link</h2>
+  <h3>Home Assistant map link</h3>
   <p>A read-only link to the cost-of-living map for a Home Assistant Webpage card. Anyone with the link can see
   the map (pay indexes and your top jobs), nothing else.</p>
   <input class="mono" readonly value="{{ share_link }}" aria-label="Share link">
@@ -15,7 +14,7 @@
   </form>
 </section>
 <section class="card stack">
-  <h2>Change password</h2>
+  <h3>Change password</h3>
   <form method="post" action="/settings/account/password" class="stack">
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <label>Current password <input type="password" name="current" autocomplete="current-password" required></label>

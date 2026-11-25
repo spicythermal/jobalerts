@@ -22,6 +22,7 @@ from fastapi.templating import Jinja2Templates
 
 from ..vault import secret_key
 from . import auth
+from .settings_pages import SUBNAV, add_settings_routes
 
 log = logging.getLogger(__name__)
 
@@ -66,6 +67,15 @@ class WebState:
             self.setup_code = f"{raw[:4]}-{raw[4:]}"
             log.warning("Web UI has no admin password yet. Open %s/setup and enter the setup code %s",
                         self.base_url() or f"http://<this machine>:{self.cfg.web.port}", self.setup_code)
+        self.test_transport = None  # tests swap in an httpx mock transport for the key Test buttons
+        # The settings pages need the vault and the UI settings; `jobalerts run`/`web` set them up in
+        # cli.open_runner, tests get them here.
+        if runner.vault is None:
+            from ..vault import Vault
+            runner.vault = Vault(runner.store, key)
+        if runner.ui_settings is None:
+            from ..settings import UiSettings
+            runner.ui_settings = UiSettings(runner.store, runner.vault)
         if not self.store.get_meta(META_SHARE):
             self.store.set_meta(META_SHARE, auth.new_token())
 
@@ -239,13 +249,13 @@ def create_app(runner, key: bytes) -> FastAPI:
 
     @app.get("/settings")
     async def settings_page(request: Request):
-        return RedirectResponse("/settings/account", 303)
+        return RedirectResponse("/settings/situation", 303)
 
     @app.get("/settings/account")
     async def account_page(request: Request, saved: str = ""):
         base = state.base_url() or str(request.base_url).rstrip("/")
         return page(request, "account.html", share_link=f"{base}/map/embed?token={state.share_token()}",
-                    saved=saved, error="")
+                    saved=saved, error="", subnav=SUBNAV, section="account")
 
     @app.post("/settings/account/password", dependencies=[Depends(require_csrf)])
     async def change_password(request: Request, current: str = Form(""), password: str = Form(""),
@@ -253,9 +263,11 @@ def create_app(runner, key: bytes) -> FastAPI:
         base = state.base_url() or str(request.base_url).rstrip("/")
         link = f"{base}/map/embed?token={state.share_token()}"
         if not auth.check_password(current, state.password_hash()):
-            return page(request, "account.html", share_link=link, saved="", error="The current password is wrong.")
+            return page(request, "account.html", share_link=link, saved="", error="The current password is wrong.",
+                        subnav=SUBNAV, section="account")
         if problem := auth.password_problem(password, again):
-            return page(request, "account.html", share_link=link, saved="", error=problem)
+            return page(request, "account.html", share_link=link, saved="", error=problem, subnav=SUBNAV,
+                        section="account")
         state.set_password(password)
         log_in(request)  # this session stays logged in; every other one is logged out
         return RedirectResponse("/settings/account?saved=password", 303)
@@ -264,6 +276,8 @@ def create_app(runner, key: bytes) -> FastAPI:
     async def rotate_share_token(request: Request):
         state.store.set_meta(META_SHARE, auth.new_token())
         return RedirectResponse("/settings/account?saved=share", 303)
+
+    add_settings_routes(app, state, page, require_csrf)
 
     @app.get("/{rest:path}")
     async def coming_soon(request: Request, rest: str):

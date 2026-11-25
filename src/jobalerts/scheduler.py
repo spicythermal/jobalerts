@@ -77,11 +77,29 @@ class Runner:
         self._dashboard_stale = asyncio.Event()  # set after new matches so Home Assistant updates right away
         self.map_html: str | None = None    # the latest cost-of-living map page (web UI /map)
         self.vault = None                   # API keys set on the Settings page (vault.Vault), set by cli.open_runner
+        self.ui_settings = None             # settings.UiSettings, set by cli.open_runner / the web app
+        self.base_cfg = cfg                 # config.yaml + config.local.yaml, before the UI's settings
+        self.rebuild = None                 # (cfg, store) -> (scorer, prescreener, homeassistant); cli.open_runner
         self._map_built = 0.0
         self._cap_noticed = ""                     # UTC day of the last "AI daily cap reached" push
         self.pay: col.PayIndex | None = None
         self.pay_problem = ""  # shown in the digest until fixed
         self.load_pay()
+
+    def reconfigure(self, cfg: Config) -> None:
+        """Use new settings without a restart (Settings page): filter, notifications, pay index, AI
+        scoring and Home Assistant. Board intervals and the watch list reload with the boards."""
+        self.cfg = cfg
+        self.filter = JobFilter(cfg.criteria)
+        self.notifier.cfg = cfg.notify
+        self.watched = {normalize_company(name) for name in cfg.watched_companies()}
+        self.pay, self.pay_problem = None, ""
+        self.load_pay()
+        if self.rebuild:
+            self.scorer, prescreener, self.homeassistant = self.rebuild(cfg, self.store)
+            self.prescreener = prescreener if self.scorer else None
+        self.map_html = None
+        self._dashboard_stale.set()
 
     # ------------------------------------------------------------------ pipeline
     async def poll_board(self, board: Board) -> PollResult:

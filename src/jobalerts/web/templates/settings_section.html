@@ -1,0 +1,51 @@
+{% extends "settings_base.html" %}
+{% block settings %}
+<h2>{{ title }}</h2>
+{% if saved == "1" %}<p class="ok" role="status">Saved. It's in use now.</p>{% endif %}
+{% if saved == "reset" %}<p class="ok" role="status">Back to the defaults from the config files.</p>{% endif %}
+{% if saved == "encrypted" %}<p class="ok" role="status">Moved into encrypted storage and out of config.local.yaml.</p>{% endif %}
+{% if errors %}<p class="error" role="alert">Nothing was saved: fix the fields marked below.</p>{% endif %}
+{% if errors.get("") %}<p class="error">{{ errors[""] }}</p>{% endif %}
+{% if local_sensitive %}
+<div class="card notice">
+  <p>{{ local_sensitive|length }} personal value{{ "s" if local_sensitive|length > 1 }} on this page
+  come{{ "" if local_sensitive|length > 1 else "s" }} from <code>data/config.local.yaml</code>, a plain-text file.
+  Store {{ "them" if local_sensitive|length > 1 else "it" }} encrypted instead (and remove {{ "them" if local_sensitive|length > 1 else "it" }} from the file)?</p>
+  <form method="post" action="/settings/situation/encrypt-local">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <button type="submit" class="secondary">Store encrypted</button>
+  </form>
+</div>
+{% endif %}
+<form method="post" action="/settings/{{ section }}" class="card stack" novalidate>
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  {% for row in rows %}
+  {% set f = row.f %}
+  <div class="field{% if errors.get(f.key) %} has-error{% endif %}">
+    {% if f.kind == "bool" %}
+    <label class="check"><input type="checkbox" name="{{ f.key }}" value="1"{% if row.checked %} checked{% endif %}> {{ f.label }}</label>
+    {% else %}
+    <label for="f-{{ loop.index }}">{{ f.label }}</label>
+    {% if f.kind == "lines" %}
+    <textarea id="f-{{ loop.index }}" name="{{ f.key }}" rows="{{ [4, (row.value.count('\n') + 2)]|max if row.value else 4 }}"{% if f.sensitive %} autocomplete="off"{% endif %}>{{ row.value }}</textarea>
+    {% elif f.kind == "choice" %}
+    <select id="f-{{ loop.index }}" name="{{ f.key }}">
+      {% for value, text in f.choices %}<option value="{{ value }}"{% if row.value == value %} selected{% endif %}>{{ text }}</option>{% endfor %}
+    </select>
+    {% else %}
+    <input id="f-{{ loop.index }}" name="{{ f.key }}" value="{{ row.value }}"
+      {% if f.kind in ("money", "int", "number") %}inputmode="decimal"{% endif %}{% if f.sensitive %} autocomplete="off"{% endif %}>
+    {% endif %}
+    {% endif %}
+    {% if errors.get(f.key) %}<p class="error">{{ errors[f.key] }}</p>{% endif %}
+    {% if f.help %}<p class="help">{{ f.help }}</p>{% endif %}
+    <p class="source">{% if row.source == "ui" %}Saved here{% elif row.source == "local" %}From data/config.local.yaml{% else %}Default{% endif %}{% if f.sensitive %} · private{% endif %}</p>
+  </div>
+  {% endfor %}
+  <button type="submit">Save</button>
+</form>
+<form method="post" action="/settings/{{ section }}/reset">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <button type="submit" class="link">Reset this page to the defaults from the config files</button>
+</form>
+{% endblock %}

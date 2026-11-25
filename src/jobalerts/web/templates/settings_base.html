@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Settings · Job alerts{% endblock %}
+{% block content %}
+<h1>Settings</h1>
+<div class="settings">
+  <nav class="subnav" aria-label="Settings sections">
+    {% for key, label in subnav %}
+    <a href="/settings/{{ key }}"{% if section == key %} aria-current="page"{% endif %}>{{ label }}</a>
+    {% endfor %}
+  </nav>
+  <div class="settings-body">
+  {% block settings %}{% endblock %}
+  </div>
+</div>
+{% endblock %}

@@ -11,6 +11,8 @@ from contextlib import asynccontextmanager
 from datetime import timedelta
 from pathlib import Path
 
+from pydantic import ValidationError
+
 from . import col, discover
 from .config import Config, load_config
 from .dashboard import MqttPublisher, ai_cost
@@ -25,6 +27,7 @@ from .scorer import Scorer, ai_cost_usd
 from .sources import without_missing_keys
 from .store import Store, job_from_row
 from .userdata import seed_user_files
+from .settings import UiSettings, apply as apply_settings
 from .vault import Vault, install as install_vault, install_log_redaction, secret_key
 
 log = logging.getLogger("jobalerts")
@@ -79,6 +82,12 @@ def make_homeassistant(cfg: Config) -> MqttPublisher | None:
     return publisher
 
 
+def rebuild_services(cfg: Config, store: Store):
+    """The parts that depend on settings, profile, stories, resumes and keys (after a Settings change)."""
+    scorer = make_scorer(cfg, store)
+    return scorer, make_prescreener(cfg, store, scorer), make_homeassistant(cfg)
+
+
 @asynccontextmanager
 async def open_runner(cfg: Config, *, dry_run: bool = False, memory_store: bool | None = None):
     store = Store(":memory:" if (dry_run if memory_store is None else memory_store) else cfg.database)
@@ -87,13 +96,21 @@ async def open_runner(cfg: Config, *, dry_run: bool = False, memory_store: bool 
         Store(cfg.database) if Path(cfg.database).is_file() else None)
     vault = Vault(key_store, secret_key(cfg)) if key_store else None
     install_vault(vault)
+    base_cfg, ui = cfg, (UiSettings(key_store, vault) if vault else None)
+    if ui:
+        try:
+            cfg = apply_settings(base_cfg, ui.overlay())
+        except ValidationError as e:
+            log.warning("Settings saved on the web UI don't fit this version's config; using the files only: %s", e)
     http = HttpClient(cfg.contact_email, cfg.polling.host_min_interval)
     notifier = Notifier(cfg.notify, dry_run=dry_run)
     homeassistant = None if dry_run else make_homeassistant(cfg)
     try:
         scorer = None if dry_run else make_scorer(cfg, store)
         runner = Runner(cfg, store, http, notifier, scorer, homeassistant, make_prescreener(cfg, store, scorer))
-        runner.vault = vault
+        runner.vault, runner.ui_settings, runner.base_cfg = vault, ui, base_cfg
+        if not dry_run:
+            runner.rebuild = rebuild_services
         yield runner
     finally:
         install_vault(None)
