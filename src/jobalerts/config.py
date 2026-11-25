@@ -96,6 +96,7 @@ class PayConfig(BaseModel):
     reference_salary: float = 100_000    # your current base salary (Settings page)
     reference_location: str = "United States"   # where you live now; the US average until set
     min_index: float = 1.05              # top of the stated range below this -> no AI call, no alert (0 = off)
+    move_min_index: float = 1.15         # the same for jobs that need a move, with intent.move: open
     col_data: str = "col_data.json"      # committed seed, relative to the config directory
     refresh_days: int = 30               # rebuild from BEA + World Bank when older (0 = never); kept next to the DB
     locations: dict[str, str] = {}       # location text -> US metro name, state code, ISO3 country or "home"
@@ -106,6 +107,12 @@ class PayConfig(BaseModel):
     buy: BuyConfig = BuyConfig()
     current_home: CurrentHomeConfig = CurrentHomeConfig()
     city_weight: float = 0.5             # how far a metro's home prices and rents move toward the job's city's
+
+
+class Intent(BaseModel):
+    """Stay or move (Settings page). stay: jobs that need a move are dropped; open: they must clear
+    pay.move_min_index; any: the same pay floor as local jobs. The AI is told too."""
+    move: Literal["stay", "open", "any"] = "any"
 
 
 class Notify(BaseModel):
@@ -235,6 +242,7 @@ class Config(BaseModel):
     scoring: Scoring = Scoring()
     prescreen: Prescreen = Prescreen()
     pay: PayConfig = PayConfig()
+    intent: Intent = Intent()
     notify: Notify = Notify()
     homeassistant: HomeAssistant = HomeAssistant()
     map: MapConfig = MapConfig()

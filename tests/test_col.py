@@ -874,3 +874,57 @@ def test_backfill_stops_at_the_reserve(pay_env):
     runner.scorer = PayScorer(FitScore(score=90, summary="fit"), left=150)
     assert run(runner.backfill([board])) == []               # baseline job 0 left for another day
     assert store.db.execute("SELECT status FROM jobs WHERE job_id='0'").fetchone()[0] == "baseline"
+
+
+# ---------------------------------------------------------------------------- stay or move
+def with_intent(runner, move):
+    runner.cfg = runner.cfg.model_copy(update={"intent": runner.cfg.intent.model_copy(update={"move": move})})
+
+
+def san_jose_at_1_13(fake):
+    job = make_job(11, location="San Jose, CA")
+    job.salary = "$165K-210K/yr"   # the same range as above: index 0.89-1.13 against home
+    fake.jobs.append(job)
+
+
+def test_needs_move_knows_home_remote_and_unknown_places(pay_env):
+    fake, runner, board, store, notifier = pay_env
+    assert runner.needs_move(make_job(1, location="San Jose, CA")) is True
+    assert runner.needs_move(make_job(1, location="Portland, OR")) is False
+    assert runner.needs_move(make_job(1, location="Remote")) is False
+    assert runner.needs_move(make_job(1, location="Nowhere in particular")) is None
+
+
+def test_staying_drops_jobs_that_need_a_move_before_any_ai_call(pay_env):
+    fake, runner, board, store, notifier = pay_env
+    with_intent(runner, "stay")
+    runner.scorer = scorer = PayScorer(FitScore(score=95, summary="fit"))
+    san_jose_at_1_13(fake)
+    fake.jobs.append(make_job(12, location="Portland, OR"))
+    run(runner.poll_board(board))
+    rows = {r["job_id"]: r for r in store.db.execute("SELECT job_id, status, reason FROM jobs WHERE job_id IN ('11','12')")}
+    assert rows["11"]["status"] == "filtered" and "needs a move" in rows["11"]["reason"]
+    assert rows["12"]["status"] == "alerted" and scorer.calls == 1
+
+
+def test_open_to_moving_needs_the_higher_floor_and_any_does_not(pay_env):
+    fake, runner, board, store, notifier = pay_env
+    runner.scorer = PayScorer(FitScore(score=95, summary="fit"))
+    with_intent(runner, "open")
+    san_jose_at_1_13(fake)
+    run(runner.poll_board(board))
+    row = store.db.execute("SELECT status, reason FROM jobs WHERE job_id='11'").fetchone()
+    assert row["status"] == "low_pay" and "top of move 1.13 < 1.15" in row["reason"]
+    with_intent(runner, "any")
+    assert runner.pay_floor(make_job(11, location="San Jose, CA")) == runner.cfg.pay.min_index
+
+
+def test_the_ai_is_told_the_stay_or_move_choice(tmp_path):
+    from jobalerts.cli import _profile_and_resumes
+    (tmp_path / "profile.md").write_text("# Me\nBeams.")
+    cfg = Config(config_dir=tmp_path, scoring={"profile_path": "profile.md", "resume_dir": "r", "stories_dir": "s"},
+                 intent={"move": "open"}, pay={"reference_location": "Boulder, CO", "move_min_index": 1.2})
+    _, profile, _, _ = _profile_and_resumes(cfg)
+    assert profile.startswith("# Me\nBeams.") and "I'd move for an exceptional role" in profile and "1.2+" in profile
+    (tmp_path / "profile.md").write_text("")
+    assert _profile_and_resumes(cfg)[1] == ""   # no profile: nothing to add the line to

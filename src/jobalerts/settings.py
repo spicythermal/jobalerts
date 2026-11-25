@@ -62,6 +62,13 @@ FIELDS: list[Field] = [
           "Repairs and maintenance, roughly 1% of the home's value a year, per month.", True),
     Field("pay.current_home.rate", "Mortgage rate (%)", "number", "situation",
           "Your locked-in rate, e.g. 4.5. Shown in explanations; buying elsewhere means today's rate.", True),
+    Field("intent.move", "Stay or move", "choice", "situation",
+          "Stay: jobs that need a move are dropped. Open: they must clear the move pay floor below. "
+          "Anywhere: moves are held to the same pay floor as local jobs. The AI is told too.",
+          choices=(("stay", "Stay where I live"), ("open", "Open to moving for the right role"),
+                   ("any", "Happy to move anywhere"))),
+    Field("pay.move_min_index", "Pay floor for a move", "number", "situation",
+          "With \"open\": a job in another metro needs at least this pay index (renting or buying), e.g. 1.15."),
     Field("contact_email", "Contact email", "email", "situation",
           "Sent in the User-Agent so job-board operators can reach you about your traffic.", True),
     # -- what to look for

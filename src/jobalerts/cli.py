@@ -33,9 +33,25 @@ from .vault import Vault, install as install_vault, install_log_redaction, secre
 log = logging.getLogger("jobalerts")
 
 
+INTENT = {
+    "stay": "I want to stay where I live ({home}): only local or remote roles.",
+    "open": ("I'd move for an exceptional role, if it clearly pays off after cost of living (pay index "
+             "{floor:g}+ against staying in {home})."),
+    "any": "I'm happy to relocate for the right role; where I live now ({home}) isn't a constraint.",
+}
+
+
+def intent_note(cfg: Config) -> str:
+    """The Settings page's stay-or-move choice, as a line of the profile the AI reads."""
+    home = cfg.pay.reference_location
+    text = INTENT[cfg.intent.move].format(home=home, floor=cfg.pay.move_min_index)
+    return f"\n\n## Stay or move (from the Settings page)\n- {text}\n"
+
+
 def _profile_and_resumes(cfg: Config):
     profile_path = cfg.resolve(cfg.scoring.profile_path)
     profile = profile_path.read_text(encoding="utf-8") if profile_path.is_file() else ""
+    profile = profile.rstrip() + intent_note(cfg) if profile.strip() else ""
     return (profile_path, profile, load_resumes(cfg.resolve(cfg.scoring.resume_dir)),
             load_stories(cfg.resolve(cfg.scoring.stories_dir)))
 

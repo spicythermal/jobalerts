@@ -70,6 +70,8 @@ def section_form(client, section):
         form[name] = value.replace("&#34;", '"').replace("&amp;", "&").replace("&#39;", "'")
     for name in re.findall(r'<input type="checkbox" name="([^"]+)" value="1" checked>', html):
         form[name] = "1"
+    for name, options in re.findall(r'<select id="f-\d+" name="([^"]+)">(.*?)</select>', html, re.S):
+        form[name] = re.search(r'<option value="([^"]+)" selected>', options).group(1)
     return form
 
 

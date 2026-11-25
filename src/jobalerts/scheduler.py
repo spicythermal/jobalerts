@@ -238,12 +238,13 @@ class Runner:
             else:  # the pay the AI read earlier, if that's all there is
                 high = max((v for v in (row["pay_high"], row["buy_high"]) if v is not None), default=None)
             step_up = fit.step_up if fit else row["step_up"]
-            if high is not None and high < self.cfg.pay.min_index:
+            floor = self.pay_floor(job)
+            if high is not None and high < floor:
                 status = "low_pay"
             elif old == "low_pay":  # back where its AI score puts it, never pushed
                 status = "baseline" if score is None else self.route(score, step_up).replace("alert", "digest")
             if write:
-                reason = (f"top of range {high:.2f} < {self.cfg.pay.min_index:g}" if status == "low_pay"
+                reason = (f"top of range {high:.2f} < {floor:g}" if status == "low_pay"
                           else "repriced" if status != old else None)
                 store.update_job(job.key, status=status, reason=reason, **_pay_cols(pay, fit), **_score_cols(fit))
             out.append((job, old, status, pay, fit is not None))
@@ -324,6 +325,10 @@ class Runner:
         """Everything after the title check: description, pay gate, AI score, routing. The job's row exists."""
         if not board.watched and normalize_company(job.company) not in self.watched:
             self.store.add_suggestion(job.company)
+
+        if self.cfg.intent.move == "stay" and self.needs_move(job):
+            self.store.update_job(job.key, status="filtered", reason="needs a move (Settings: stay where you live)")
+            return "filtered", None
 
         if not job.description and (self.scorer or self.pay or self.filter.description_exclude):
             try:
@@ -461,12 +466,36 @@ class Runner:
         pay = col.parse_salary(job.salary) or col.pay_in_description(job.description) or (score.pay() if score else None)
         return self.pay.index(pay, job.location, job.remote)
 
+    def needs_move(self, job: Job) -> bool | None:
+        """Would taking the job mean moving? Another metro than home (or another state or country when
+        home isn't a metro); remote jobs don't, unless they name a foreign country. None if unknown."""
+        if not self.pay:
+            return None
+        place = self.pay.resolve(job.location or "", job.remote)
+        home = self.pay.home
+        if place is None or home is None:
+            return None
+        if home.metro:
+            return place.metro != home.metro
+        if home.state:
+            return place.state != home.state
+        return place.country != home.country
+
+    def pay_floor(self, job: Job) -> float:
+        """pay.min_index, or pay.move_min_index for a job that needs a move when you're open to moving."""
+        floor = self.cfg.pay.min_index
+        if self.cfg.intent.move == "open" and self.needs_move(job):
+            return max(floor, self.cfg.pay.move_min_index)
+        return floor
+
     def _pay_too_low(self, job: Job, pay: col.PayResult | None, score: FitScore | None = None) -> bool:
         """Stores the job as low_pay (listed in the digest, never pushed) when even the top of its range
-        is under pay.min_index."""
-        if pay is None or pay.best_high >= self.cfg.pay.min_index:
+        is under its pay floor (pay.min_index, higher for a move)."""
+        floor = self.pay_floor(job)
+        if pay is None or pay.best_high >= floor:
             return False
-        self.store.update_job(job.key, status="low_pay", reason=f"top of range {pay.best_high:.2f} < {self.cfg.pay.min_index:g}",
+        what = "move" if floor > self.cfg.pay.min_index else "range"
+        self.store.update_job(job.key, status="low_pay", reason=f"top of {what} {pay.best_high:.2f} < {floor:g}",
                               **_pay_cols(pay, score), **_score_cols(score))
         return True
 
