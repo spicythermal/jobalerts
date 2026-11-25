@@ -1,13 +1,13 @@
 """Adapter interface: turn one board's API response into normalized Jobs."""
 from __future__ import annotations
 
-import os
 from abc import ABC, abstractmethod
 from typing import ClassVar
 
 from ..config import Board
 from ..http import HttpClient
 from ..models import Job
+from ..vault import secret
 
 
 class SourceConfigError(Exception):
@@ -16,10 +16,10 @@ class SourceConfigError(Exception):
 
 class Source(ABC):
     name: ClassVar[str]
-    env_keys: ClassVar[tuple[str, ...]] = ()  # .env settings the source can't run without
+    env_keys: ClassVar[tuple[str, ...]] = ()  # keys (.env or Settings page) the source can't run without
 
     def missing_keys(self) -> list[str]:
-        return [k for k in self.env_keys if not os.environ.get(k)]
+        return [k for k in self.env_keys if not secret(k)]
 
     @abstractmethod
     async def fetch(self, board: Board, http: HttpClient) -> list[Job]:

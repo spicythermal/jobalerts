@@ -25,6 +25,7 @@ from .scorer import Scorer, ai_cost_usd
 from .sources import without_missing_keys
 from .store import Store, job_from_row
 from .userdata import seed_user_files
+from .vault import Vault, install as install_vault, install_log_redaction, secret_key
 
 log = logging.getLogger("jobalerts")
 
@@ -81,17 +82,31 @@ def make_homeassistant(cfg: Config) -> MqttPublisher | None:
 @asynccontextmanager
 async def open_runner(cfg: Config, *, dry_run: bool = False, memory_store: bool | None = None):
     store = Store(":memory:" if (dry_run if memory_store is None else memory_store) else cfg.database)
+    # API keys set on the Settings page live encrypted in the real database (also for dry runs).
+    key_store = store if str(cfg.database) and store_is_file(store) else (
+        Store(cfg.database) if Path(cfg.database).is_file() else None)
+    vault = Vault(key_store, secret_key(cfg)) if key_store else None
+    install_vault(vault)
     http = HttpClient(cfg.contact_email, cfg.polling.host_min_interval)
     notifier = Notifier(cfg.notify, dry_run=dry_run)
     homeassistant = None if dry_run else make_homeassistant(cfg)
     try:
         scorer = None if dry_run else make_scorer(cfg, store)
-        yield Runner(cfg, store, http, notifier, scorer, homeassistant, make_prescreener(cfg, store, scorer))
+        runner = Runner(cfg, store, http, notifier, scorer, homeassistant, make_prescreener(cfg, store, scorer))
+        runner.vault = vault
+        yield runner
     finally:
+        install_vault(None)
+        if key_store is not None and key_store is not store:
+            key_store.close()
         store.add_host_stats(http.drain_stats())
         await http.aclose()
         await notifier.aclose()
         store.close()
+
+
+def store_is_file(store: Store) -> bool:
+    return store.db.execute("PRAGMA database_list").fetchone()["file"] != ""
 
 
 def select_boards(cfg: Config, text: str | None):
@@ -651,6 +666,7 @@ def main(argv: list[str] | None = None) -> int:
                         format="%(asctime)s %(levelname)-7s %(name)s: %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("paho").setLevel(logging.CRITICAL)  # its connect errors are re-raised and reported by us
+    install_log_redaction()
     cfg = load_config(args.config)
     if args.command in ("run", "web", "poll", "discover", "backfill", "digest"):
         seed_user_files(cfg)  # a missing profile, watch list or story folder starts from the shipped example

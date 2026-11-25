@@ -6,6 +6,7 @@ import json
 import logging
 from datetime import timedelta
 
+from .vault import secret
 from .col import NO_PAY, parse_salary
 from .config import HomeAssistant, Scoring
 from .filters import JobFilter
@@ -176,7 +177,8 @@ class MqttPublisher:
 def _paho_send(cfg: HomeAssistant, messages: list[tuple[str, str]]) -> None:
     from paho.mqtt import publish
 
-    auth = {"username": cfg.mqtt_username, "password": cfg.mqtt_password} if cfg.mqtt_username else None
+    password = cfg.mqtt_password or secret("MQTT_PASSWORD")
+    auth = {"username": cfg.mqtt_username, "password": password} if cfg.mqtt_username else None
     publish.multiple([{"topic": t, "payload": payload, "qos": 1, "retain": True} for t, payload in messages],
                      hostname=cfg.mqtt_host, port=cfg.mqtt_port, client_id=f"{cfg.base_topic}-dashboard",
                      auth=auth, tls={} if cfg.mqtt_tls else None)

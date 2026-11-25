@@ -121,7 +121,8 @@ def test_a_tampered_or_old_session_is_not_logged_in(app):
     client = set_up(app)
     cookie = client.cookies[auth.COOKIE]
     body, sig = cookie.split(".")
-    forged = TestClient(app, follow_redirects=False, cookies={auth.COOKIE: body + "." + sig[:-2] + "AA"})
+    other_sig = auth.Signer(b"z" * 32).dumps({"x": 1}).split(".")[1]   # a valid-looking signature, wrong key
+    forged = TestClient(app, follow_redirects=False, cookies={auth.COOKIE: body + "." + other_sig})
     assert forged.get("/").status_code == 303
     other = TestClient(app, follow_redirects=False, cookies={auth.COOKIE: cookie})
     assert other.get("/").status_code == 200

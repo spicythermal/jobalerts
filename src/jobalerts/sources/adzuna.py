@@ -1,9 +1,8 @@
 """Adzuna job search API (free key, daily call cap): https://developer.adzuna.com/docs/search"""
 from __future__ import annotations
 
-import os
-
 from ..models import Job, format_salary, parse_dt, strip_html
+from ..vault import secret
 from .base import Source, SourceConfigError
 
 CURRENCY = {"gb": "GBP", "at": "EUR", "be": "EUR", "de": "EUR", "es": "EUR", "fr": "EUR", "it": "EUR",
@@ -16,9 +15,9 @@ class Adzuna(Source):
     env_keys = ("ADZUNA_APP_ID", "ADZUNA_APP_KEY")
 
     async def fetch(self, board, http):
-        app_id, app_key = os.environ.get("ADZUNA_APP_ID"), os.environ.get("ADZUNA_APP_KEY")
+        app_id, app_key = secret("ADZUNA_APP_ID"), secret("ADZUNA_APP_KEY")
         if not app_id or not app_key:
-            raise SourceConfigError("ADZUNA_APP_ID and ADZUNA_APP_KEY must be set in .env")
+            raise SourceConfigError("ADZUNA_APP_ID and ADZUNA_APP_KEY must be set in .env or on the Settings page or on the Settings page")
         p = board.params
         params = {"app_id": app_id, "app_key": app_key, "what": p.get("what", ""),
                   "max_days_old": 2, "sort_by": "date", "results_per_page": 50}

@@ -20,6 +20,7 @@ from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse,
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+from ..vault import secret_key
 from . import auth
 
 log = logging.getLogger(__name__)
@@ -273,15 +274,11 @@ def create_app(runner, key: bytes) -> FastAPI:
     return app
 
 
-def key_path(cfg) -> Path:
-    return Path(cfg.database).resolve().parent / "secret.key"
-
-
 async def serve(runner) -> None:
     """Run the web UI until cancelled (a task inside `jobalerts run`, or alone for `jobalerts web`)."""
     import uvicorn
     cfg = runner.cfg.web
-    app = create_app(runner, auth.load_or_create_key(key_path(runner.cfg)))
+    app = create_app(runner, secret_key(runner.cfg))
     server = uvicorn.Server(uvicorn.Config(app, host=cfg.bind, port=cfg.port, log_level="warning",
                                            access_log=False, lifespan="off"))
     log.info("Web UI on http://%s:%d/%s", cfg.bind, cfg.port,

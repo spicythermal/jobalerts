@@ -6,12 +6,12 @@ last successful poll of that search (`discovered_at_gte`), and `limit` caps one 
 """
 from __future__ import annotations
 
-import os
 from datetime import datetime, timedelta, timezone
 
 import httpx
 
 from ..models import Job, format_salary, parse_dt, strip_html
+from ..vault import secret
 from .base import Source, SourceConfigError
 
 URL = "https://api.theirstack.com/v1/jobs/search"
@@ -41,9 +41,9 @@ class TheirStack(Source):
         return body
 
     async def fetch(self, board, http):
-        key = os.environ.get("THEIRSTACK_API_KEY")
+        key = secret("THEIRSTACK_API_KEY")
         if not key:
-            raise SourceConfigError("THEIRSTACK_API_KEY must be set in .env")
+            raise SourceConfigError("THEIRSTACK_API_KEY must be set in .env or on the Settings page or on the Settings page")
         started = datetime.now(timezone.utc)
         # First poll after a start: look back one interval, so a restart doesn't re-buy the last week.
         since = self._since.get(board.key, started - timedelta(seconds=board.interval))

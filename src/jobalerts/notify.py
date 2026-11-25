@@ -8,6 +8,7 @@ import httpx
 
 from .config import Notify
 from .models import Job
+from .vault import secret
 
 log = logging.getLogger(__name__)
 
@@ -15,16 +16,29 @@ log = logging.getLogger(__name__)
 class Notifier:
     def __init__(self, cfg: Notify, dry_run: bool = False, transport: httpx.AsyncBaseTransport | None = None):
         self.cfg = cfg
-        self.dry_run = dry_run or not cfg.topic
+        self._dry_run = dry_run
         self._client = httpx.AsyncClient(timeout=15.0, transport=transport)
         self.sent: list[dict] = []  # payloads, kept for dry runs and tests
+
+    @property
+    def topic(self) -> str:
+        return self.cfg.topic or secret("NTFY_TOPIC")
+
+    @property
+    def token(self) -> str:
+        return self.cfg.token or secret("NTFY_TOKEN")
+
+    @property
+    def dry_run(self) -> bool:
+        """Nothing is sent in a dry run, or until a topic is set (.env or the Settings page)."""
+        return self._dry_run or not self.topic
 
     async def aclose(self) -> None:
         await self._client.aclose()
 
     def build(self, title: str, message: str, *, priority: int = 3, tags: list[str] | None = None,
               click: str | None = None, actions: list[dict] | None = None) -> dict:
-        payload = {"topic": self.cfg.topic, "title": title[:250], "message": message[:4000],
+        payload = {"topic": self.topic, "title": title[:250], "message": message[:4000],
                    "priority": priority, "tags": tags or []}
         if click:
             payload["click"] = click
@@ -38,7 +52,7 @@ class Notifier:
         if self.dry_run:
             log.info("[dry-run notify] %s | %s", payload["title"], payload["message"].replace("\n", " / "))
             return
-        headers = {"Authorization": f"Bearer {self.cfg.token}"} if self.cfg.token else {}
+        headers = {"Authorization": f"Bearer {self.token}"} if self.token else {}
         for attempt in range(3):
             try:
                 r = await self._client.post(self.cfg.server.rstrip("/"), json=payload, headers=headers)

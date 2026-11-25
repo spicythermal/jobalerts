@@ -1,9 +1,8 @@
 """USAJobs search API (free key): https://developer.usajobs.gov/api-reference/get-api-search"""
 from __future__ import annotations
 
-import os
-
 from ..models import Job, format_salary, parse_dt
+from ..vault import secret
 from .base import Source, SourceConfigError
 
 API = "https://data.usajobs.gov/api/search"
@@ -14,9 +13,9 @@ class USAJobs(Source):
     env_keys = ("USAJOBS_API_KEY", "USAJOBS_EMAIL")
 
     async def fetch(self, board, http):
-        key, email = os.environ.get("USAJOBS_API_KEY"), os.environ.get("USAJOBS_EMAIL")
+        key, email = secret("USAJOBS_API_KEY"), secret("USAJOBS_EMAIL")
         if not key or not email:
-            raise SourceConfigError("USAJOBS_API_KEY and USAJOBS_EMAIL must be set in .env")
+            raise SourceConfigError("USAJOBS_API_KEY and USAJOBS_EMAIL must be set in .env or on the Settings page or on the Settings page")
         p = board.params
         params = {"Keyword": p.get("keyword", ""), "DatePosted": 2, "ResultsPerPage": 250,
                   "SortField": "opendate", "SortDirection": "desc"}

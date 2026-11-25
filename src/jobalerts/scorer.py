@@ -13,6 +13,7 @@ import logging
 import anthropic
 from pydantic import BaseModel, ValidationError
 
+from .vault import secret
 from .col import Pay
 from .config import Scoring
 from .models import Job, utcnow
@@ -182,7 +183,7 @@ class Scorer:
         evidence, experience = experience_prompt(resumes or [], stories or [])
         self.system = SYSTEM.format(profile=profile.strip() or "(no profile provided)",
                                     evidence=evidence, experience=experience)
-        self.client = client or anthropic.AsyncAnthropic(max_retries=3, timeout=90.0)
+        self.client = client or anthropic.AsyncAnthropic(api_key=secret("ANTHROPIC_API_KEY") or None, max_retries=3, timeout=90.0)
         # Changes when the stories, resumes, profile, prompt or model change: --rescore skips jobs already
         # scored on the current basis, so an interrupted rescore picks up where it stopped.
         self.basis = hashlib.sha256(f"{cfg.model}\n{self.system}".encode()).hexdigest()[:12]

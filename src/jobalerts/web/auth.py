@@ -23,6 +23,8 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from ..vault import load_or_create_key  # noqa: F401 (re-exported for the web app)
+
 SCRYPT = {"n": 2 ** 14, "r": 8, "p": 1}
 COOKIE = "jobalerts_session"
 MIN_PASSWORD = 10
@@ -34,22 +36,6 @@ def _b64(data: bytes) -> str:
 
 def _unb64(text: str) -> bytes:
     return base64.urlsafe_b64decode(text + "=" * (-len(text) % 4))
-
-
-def load_or_create_key(path: Path) -> bytes:
-    """32 random bytes kept in `path` (created 0600 on first use). Also used by the secret vault."""
-    if path.is_file():
-        key = _unb64(path.read_text(encoding="ascii").strip())
-        if len(key) == 32:
-            return key
-        raise ValueError(f"{path} doesn't hold a 32-byte key; move it away to create a new one "
-                         "(stored secrets and sessions are then lost)")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    key = secrets.token_bytes(32)
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    with os.fdopen(fd, "w", encoding="ascii") as f:
-        f.write(_b64(key) + "\n")
-    return key
 
 
 def hash_password(password: str) -> str:

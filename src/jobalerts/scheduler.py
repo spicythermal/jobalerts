@@ -76,6 +76,7 @@ class Runner:
         self.homeassistant = homeassistant
         self._dashboard_stale = asyncio.Event()  # set after new matches so Home Assistant updates right away
         self.map_html: str | None = None    # the latest cost-of-living map page (web UI /map)
+        self.vault = None                   # API keys set on the Settings page (vault.Vault), set by cli.open_runner
         self._map_built = 0.0
         self._cap_noticed = ""                     # UTC day of the last "AI daily cap reached" push
         self.pay: col.PayIndex | None = None

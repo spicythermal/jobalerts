@@ -18,6 +18,7 @@ import logging
 import anthropic
 from pydantic import BaseModel, ValidationError
 
+from .vault import secret
 from .config import Prescreen, Scoring
 from .models import Job
 from .resumes import Resume
@@ -89,7 +90,7 @@ class Prescreener:
         self.store = store
         self.system = SYSTEM.format(profile=profile.strip() or "(no profile provided)",
                                     resumes=resumes_block(resumes or []))
-        self.client = client or anthropic.AsyncAnthropic(max_retries=3, timeout=120.0)
+        self.client = client or anthropic.AsyncAnthropic(api_key=secret("ANTHROPIC_API_KEY") or None, max_retries=3, timeout=120.0)
 
     async def clear_misfits(self, jobs: list[Job]) -> set[int] | None:
         """Pass 1: indexes of the jobs whose title alone rules them out. None if the call failed."""

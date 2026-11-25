@@ -4,9 +4,8 @@ Free plan is ~200 requests/month, so keep `interval` long (14400s = 6/day per se
 """
 from __future__ import annotations
 
-import os
-
 from ..models import Job, format_salary, parse_dt
+from ..vault import secret
 from .base import Source, SourceConfigError
 
 HOST = "jsearch.p.rapidapi.com"
@@ -17,9 +16,9 @@ class JSearch(Source):
     env_keys = ("RAPIDAPI_KEY",)
 
     async def fetch(self, board, http):
-        key = os.environ.get("RAPIDAPI_KEY")
+        key = secret("RAPIDAPI_KEY")
         if not key:
-            raise SourceConfigError("RAPIDAPI_KEY must be set in .env")
+            raise SourceConfigError("RAPIDAPI_KEY must be set in .env or on the Settings page or on the Settings page")
         params = {"query": board.params.get("query", ""), "page": 1, "num_pages": 1, "date_posted": "today"}
         headers = {"X-RapidAPI-Key": key, "X-RapidAPI-Host": HOST}
         data = await http.get_json(f"https://{HOST}/search", params=params, headers=headers, conditional=False)
