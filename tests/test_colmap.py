@@ -9,7 +9,6 @@ from jobalerts import col, colmap
 from jobalerts.cli import main
 from jobalerts.config import load_config
 from jobalerts.http import HttpClient
-from jobalerts.mapserver import MapServer
 from jobalerts.notify import Notifier
 from jobalerts.scheduler import Runner
 from jobalerts.store import Store
@@ -77,24 +76,6 @@ def test_render_inlines_the_data_safely(pay):
     assert "leaflet/1.9.4" in html and "us-atlas@3.0.1" in html
 
 
-def test_server_serves_the_latest_page():
-    server = MapServer("127.0.0.1", 0)
-    server.start()
-    try:
-        host, port = server.address
-        get = lambda path: urllib.request.urlopen(f"http://{host}:{port}{path}", timeout=5)
-        assert b"being built" in get("/").read()
-        server.update("<html>map v2</html>")
-        r = get("/?view=breakeven")
-        assert r.read() == b"<html>map v2</html>" and r.headers["Cache-Control"] == "no-store"
-        assert get("/healthz").read() == b"ok\n" and b"map v2" in get("/map").read()
-        with pytest.raises(urllib.error.HTTPError) as e:
-            get("/etc/passwd")
-        assert e.value.code == 404
-    finally:
-        server.stop()
-
-
 def test_cli_writes_the_page(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)                                     # no database here: map without jobs
     out = tmp_path / "out" / "map.html"
@@ -102,24 +83,19 @@ def test_cli_writes_the_page(tmp_path, monkeypatch, capsys):
     assert "const D = {" in out.read_text() and "no database yet" in capsys.readouterr().out
 
 
-def test_dashboard_loop_puts_the_map_on_the_server():
+def test_dashboard_loop_keeps_the_map_page_fresh():
     import asyncio
     cfg = load_config(REPO / "config" / "config.yaml")
     runner = Runner(cfg, Store(":memory:"), HttpClient(), Notifier(cfg.notify, dry_run=True))
-    runner.map_server = MapServer("127.0.0.1", 0)
-    runner.map_server.start()
 
     async def go():
         task = asyncio.create_task(runner._dashboard_loop())
         for _ in range(100):
             await asyncio.sleep(0.05)
-            host, port = runner.map_server.address
-            page = await asyncio.to_thread(lambda: urllib.request.urlopen(f"http://{host}:{port}/", timeout=5).read())
-            if b"const D = {" in page:
+            if runner.map_html:
                 break
         task.cancel()
-        return page
-    try:
-        assert b"const D = {" in run(go())
-    finally:
-        runner.map_server.stop()
+        return runner.map_html
+    assert "const D = {" in run(go())
+    built = runner._map_built
+    assert run(runner.current_map()) == runner.map_html and runner._map_built == built  # fresh: not rebuilt

@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}Map · Job alerts{% endblock %}
+{% block main_class %}full{% endblock %}
+{% block content %}
+{% if enabled %}
+<iframe class="map-frame" src="/map/embed" title="Cost-of-living map"></iframe>
+{% else %}
+<p class="page">The cost-of-living map is off (<code>pay.enabled</code> / <code>map.enabled</code>).</p>
+{% endif %}
+{% endblock %}

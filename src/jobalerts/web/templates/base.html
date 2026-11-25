@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="htmx-config" content='{"includeIndicatorStyles": false, "allowEval": false}'>
+<title>{% block title %}Job alerts{% endblock %}</title>
+<link rel="stylesheet" href="/static/app.css">
+<script src="/static/htmx.min.js" defer></script>
+</head>
+<body hx-headers='{"X-CSRF-Token": "{{ csrf }}"}'>
+{% if logged_in %}
+<header class="top">
+  <a class="brand" href="/">Job alerts</a>
+  <nav>
+    {% for href, label in nav %}
+    <a href="{{ href }}"{% if path == href or (href != "/" and path.startswith(href)) %} aria-current="page"{% endif %}>{{ label }}</a>
+    {% endfor %}
+  </nav>
+  <form method="post" action="/logout" class="logout">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <button type="submit" class="link">Log out</button>
+  </form>
+</header>
+{% endif %}
+<main class="{% block main_class %}page{% endblock %}">
+{% block content %}{% endblock %}
+</main>
+</body>
+</html>

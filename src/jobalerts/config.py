@@ -133,11 +133,22 @@ class HomeAssistant(BaseModel):
 
 
 class MapConfig(BaseModel):
-    """The cost-of-living map page (colmap.py), served on a LAN port for a Home Assistant Webpage card.
-    It refreshes with the dashboard (homeassistant.interval, and right after new matches)."""
+    """The cost-of-living map page (colmap.py) in the web UI (/map) and for a Home Assistant Webpage
+    card (/map/embed?token=...). It refreshes with the dashboard (homeassistant.interval, and right
+    after new matches)."""
     enabled: bool = False
-    bind: str = "0.0.0.0"                # listen address inside the container
+
+
+class WebConfig(BaseModel):
+    """The web UI (web/app.py), served by `jobalerts run` and `jobalerts web`."""
+    enabled: bool = True
+    bind: str = "0.0.0.0"                # listen address (inside the container)
     port: int = 8765
+    public_url: str = ""                 # how your phone reaches it, e.g. http://192.168.1.20:8765 (alert links)
+    frame_origins: list[str] = []        # sites allowed to embed the shared map, e.g. http://homeassistant.local:8123
+                                         # (empty = any; the link is read-only and needs its token)
+    session_days: int = 30               # stay logged in this long
+    secure_cookies: bool = False         # true when you reach it over HTTPS (e.g. behind a reverse proxy)
 
 
 class AggregatorConfig(BaseModel):
@@ -227,6 +238,7 @@ class Config(BaseModel):
     notify: Notify = Notify()
     homeassistant: HomeAssistant = HomeAssistant()
     map: MapConfig = MapConfig()
+    web: WebConfig = WebConfig()
     aggregators: Aggregators = Aggregators()
     companies: list[Company] = []
     config_dir: Path = Path(".")

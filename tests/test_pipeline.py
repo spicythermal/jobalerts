@@ -286,7 +286,8 @@ def test_new_match_marks_dashboard_for_refresh(env):
 def test_service_start_skips_aggregators_without_keys(env, monkeypatch):
     fake, runner, board, store, notifier = env
     monkeypatch.delenv("USAJOBS_API_KEY", raising=False)
-    runner.cfg = runner.cfg.model_copy(update={"aggregators": runner.cfg.aggregators.model_copy(update={
+    runner.cfg = runner.cfg.model_copy(update={"web": runner.cfg.web.model_copy(update={"enabled": False}),
+                                               "aggregators": runner.cfg.aggregators.model_copy(update={
         "usajobs": runner.cfg.aggregators.usajobs.model_copy(update={"enabled": True, "searches": [{"keyword": "x"}]})})})
     started = []
 

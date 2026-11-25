@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Account · Job alerts{% endblock %}
+{% block content %}
+<h1>Settings</h1>
+{% if saved == "password" %}<p class="ok" role="status">Password changed. Other devices are logged out.</p>{% endif %}
+{% if saved == "share" %}<p class="ok" role="status">New share link made; the old one no longer works.</p>{% endif %}
+<section class="card stack">
+  <h2>Home Assistant map link</h2>
+  <p>A read-only link to the cost-of-living map for a Home Assistant Webpage card. Anyone with the link can see
+  the map (pay indexes and your top jobs), nothing else.</p>
+  <input class="mono" readonly value="{{ share_link }}" aria-label="Share link">
+  <form method="post" action="/settings/account/share-token">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <button type="submit" class="secondary">Make a new link</button>
+  </form>
+</section>
+<section class="card stack">
+  <h2>Change password</h2>
+  <form method="post" action="/settings/account/password" class="stack">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label>Current password <input type="password" name="current" autocomplete="current-password" required></label>
+    <label>New password <input type="password" name="password" autocomplete="new-password" required minlength="10"></label>
+    <label>New password again <input type="password" name="again" autocomplete="new-password" required minlength="10"></label>
+    {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+    <button type="submit">Change password</button>
+  </form>
+</section>
+{% endblock %}

@@ -76,6 +76,12 @@ CREATE TABLE IF NOT EXISTS suggestions (
     reported_at  TEXT
 );
 
+CREATE TABLE IF NOT EXISTS meta (
+    key        TEXT PRIMARY KEY,
+    value      TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS host_stats (
     day   TEXT NOT NULL,
     host  TEXT NOT NULL,
@@ -104,7 +110,9 @@ class Store:
     def __init__(self, path: str | Path):
         if str(path) != ":memory:":
             Path(path).parent.mkdir(parents=True, exist_ok=True)
-        self.db = sqlite3.connect(str(path), isolation_level=None)  # autocommit
+        # autocommit; the web UI's handlers share the connection (same event loop in `run`; a worker
+        # thread under the test client), never at the same time.
+        self.db = sqlite3.connect(str(path), isolation_level=None, check_same_thread=False)
         self.db.row_factory = sqlite3.Row
         self.db.execute("PRAGMA journal_mode=WAL")
         self.db.executescript(SCHEMA)
@@ -131,6 +139,19 @@ class Store:
 
     def close(self) -> None:
         self.db.close()
+
+    # ---- small named values (web login, share token, run state) ----
+    def get_meta(self, key: str, default: str | None = None) -> str | None:
+        row = self.db.execute("SELECT value FROM meta WHERE key=?", (key,)).fetchone()
+        return row["value"] if row else default
+
+    def set_meta(self, key: str, value: str) -> None:
+        self.db.execute("INSERT INTO meta (key, value, updated_at) VALUES (?, ?, ?) "
+                        "ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at",
+                        (key, value, _iso(utcnow())))
+
+    def delete_meta(self, key: str) -> None:
+        self.db.execute("DELETE FROM meta WHERE key=?", (key,))
 
     # ---- boards ----
     def is_baseline(self, board_key: str) -> bool:

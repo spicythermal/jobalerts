@@ -1,4 +1,4 @@
-"""Command line: jobalerts run | poll | discover | test-notify | digest | top | stats | backfill | pay"""
+"""Command line: jobalerts run | web | set-password | poll | discover | test-notify | digest | top | stats | backfill | map | pay"""
 from __future__ import annotations
 
 import argparse
@@ -107,6 +107,33 @@ def select_boards(cfg: Config, text: str | None):
 async def cmd_run(cfg: Config, args) -> int:
     async with open_runner(cfg) as runner:
         await runner.run_forever()
+    return 0
+
+
+async def cmd_web(cfg: Config, args) -> int:
+    """The web UI alone, over the same database: no polling, no pushes (for a PC that only browses)."""
+    from .web.app import serve
+    async with open_runner(cfg, memory_store=False) as runner:
+        await serve(runner)
+    return 0
+
+
+async def cmd_set_password(cfg: Config, args) -> int:
+    """Set or reset the web UI password from the machine running jobalerts (logs out every session)."""
+    import getpass
+    from .web.app import META_HASH, META_VER
+    from .web.auth import hash_password, password_problem
+    password = getpass.getpass("New web UI password: ")
+    if problem := password_problem(password, getpass.getpass("Again: ")):
+        print(problem)
+        return 1
+    store = Store(cfg.database)
+    try:
+        store.set_meta(META_HASH, hash_password(password))
+        store.set_meta(META_VER, str(int(store.get_meta(META_VER) or 0) + 1))
+    finally:
+        store.close()
+    print("Password set. Every logged-in browser has to log in again.")
     return 0
 
 
@@ -563,7 +590,7 @@ async def cmd_pay(cfg: Config, args) -> int:
 
 COMMANDS = {"run": cmd_run, "poll": cmd_poll, "discover": cmd_discover, "test-notify": cmd_test_notify,
             "digest": cmd_digest, "top": cmd_top, "stats": cmd_stats, "backfill": cmd_backfill, "pay": cmd_pay,
-            "map": cmd_map}
+            "map": cmd_map, "web": cmd_web, "set-password": cmd_set_password}
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -572,7 +599,9 @@ def build_parser() -> argparse.ArgumentParser:
                         help="path to config.yaml (default: %(default)s)")
     parser.add_argument("-v", "--verbose", action="store_true", help="debug logging")
     sub = parser.add_subparsers(dest="command", required=True)
-    sub.add_parser("run", help="run the service: poll every board on its tier interval, forever")
+    sub.add_parser("run", help="run the service: poll every board on its tier interval, forever, with the web UI")
+    sub.add_parser("web", help="serve the web UI only (no polling or pushes), over the same database")
+    sub.add_parser("set-password", help="set or reset the web UI password")
     p = sub.add_parser("poll", help="poll every board once")
     p.add_argument("--once", action="store_true", help="single pass (the default; accepted for clarity)")
     p.add_argument("--dry-run", action="store_true", help="fetch and filter only: store nothing, send nothing")

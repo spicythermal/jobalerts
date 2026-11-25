@@ -323,7 +323,7 @@ sensor doesn't appear, check this file first.
 
 ### Cost-of-living map
 
-jobalerts serves a map page on port 8765 (`map:` in `config.yaml`, published in
+The **Map** page of the web UI (port 8765, `web:` in `config.yaml`, published in
 `docker-compose.yml`). Every US metro is a dot colored by how well off you'd be there compared with
 `pay.reference_salary` staying in your own home: blue is better, gray about the same, red worse.
 
@@ -338,11 +338,13 @@ blends in its city, so a job in Tacoma can differ a little from the Seattle dot.
 costs aren't in either. The page refreshes with the dashboard (`homeassistant.interval`, and right
 after new matches) and after the price data is rebuilt.
 
-**Home Assistant:** add a Webpage card (Edit dashboard → Add card → Webpage, or Manual):
+**Home Assistant:** the web UI needs a login, so the card uses the read-only share link from
+Settings → Account (`/map/embed?token=…`; "Make a new link" there retires the old one). It opens the
+map and nothing else. Add a Webpage card (Edit dashboard → Add card → Webpage, or Manual):
 
 ```yaml
 type: iframe
-url: http://<jobalerts-host>:8765/?view=breakeven&housing=buy
+url: http://<jobalerts-host>:8765/map/embed?token=<your token>&view=breakeven&housing=buy
 aspect_ratio: 75%
 title: Where the move pays
 ```
@@ -354,8 +356,9 @@ remembered per browser.
 
 The browser opening Home Assistant loads the map straight from jobalerts, so it must reach
 `<jobalerts-host>:8765`. If you open Home Assistant over **https** (Nabu Casa, or a reverse proxy),
-the browser blocks a plain-http page inside it: put the map behind the same proxy with TLS (for
-Caddy, `map.home.lan { reverse_proxy <jobalerts-host>:8765 }`) and use that https URL in the card.
+the browser blocks a plain-http page inside it: put jobalerts behind the same proxy with TLS (for
+Caddy, `jobs.home.lan { reverse_proxy <jobalerts-host>:8765 }`), set `web.secure_cookies: true`,
+and use that https URL in the card. `web.frame_origins` can limit which sites may embed the map.
 The page loads Leaflet and the state outlines from public CDNs, so it needs internet access too.
 
 `jobalerts map --out FILE` writes the same page to a file you can open anywhere.

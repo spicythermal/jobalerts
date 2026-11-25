@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Jobs</h1>
+<p class="muted">{{ total }} matches in the last days. The full jobs page (tabs, filters, save and dismiss) is next.</p>
+<ul class="jobs">
+{% for j in jobs %}
+  <li class="card">
+    <div class="row"><strong>{{ j.title }}</strong>{% if j.score is not none %}<span class="badge">{{ j.score }}</span>{% endif %}</div>
+    <div class="muted">{{ j.company }} · {{ j.location or "n/a" }} · {{ j.age }}</div>
+    {% if j.summary %}<p>{{ j.summary }}</p>{% endif %}
+    <a href="{{ j.url }}" rel="noopener noreferrer" target="_blank">Open posting</a>
+  </li>
+{% else %}
+  <li class="muted">No matches yet.</li>
+{% endfor %}
+</ul>
+{% endblock %}

@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Set up · Job alerts{% endblock %}
+{% block main_class %}narrow{% endblock %}
+{% block content %}
+<h1>Set up job alerts</h1>
+<p>Choose the password for this web UI. To prove you run this copy of jobalerts, enter the
+setup code printed in its log (<code>docker compose logs jobalerts</code>, or the terminal where it runs).</p>
+<form method="post" action="/setup" class="card stack">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <label>Setup code <input name="code" autocomplete="off" required autofocus placeholder="ABCD-1234"></label>
+  <label>Password <input type="password" name="password" autocomplete="new-password" required minlength="10"></label>
+  <label>Password again <input type="password" name="again" autocomplete="new-password" required minlength="10"></label>
+  {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+  <button type="submit">Save and log in</button>
+</form>
+{% endblock %}

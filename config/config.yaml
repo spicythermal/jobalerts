@@ -367,14 +367,22 @@ homeassistant:
   days: 7
   interval: 300             # refresh every 5 min, and right after new matches
 
-# ---------------------------------------------------------------- cost-of-living map
-# A web page with every US metro's pay index (renting or buying, at any salary), the salary that
-# breaks even with staying home, and your top jobs. Served on this port for a Home Assistant
-# Webpage card (README: "Cost-of-living map"); refreshes with the dashboard above.
-# `jobalerts map --out FILE` writes the same page to a file.
-map:
+# ---------------------------------------------------------------- web UI
+# Jobs, boards, the cost-of-living map, stories and settings, behind a password (set on first visit
+# with the setup code from the log). Served by `jobalerts run` on this port.
+web:
   enabled: true
   port: 8765                # docker-compose.yml publishes the same port
+  public_url: ""            # how your phone reaches this machine, e.g. http://192.168.1.20:8765; alerts link here
+  frame_origins: []         # sites allowed to embed the shared map, e.g. [http://homeassistant.local:8123]; empty = any
+  secure_cookies: false     # true if you serve it over HTTPS (reverse proxy)
+
+# ---------------------------------------------------------------- cost-of-living map
+# Every US metro's pay index (renting or buying, at any salary), the salary that breaks even with
+# staying home, and your top jobs: the Map page, and a read-only link for a Home Assistant Webpage
+# card (Settings > Account). Refreshes with the dashboard above. `jobalerts map --out FILE` writes it.
+map:
+  enabled: true
 
 # ---------------------------------------------------------------- broad-net aggregators
 # Slower, catch-all searches for companies not on the watch list. Their matches also

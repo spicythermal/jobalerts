@@ -5,6 +5,7 @@ import asyncio
 import json
 import logging
 import random
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -15,7 +16,6 @@ from .dashboard import MqttPublisher, ai_cost, top_matches
 from .config import Board, Config
 from .filters import JobFilter
 from .http import HttpClient, posting_gone
-from .mapserver import MapServer
 from .models import Job, normalize_company, utcnow
 from .notify import Notifier
 from .prescreen import Prescreener
@@ -75,7 +75,8 @@ class Runner:
         self._failure_alerted: set[str] = set()
         self.homeassistant = homeassistant
         self._dashboard_stale = asyncio.Event()  # set after new matches so Home Assistant updates right away
-        self.map_server: MapServer | None = None  # started by run_forever when map.enabled
+        self.map_html: str | None = None    # the latest cost-of-living map page (web UI /map)
+        self._map_built = 0.0
         self._cap_noticed = ""                     # UTC day of the last "AI daily cap reached" push
         self.pay: col.PayIndex | None = None
         self.pay_problem = ""  # shown in the digest until fixed
@@ -565,19 +566,14 @@ class Runner:
         if self.prescreener:
             tasks.append(asyncio.create_task(self._prescreen_loop(boards), name="prescreen"))
         tasks.append(asyncio.create_task(self.refresh_pay_data(), name="col-refresh"))
-        if self.cfg.map.enabled:
-            if self.pay:
-                self.map_server = MapServer(self.cfg.map.bind, self.cfg.map.port)
-                self.map_server.start()
-            else:
-                log.warning("map.enabled is set but the pay index is off (pay.enabled); no map")
-        if self.homeassistant or self.map_server:
+        if self.cfg.map.enabled and not self.pay:
+            log.warning("map.enabled is set but the pay index is off (pay.enabled); no map")
+        if self.homeassistant or self.map_enabled:
             tasks.append(asyncio.create_task(self._dashboard_loop(), name="dashboard"))
-        try:
-            await asyncio.gather(*tasks)
-        finally:
-            if self.map_server:
-                self.map_server.stop()
+        if self.cfg.web.enabled:
+            from .web.app import serve
+            tasks.append(asyncio.create_task(serve(self), name="web"))
+        await asyncio.gather(*tasks)
 
     async def _board_loop(self, board: Board) -> None:
         # Spread the first polls over the first couple of minutes instead of one burst.
@@ -647,9 +643,9 @@ class Runner:
                     await self.publish_dashboard()
                 except Exception as e:  # HA down or token wrong: log it, keep polling jobs
                     log.warning("Home Assistant (MQTT) update failed: %s", e)
-            if self.map_server:
+            if self.map_enabled:
                 try:
-                    self.map_server.update(await self.map_page())
+                    await self.refresh_map()
                 except Exception as e:  # never let the map stop the dashboard
                     log.exception("Map page update failed: %s", e)
             try:
@@ -661,6 +657,22 @@ class Runner:
         """Best recent matches by AI fit score, or with by="step_up" the biggest credible promotions."""
         cfg = self.cfg.homeassistant
         return top_matches(self.store, self.filter, days or cfg.days, n or cfg.top_n, self.pay, by)
+
+    @property
+    def map_enabled(self) -> bool:
+        return bool(self.cfg.map.enabled and self.pay)
+
+    async def refresh_map(self) -> str:
+        self.map_html = await self.map_page()
+        self._map_built = time.monotonic()
+        return self.map_html
+
+    async def current_map(self) -> str:
+        """The map page for the web UI: the dashboard loop keeps it fresh in `run`; `jobalerts web`
+        (no loops) rebuilds it when it's older than homeassistant.interval."""
+        if self.map_html is None or time.monotonic() - self._map_built > self.cfg.homeassistant.interval:
+            await self.refresh_map()
+        return self.map_html
 
     async def map_page(self) -> str:
         """The cost-of-living map with the current top jobs (the price math runs off the event loop)."""
