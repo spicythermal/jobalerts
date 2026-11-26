@@ -1,6 +1,8 @@
 name: Release
-# Builds the desktop app for Windows and Mac, starts each build once (--self-test), and publishes them
-# on a GitHub release when a version tag is pushed:  git tag v1.2.3 && git push origin v1.2.3
+# Builds the desktop app for Windows and Mac, starts each build once (--self-test), and puts them on a
+# draft GitHub release when a version tag is pushed:  git tag v1.2.3 && git push origin v1.2.3
+# The maintainer signs SHA256SUMS.txt and publishes the draft; the app installs only releases signed
+# with its release key. Actions are pinned to commits.
 # A tag with a suffix (v1.2.3-rc1) makes a pre-release, which the app's update check ignores.
 # Run by hand (Actions → Release → Run workflow) to build and test without releasing.
 on:
@@ -28,8 +30,8 @@ jobs:
     env:
       JOBALERTS_SELFTEST_REPORT: ${{ github.workspace }}/selftest.txt
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5
         with:
           python-version: "3.12"
       - name: Version from the tag
@@ -78,7 +80,7 @@ jobs:
             sleep 10
           done
           test -f "jobalerts-$VERSION-${{ matrix.asset }}"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         with:
           name: ${{ matrix.asset }}
           path: jobalerts-*-${{ matrix.asset }}
@@ -91,15 +93,16 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4
         with:
           path: assets
           merge-multiple: true
       - name: Checksums
         run: cd assets && sha256sum jobalerts-* > SHA256SUMS.txt && cat SHA256SUMS.txt
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65  # v2
         with:
           files: assets/*
+          draft: true
           prerelease: ${{ contains(github.ref_name, '-') }}
           generate_release_notes: true
           body: |

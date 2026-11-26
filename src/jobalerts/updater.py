@@ -50,6 +50,7 @@ class UpdateStatus:
     notes: list[str] = field(default_factory=list)     # desktop app: the release's notes
     download: str = ""             # desktop app: this computer's installer
     checksums: str = ""            # desktop app: the release's SHA256SUMS.txt
+    signature: str = ""            # desktop app: SHA256SUMS.txt.sig, signed with the release key
 
     @property
     def available(self) -> bool:
@@ -187,6 +188,9 @@ def install(repo: Path | None = None, *, config: str = "config/config.yaml", sto
 
 # ---------------------------------------------------------------- the desktop app: GitHub Releases
 RELEASES = os.environ.get("JOBALERTS_RELEASES", "spicythermal/jobalerts")   # owner/repository
+# The public half of the release signing key (tools/sign_release.py, docs/releasing.md); fingerprint
+# 1a97649e9e94192a. The app installs a release only if its SHA256SUMS.txt is signed with this key.
+RELEASE_KEY = "36ZgrVjrPmRS1EVrobtumk8uHIoYQkqKQ2Cg+SZQVeY="
 
 
 def is_packaged() -> bool:
@@ -220,8 +224,11 @@ def read_release(release: dict, current: str, suffix: str) -> UpdateStatus:
     assets = {a.get("name", ""): a.get("browser_download_url", "") for a in release.get("assets") or []}
     status.download = next((url for name, url in assets.items() if suffix and name.endswith(suffix)), "")
     status.checksums = assets.get("SHA256SUMS.txt", "")
+    status.signature = assets.get("SHA256SUMS.txt.sig", "")
     if status.behind and not status.download:
         status.problem = "this release has no installer for this computer; download it from the releases page"
+    elif status.behind and not (status.checksums and status.signature):
+        status.problem = "this release isn't signed; not installing it"
     return status
 
 
@@ -251,6 +258,21 @@ def _download(url: str, target: Path) -> None:
                 f.write(chunk)
 
 
+def signed(data: bytes, signature: str, key: str | None = None) -> bool:
+    """True if `signature` (base64 Ed25519) signs `data` with the release key."""
+    import base64
+    import binascii
+
+    from cryptography.exceptions import InvalidSignature
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+    try:
+        public = Ed25519PublicKey.from_public_bytes(base64.b64decode(key or RELEASE_KEY))
+        public.verify(base64.b64decode(signature.strip(), validate=True), data)
+        return True
+    except (InvalidSignature, ValueError, binascii.Error):
+        return False
+
+
 def verify(path: Path, sums: str) -> bool:
     """True if SHA256SUMS.txt lists this file with its hash."""
     digest = hashlib.sha256(path.read_bytes()).hexdigest()
@@ -276,8 +298,8 @@ open "$app"
 
 
 def install_release(store=None, status: UpdateStatus | None = None) -> tuple[bool, str]:
-    """Download this computer's installer from the newest release, check it against SHA256SUMS.txt and
-    start it; the app then exits (cli.restart_into_new_version) and the installer starts the new one.
+    """Download this computer's installer from the newest release, check SHA256SUMS.txt's signature
+    and the installer's hash in it, and start it; the app then exits (cli.restart_into_new_version) and the installer starts the new one.
     Windows: the setup program, silently. Mac: a script swaps jobalerts.app once this process ends."""
     status = status or check_release()
     if not status.can_install:
@@ -286,10 +308,13 @@ def install_release(store=None, status: UpdateStatus | None = None) -> tuple[boo
     target = folder / status.download.rsplit("/", 1)[-1]
     try:
         _download(status.download, target)
-        sums = folder / "SHA256SUMS.txt"
-        if not status.checksums:
-            return False, "the release has no SHA256SUMS.txt; not installing an unchecked download"
+        sums, sig = folder / "SHA256SUMS.txt", folder / "SHA256SUMS.txt.sig"
+        if not status.checksums or not status.signature:
+            return False, "the release has no signed SHA256SUMS.txt; not installing an unchecked download"
         _download(status.checksums, sums)
+        _download(status.signature, sig)
+        if not signed(sums.read_bytes(), sig.read_text()):
+            return False, "the release's signature doesn't match this app's release key; not installed"
         if not verify(target, sums.read_text()):
             return False, "the download doesn't match the release's SHA256SUMS.txt; not installed"
     except Exception as e:

@@ -20,8 +20,20 @@ RELEASE = {
         {"name": "jobalerts-1.4.0-windows-setup.exe", "browser_download_url": "https://dl.invalid/v1.4.0/jobalerts-1.4.0-windows-setup.exe"},
         {"name": "jobalerts-1.4.0-mac-arm64.dmg", "browser_download_url": "https://dl.invalid/v1.4.0/jobalerts-1.4.0-mac-arm64.dmg"},
         {"name": "SHA256SUMS.txt", "browser_download_url": "https://dl.invalid/v1.4.0/SHA256SUMS.txt"},
+        {"name": "SHA256SUMS.txt.sig", "browser_download_url": "https://dl.invalid/v1.4.0/SHA256SUMS.txt.sig"},
     ],
 }
+
+
+def release_keypair():
+    """A throwaway release key: (private key, base64 public key)."""
+    import base64
+
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    key = Ed25519PrivateKey.generate()
+    raw = key.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
+    return key, base64.b64encode(raw).decode()
 
 
 def test_versions_and_assets():
@@ -42,18 +54,28 @@ def test_reading_a_release():
     assert not s.available
     s = updater.read_release(RELEASE, "1.3.2", "-mac-intel.dmg")      # no Intel build in this release
     assert s.available and not s.can_install and "no installer" in s.problem
+    s = updater.read_release({**RELEASE, "assets": RELEASE["assets"][:3]}, "1.3.2", "-windows-setup.exe")
+    assert s.available and not s.can_install and "isn't signed" in s.problem
     s = updater.check_release(get=lambda *a, **k: (_ for _ in ()).throw(OSError("offline")))
     assert "couldn't check" in s.problem and not s.available
 
 
 def test_install_release_checks_the_download(tmp_path, monkeypatch):
+    import base64
     payload = b"installer bytes"
     started = []
+    release_key, public = release_keypair()
+    other_key, _ = release_keypair()
+    monkeypatch.setattr(updater, "RELEASE_KEY", public)
+
+    def sums_text():
+        return f"{hashlib.sha256(sums_for).hexdigest()}  jobalerts-1.4.0-windows-setup.exe\n"
 
     def fake_download(url, target):
         if url.endswith("SHA256SUMS.txt"):
-            digest = hashlib.sha256(sums_for).hexdigest()
-            target.write_text(f"{digest}  jobalerts-1.4.0-windows-setup.exe\n")
+            target.write_text(sums_text())
+        elif url.endswith(".sig"):
+            target.write_text(base64.b64encode(signer.sign(sums_text().encode())).decode() + "\n")
         else:
             target.write_bytes(payload)
     monkeypatch.setattr(updater, "_download", fake_download)
@@ -62,9 +84,14 @@ def test_install_release_checks_the_download(tmp_path, monkeypatch):
     monkeypatch.setattr(updater.tempfile, "mkdtemp", lambda prefix: str(tmp_path))
     status = updater.read_release(RELEASE, "1.3.2", "-windows-setup.exe")
 
-    sums_for = b"something else"
+    sums_for, signer = payload, other_key                   # signed, but not with the release key
     ok, message = updater.install_release(status=status)
-    assert not ok and "doesn't match" in message and started == []
+    assert not ok and "signature doesn't match" in message and started == []
+    assert not updater.signed(b"x", "not base64!") and not updater.signed(b"x", "")
+
+    sums_for, signer = b"something else", release_key      # signed, but the installer isn't the one listed
+    ok, message = updater.install_release(status=status)
+    assert not ok and "doesn't match the release's SHA256SUMS" in message and started == []
 
     sums_for = payload
     backups = []
@@ -74,7 +101,16 @@ def test_install_release_checks_the_download(tmp_path, monkeypatch):
 
     no_sums = updater.read_release({**RELEASE, "assets": RELEASE["assets"][:2]}, "1.3.2", "-windows-setup.exe")
     ok, message = updater.install_release(status=no_sums)
-    assert not ok and "SHA256SUMS" in message
+    assert not ok and "isn't signed" in message
+    unsigned = updater.UpdateStatus(**{**status.__dict__, "signature": ""})
+    ok, message = updater.install_release(status=unsigned)
+    assert not ok and "signed" in message and len(started) == 1
+
+
+def test_the_release_key_is_the_maintainers():
+    import base64
+    import hashlib as h
+    assert h.sha256(base64.b64decode(updater.RELEASE_KEY)).hexdigest()[:16] == "1a97649e9e94192a"
 
 
 def test_packaged_app_checks_releases_not_git(monkeypatch):

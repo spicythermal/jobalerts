@@ -111,3 +111,4 @@ The Stop hook keeps Claude working while any `- [ ]` remains. Add `BLOCKED: <rea
 2026-11-26 – Phase 28 desktop installers – 331 tests; Linux PyInstaller build passes --self-test and a launch; Windows/Mac builds untested until the first Actions run
 2026-11-26 – Phase 29 multiple users – 350 tests (isolation crawl, 403 crawl, upgrade), ruff, live run, screenshots desktop and phone
 2026-11-26 – Security fixes: ntfy server is the install's (admins), logout ends the session server-side, map links http(s) only, key-test errors to the log, no automatic update installs – 356 tests, ruff, privacy guard
+2026-11-26 – Signed releases: tools/sign_release.py, updater requires SHA256SUMS.txt.sig from RELEASE_KEY, release workflow makes drafts, actions pinned to commits – 357 tests, ruff, privacy guard
