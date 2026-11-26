@@ -42,6 +42,12 @@ $COMPOSE stop || echo "   (it wasn't running)"
 say "3. Fetching the public version and copying your files into data/"
 git fetch --quiet "$PUBLIC_URL" main
 new=$(git rev-parse FETCH_HEAD)
+# Your files as they are now (the migration puts tracked ones back to their committed version after copying).
+snap=$(mktemp -d)
+trap 'rm -rf "$snap"' EXIT
+for p in config/profile.md config/companies.yaml stories resume_reference; do
+  if [ -e "$p" ]; then mkdir -p "$snap/$(dirname "$p")" && cp -Rp "$p" "$snap/$p"; fi
+done
 git show "$new:tools/migrate_user_data.sh" | sh
 # Every file of yours from the old locations must now be in data/, byte for byte.
 check_copy() {  # check_copy <old file> <new file>: fine if the old one doesn't exist
@@ -50,16 +56,16 @@ check_copy() {  # check_copy <old file> <new file>: fine if the old one doesn't 
   echo "   missing or different: $2 (from $1)" >&2
   return 1
 }
-for f in stories/*.md; do
+for f in "$snap"/stories/*.md; do
   if [ -e "$f" ] && [ "$(basename "$f")" != README.md ]; then
     check_copy "$f" "data/stories/$(basename "$f")" || die "a story didn't copy"
   fi
 done
-for f in resume_reference/*; do
+for f in "$snap"/resume_reference/*; do
   if [ -e "$f" ]; then check_copy "$f" "data/resumes/$(basename "$f")" || die "a resume didn't copy"; fi
 done
-check_copy config/profile.md data/profile.md || die "profile.md didn't copy"
-check_copy config/companies.yaml data/companies.yaml || die "companies.yaml didn't copy"
+check_copy "$snap/config/profile.md" data/profile.md || die "profile.md didn't copy"
+check_copy "$snap/config/companies.yaml" data/companies.yaml || die "companies.yaml didn't copy"
 [ -e data/config.local.yaml ] || [ -e data/config.migrate.yaml ] || die "your config.yaml wasn't kept"
 echo "   all your files are in data/"
 
