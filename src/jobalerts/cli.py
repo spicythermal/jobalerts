@@ -1,4 +1,4 @@
-"""Command line: jobalerts run | web | set-password | update | check | backup | poll | discover | test-notify | digest | top | stats | backfill | map | pay"""
+"""Command line: jobalerts run | web | set-password | users | update | check | backup | poll | discover | test-notify | digest | top | stats | backfill | map | pay"""
 from __future__ import annotations
 
 import argparse
@@ -236,21 +236,84 @@ async def cmd_web(cfg: Config, args) -> int:
 
 
 async def cmd_set_password(cfg: Config, args) -> int:
-    """Set or reset the web UI password from the machine running jobalerts (logs out every session)."""
+    """Set or reset a web UI password from the machine running jobalerts (logs out that user's sessions).
+    Without a name: the first admin's (made as "admin" if there's no account yet)."""
     import getpass
-    from .web.app import META_HASH, META_VER
-    from .web.auth import hash_password, password_problem
-    password = getpass.getpass("New web UI password: ")
-    if problem := password_problem(password, getpass.getpass("Again: ")):
-        print(problem)
-        return 1
+    from .users import OWNER, UserError
+    from .web.auth import password_problem
     store = Store(cfg.database)
     try:
-        store.set_meta(META_HASH, hash_password(password))
-        store.set_meta(META_VER, str(int(store.get_meta(META_VER) or 0) + 1))
+        users = Users(store)
+        name = getattr(args, "username", None)
+        user = users.by_name(name) if name else users.get(OWNER)
+        if name and user is None:
+            print(f"No user called {name}. `jobalerts users list` shows them.")
+            return 1
+        password = getpass.getpass(f"New web UI password for {user.username if user else 'admin'}: ")
+        if problem := password_problem(password, getpass.getpass("Again: ")):
+            print(problem)
+            return 1
+        try:
+            if user is None:
+                users.create("admin", password, role="admin", must_change=False)
+            else:
+                users.set_password(user.id, password)
+        except UserError as e:
+            print(e)
+            return 1
     finally:
         store.close()
-    print("Password set. Every logged-in browser has to log in again.")
+    print("Password set. That user's browsers have to log in again.")
+    return 0
+
+
+async def cmd_users(cfg: Config, args) -> int:
+    """List and manage web UI accounts (the same as Settings → Users)."""
+    from .users import OWNER, UserError, one_time_password
+    store = Store(cfg.database)
+    try:
+        users = Users(store)
+        action, name = args.action, (args.name or "").lower()
+        if action == "list":
+            for u in users.all():
+                state = " (disabled)" if u.disabled else " (must change password)" if u.must_change else ""
+                print(f"{u.id:>3}  {u.username:<32} {u.role:<6} last login {u.last_login_at or 'never'}{state}")
+            return 0
+        if not name:
+            print(f"`jobalerts users {action}` needs a username.")
+            return 1
+        try:
+            if action == "add":
+                password = one_time_password()
+                u = users.create(name, password, role="admin" if args.admin else "user", must_change=True)
+                print(f"Added {u.username} ({u.role}). One-time password: {password}\n"
+                      "They choose their own at the first login.")
+                return 0
+            user = users.by_name(name)
+            if user is None:
+                print(f"No user called {name}.")
+                return 1
+            if action == "reset":
+                password = one_time_password()
+                users.set_password(user.id, password, must_change=True)
+                print(f"One-time password for {user.username}: {password}")
+            elif action in ("admin", "user"):
+                users.set_role(user.id, action)
+                print(f"{user.username} is now {'an admin' if action == 'admin' else 'a user'}.")
+            elif action in ("disable", "enable"):
+                users.set_disabled(user.id, action == "disable")
+                print(f"{user.username} {action}d.")
+            elif action == "delete":
+                users.delete(user.id, cfg.resolve(cfg.scoring.profile_path).parent)
+                print(f"Deleted {user.username}; their files are in data/users/.trash/.")
+            if user.id == OWNER and action == "reset":
+                print("(The first admin can also use `jobalerts set-password`.)")
+        except UserError as e:
+            print(e)
+            return 1
+    finally:
+        store.close()
+    print("A running service picks this up when it next starts, or at once when changed on the web UI.")
     return 0
 
 
@@ -730,7 +793,7 @@ async def cmd_pay(cfg: Config, args) -> int:
 
 COMMANDS = {"run": cmd_run, "poll": cmd_poll, "discover": cmd_discover, "test-notify": cmd_test_notify,
             "digest": cmd_digest, "top": cmd_top, "stats": cmd_stats, "backfill": cmd_backfill, "pay": cmd_pay,
-            "map": cmd_map, "web": cmd_web, "set-password": cmd_set_password, "check": cmd_check,
+            "map": cmd_map, "web": cmd_web, "set-password": cmd_set_password, "users": cmd_users, "check": cmd_check,
             "backup": cmd_backup, "update": cmd_update}
 
 
@@ -742,7 +805,12 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("run", help="run the service: poll every board on its tier interval, forever, with the web UI")
     sub.add_parser("web", help="serve the web UI only (no polling or pushes), over the same database")
-    sub.add_parser("set-password", help="set or reset the web UI password")
+    sp = sub.add_parser("set-password", help="set or reset a web UI password (default: the first admin's)")
+    sp.add_argument("username", nargs="?", help="whose password (default: the first admin)")
+    us = sub.add_parser("users", help="list or manage web UI accounts")
+    us.add_argument("action", choices=["list", "add", "reset", "admin", "user", "disable", "enable", "delete"])
+    us.add_argument("name", nargs="?", help="the username")
+    us.add_argument("--admin", action="store_true", help="with add: make an admin")
     u = sub.add_parser("update", help="install the newest version from the git repository (fast-forward only; "
                                       "backs up the database; rolls back if the new version fails its check)")
     u.add_argument("--check", action="store_true", help="only show what's new")

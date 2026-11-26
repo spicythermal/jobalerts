@@ -15,7 +15,7 @@ from jobalerts.store import Store
 from jobalerts.web.app import create_app
 from jobalerts.web.settings_pages import resume_name
 
-from conftest import REPO, with_reference_home
+from conftest import REPO, with_reference_home, key_url
 
 KEY = b"s" * 32
 PASSWORD = "settings test password"
@@ -134,33 +134,33 @@ def test_personal_values_move_out_of_the_local_file(env, monkeypatch):
 def test_api_keys_are_write_only(env):
     runner, app, client, rebuilt, _ = env
     token = csrf(client, "/settings/keys")
-    assert "Paste the key" in client.post("/settings/keys/ANTHROPIC_API_KEY", data={"csrf": token, "value": " "}).text
+    assert "Paste the key" in client.post(key_url("ANTHROPIC_API_KEY"), data={"csrf": token, "value": " "}).text
     n = len(rebuilt)
-    r = client.post("/settings/keys/ANTHROPIC_API_KEY", data={"csrf": token, "value": CANARY})
+    r = client.post(key_url("ANTHROPIC_API_KEY"), data={"csrf": token, "value": CANARY})
     assert r.status_code == 303 and len(rebuilt) == n + 1 and vault.secret("ANTHROPIC_API_KEY") == CANARY
     page = client.get("/settings/keys").text
     assert CANARY not in page and 'value=""' in page and "autocomplete=\"new-password\"" in page
-    assert client.post("/settings/keys/NOT_A_KEY", data={"csrf": token, "value": "x"}).status_code == 404
-    client.post("/settings/keys/ANTHROPIC_API_KEY/clear", data={"csrf": token})
+    assert client.post(key_url("NOT_A_KEY"), data={"csrf": token, "value": "x"}).status_code == 404
+    client.post(key_url("ANTHROPIC_API_KEY") + "/clear", data={"csrf": token})
     assert vault.secret("ANTHROPIC_API_KEY") == ""
 
 
 def test_key_test_buttons_report_without_echoing(env):
     runner, app, client, _, _ = env
     token = csrf(client, "/settings/keys")
-    client.post("/settings/keys/ANTHROPIC_API_KEY", data={"csrf": token, "value": CANARY})
+    client.post(key_url("ANTHROPIC_API_KEY"), data={"csrf": token, "value": CANARY})
     seen = []
 
     def handler(request):
         seen.append(request.headers.get("x-api-key"))
         return httpx.Response(401, json={"error": {"message": f"invalid x-api-key {CANARY}"}})
     app.state.web.test_transport = httpx.MockTransport(handler)
-    r = client.post("/settings/keys/ANTHROPIC_API_KEY/test", headers={"X-CSRF-Token": token})
+    r = client.post(key_url("ANTHROPIC_API_KEY") + "/test", headers={"X-CSRF-Token": token})
     assert seen == [CANARY] and "rejected" in r.text and CANARY not in r.text
     app.state.web.test_transport = httpx.MockTransport(lambda request: httpx.Response(200, json={"data": []}))
-    assert "accepted" in client.post("/settings/keys/ANTHROPIC_API_KEY/test", headers={"X-CSRF-Token": token}).text
-    assert "No ntfy topic" in client.post("/settings/keys/NTFY_TOPIC/test", headers={"X-CSRF-Token": token}).text
-    assert client.post("/settings/keys/RAPIDAPI_KEY/test", headers={"X-CSRF-Token": token}).status_code == 404
+    assert "accepted" in client.post(key_url("ANTHROPIC_API_KEY") + "/test", headers={"X-CSRF-Token": token}).text
+    assert "No ntfy topic" in client.post(key_url("NTFY_TOPIC") + "/test", headers={"X-CSRF-Token": token}).text
+    assert client.post(key_url("RAPIDAPI_KEY") + "/test", headers={"X-CSRF-Token": token}).status_code == 404
 
 
 def test_profile_and_resumes(env):

@@ -1,15 +1,18 @@
-"""Login for the web UI: one admin password, signed session cookies, CSRF tokens, a login rate limit,
+"""Login for the web UI: accounts (users.py), signed session cookies, CSRF tokens, a login rate limit,
 the first-run setup code and the read-only share token for the Home Assistant map card.
 
 Standard library only:
-- Password: scrypt (n=2**14, r=8, p=1) with a random salt, stored in the `meta` table.
-- Session: a cookie holding JSON {csrf, user, ver, exp}, signed with HMAC-SHA256 under a key kept in
-  the data folder (`secret.key`, 0600). Changing the password bumps `ver`, which logs out every
-  other session. HttpOnly, SameSite=Lax, and Secure when `web.secure_cookies` is set.
+- Password: scrypt (n=2**14, r=8, p=1) with a random salt, stored in the `users` table.
+- Session: a cookie holding JSON {csrf, uid, ver, exp}, signed with HMAC-SHA256 under a key kept in
+  the data folder (`secret.key`, 0600). A user's `ver` goes up when their password, role or access
+  changes, which logs out their other sessions. HttpOnly, SameSite=Lax, and Secure when
+  `web.secure_cookies` is set.
 - CSRF: every visitor's session carries a random token; every POST must send it back as the `csrf`
   form field or the `X-CSRF-Token` header (htmx sends the header, see base.html).
-- First run: with no password yet, a one-time setup code is printed to the log; /setup asks for it,
+- First run: with no account yet, a one-time setup code is printed to the log; /setup asks for it,
   so the first device on the network can't claim the admin account.
+- Login: by username and password, rate-limited per address and per username; an unknown name and a
+  wrong password look the same.
 """
 from __future__ import annotations
 
@@ -88,8 +91,8 @@ class Signer:
 @dataclass
 class Session:
     csrf: str
-    user: str = ""        # "admin" once logged in
-    ver: int = 0          # password version it was issued under
+    uid: int = 0          # the logged-in user's id; 0 = nobody
+    ver: int = 0          # the user's version it was issued under
     exp: int = 0          # unix time
     changed: bool = False  # needs a new cookie on the response
 
@@ -97,8 +100,12 @@ class Session:
     def new(cls) -> Session:
         return cls(csrf=secrets.token_urlsafe(24), changed=True)
 
+    @property
+    def user(self) -> bool:
+        return self.uid > 0
+
     def payload(self) -> dict:
-        return {"csrf": self.csrf, "user": self.user, "ver": self.ver, "exp": self.exp}
+        return {"csrf": self.csrf, "uid": self.uid, "ver": self.ver, "exp": self.exp}
 
 
 @dataclass

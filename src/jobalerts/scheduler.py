@@ -104,6 +104,16 @@ class Person:
         self.pay_problem = ""  # shown in the digest until fixed
         self.load_pay()
 
+    @property
+    def base_cfg(self) -> Config:
+        """This user's settings before the Settings page's (see Runner.personal_base)."""
+        return self.runner.personal_base(self.uid)
+
+    @property
+    def ui_settings(self):
+        """settings.UiSettings with this user's (and the install's) Settings-page values."""
+        return self.runner.settings_for(self.uid)
+
     def __getattr__(self, name: str):
         if name in Person.SHARED:     # the service's, not this user's
             return getattr(self.runner, name)

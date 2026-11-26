@@ -241,7 +241,7 @@ def test_score_anyway_button(page_env, monkeypatch):
         called.append(key)
         runner.store.update_job(key, status="digest", score=77)
         return "digest"
-    monkeypatch.setattr(runner, "score_anyway", fake)
+    monkeypatch.setattr(runner.me, "score_anyway", fake)
     key = runner.store.db.execute("SELECT key FROM owner_jobs WHERE title='Laser Physicist'").fetchone()[0]
     html = client.post(f"/filter/score/{key}", headers={"X-CSRF-Token": token}).text
     assert called == [key] and "score <strong>77</strong>" in html and "in the digest" in html

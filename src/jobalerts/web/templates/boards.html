@@ -7,6 +7,7 @@
 {% elif saved == "removed" %}<p class="ok" role="status">Removed from the watch list.</p>
 {% elif saved %}<p class="ok" role="status">Saved.</p>{% endif %}
 {% if error %}<p class="error" role="alert">That entry couldn't be added ({{ error }}).</p>{% endif %}
+{% if can_edit %}
 <section class="card stack">
   <h2>Add a company</h2>
   <form class="inline" hx-post="/boards/discover" hx-target="#found" hx-swap="innerHTML">
@@ -17,6 +18,9 @@
   <p class="help">Looks for a public board on Greenhouse, Lever, Ashby, SmartRecruiters, Workday, UKG, Personio,
   Workable, BambooHR, Rippling, Breezy or SuccessFactors. LinkedIn and Indeed are never scraped.</p>
 </section>
+{% else %}
+<p class="muted">The boards polled for everyone on this install. Matches are yours. Ask an admin to add or change one.</p>
+{% endif %}
 <div hx-get="/boards/table" hx-trigger="every 30s" hx-swap="innerHTML">
 {% include "boards_table.html" %}
 </div>

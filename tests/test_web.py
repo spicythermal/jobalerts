@@ -26,7 +26,8 @@ def runner():
 
 @pytest.fixture
 def app(runner):
-    runner.store.db.execute("DELETE FROM meta")  # each test starts with no password
+    runner.store.db.execute("DELETE FROM meta")  # each test starts with no account
+    runner.store.db.execute("DELETE FROM users")
     return create_app(runner, KEY)
 
 
@@ -64,7 +65,7 @@ def test_first_run_needs_the_setup_code(app, caplog):
 def test_posts_without_the_csrf_token_are_refused(app):
     client = TestClient(app, follow_redirects=False)
     r = client.post("/setup", data={"code": app.state.web.setup_code, "password": PASSWORD, "again": PASSWORD})
-    assert r.status_code == 403 and not app.state.web.password_hash()
+    assert r.status_code == 403 and not app.state.web.users.any()
     client = set_up(app)
     assert client.post("/settings/account/share-token").status_code == 403
     assert client.post("/settings/account/share-token", data={"csrf": "wrong"}).status_code == 403
@@ -79,8 +80,11 @@ def test_login_logout_and_the_next_page(app):
     assert r.status_code == 303 and r.headers["location"] == "/login?next=%2Fboards%3Fx%3D1"
     assert client.get("/boards", headers={"HX-Request": "true"}).status_code == 401
     token = csrf_of(client)
-    assert "Wrong password" in client.post("/login", data={"csrf": token, "password": "nope"}).text
-    r = client.post("/login", data={"csrf": token, "password": PASSWORD, "next": "/boards?x=1"})
+    assert "Wrong username or password" in client.post("/login", data={"csrf": token, "username": "admin",
+                                                                       "password": "nope"}).text
+    assert "Wrong username or password" in client.post("/login", data={"csrf": token, "username": "nobody",
+                                                                       "password": PASSWORD}).text
+    r = client.post("/login", data={"csrf": token, "username": "Admin ", "password": PASSWORD, "next": "/boards?x=1"})
     assert r.status_code == 303 and r.headers["location"] == "/boards?x=1"
     assert client.get("/boards").status_code == 200
     assert csrf_of(client, "/settings/account") != token     # a new CSRF token after login
@@ -106,9 +110,13 @@ def test_login_is_rate_limited(app):
     client = TestClient(app, follow_redirects=False)
     token = csrf_of(client)
     for _ in range(5):
-        client.post("/login", data={"csrf": token, "password": "nope"})
-    r = client.post("/login", data={"csrf": token, "password": PASSWORD})
+        client.post("/login", data={"csrf": token, "username": "admin", "password": "nope"})
+    r = client.post("/login", data={"csrf": token, "username": "admin", "password": PASSWORD})
     assert "Too many tries" in r.text and client.get("/").status_code == 303
+    # the same name from another address waits too (guessing one account's password from many machines)
+    other = TestClient(app, follow_redirects=False, client=("10.9.9.9", 50000))
+    r = other.post("/login", data={"csrf": csrf_of(other), "username": "admin", "password": PASSWORD})
+    assert "Too many tries" in r.text
 
 
 def test_only_same_site_next_pages():
@@ -223,9 +231,19 @@ def test_set_password_command(tmp_path, monkeypatch, capsys):
     answers = iter([PASSWORD, PASSWORD])
     monkeypatch.setattr("getpass.getpass", lambda prompt="": next(answers))
     cfg = Config(database=str(tmp_path / "x.db"))
+    assert run(cli.cmd_set_password(cfg, None)) == 0                  # no account yet: makes the first admin
+    store = Store(tmp_path / "x.db")
+    from jobalerts.users import Users
+    admin = Users(store).authenticate("admin", PASSWORD)
+    assert admin.id == 1 and admin.admin and not admin.must_change
+    assert auth.check_password(PASSWORD, store.get_meta("web.password_hash"))   # where older versions look
+    store.close()
+    answers = iter(["another long one", "another long one"])
+    monkeypatch.setattr("getpass.getpass", lambda prompt="": next(answers))
     assert run(cli.cmd_set_password(cfg, None)) == 0
     store = Store(tmp_path / "x.db")
-    assert auth.check_password(PASSWORD, store.get_meta("web.password_hash")) and store.get_meta("web.password_ver") == "1"
+    assert Users(store).get(1).ver == 2 and Users(store).authenticate("admin", "another long one")
+    store.close()
 
 
 def test_the_service_starts_the_web_ui(runner, monkeypatch):

@@ -4,7 +4,7 @@ Rows come from the watch list (companies.yaml) and the aggregator searches in th
 each board's health from the database (last success, jobs listed, failures, last error), its matches
 in the last 7 days and, while the service runs, when it's polled next. The table refreshes itself.
 Edits (add via discovery, enable or disable, tier, remove) change data/companies.yaml and take effect
-at once in `jobalerts run`.
+at once in `jobalerts run`. Everyone sees the boards (matches are their own); only admins edit them.
 """
 from __future__ import annotations
 
@@ -42,10 +42,10 @@ def add_board_routes(app: FastAPI, state, page, require_csrf) -> None:
     def path():
         return runner.cfg.resolve(runner.cfg.companies_file)
 
-    def board_rows() -> tuple[list[dict], list[dict], dict]:
+    def board_rows(me) -> tuple[list[dict], list[dict], dict]:
         cfg, store = runner.cfg, runner.store
         health = {r["key"]: r for r in store.boards()}
-        matches = store.matches_by_board(utcnow() - timedelta(days=7))
+        matches = me.store.matches_by_board(utcnow() - timedelta(days=7))
         tier_of = {v: k for k, v in cfg.polling.tiers.items()}
         companies, searches = [], []
         counts = {"ok": 0, "failing": 0, "disabled": 0, "waiting": 0, "needs_key": 0}
@@ -72,18 +72,18 @@ def add_board_routes(app: FastAPI, state, page, require_csrf) -> None:
         counts["rate_limited"] = sum(c["rate_limited"] for c in hosts.values())
         return companies, searches, counts
 
-    def context(**extra):
-        companies, searches, counts = board_rows()
+    def context(request: Request, **extra):
+        companies, searches, counts = board_rows(state.me(request))
         return dict(companies=companies, searches=searches, counts=counts, tiers=list(runner.cfg.polling.tiers),
-                    running=runner.running, file=str(path()), **extra)
+                    running=runner.running, file=str(path()), can_edit=request.state.user.admin, **extra)
 
     @app.get("/boards")
     async def boards_page(request: Request, saved: str = "", error: str = ""):
-        return page(request, "boards.html", **context(saved=saved, error=error))
+        return page(request, "boards.html", **context(request, saved=saved, error=error))
 
     @app.get("/boards/table")
     async def boards_table(request: Request):
-        return page(request, "boards_table.html", **context())
+        return page(request, "boards_table.html", **context(request))
 
     @app.post("/boards/discover", dependencies=[Depends(require_csrf)])
     async def find_board(request: Request, target: str = Form("")):

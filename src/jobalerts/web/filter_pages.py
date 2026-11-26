@@ -52,20 +52,20 @@ def funnel(rows) -> dict:
             "stages": stages, "baseline": baseline, "duplicates": duplicates}
 
 
-def estimate(runner, counts: dict, days: int) -> dict:
+def estimate(me, counts: dict, days: int) -> dict:
     """Rough AI calls a day in AI-only mode, from the last `days` days of new jobs."""
     f = counts["groups"]
     n = {g: c for g, _, _, c in f}
     judged = counts["total"] - n["too_old"] - n["hard_exclude"] - n["other"]
     per_day = judged / max(days, 1)
-    cfg = runner.cfg.prescreen
+    cfg = me.cfg.prescreen
     titles = math.ceil(per_day / cfg.title_batch) if per_day else 0
     excerpts = math.ceil(per_day * TITLE_PASS / cfg.posting_batch) if per_day else 0
     scores = round(per_day * SCORED)
-    usage = runner.store.ai_usage(7)
+    usage = me.store.ai_usage(7)
     used = round(sum(r["calls"] for r in usage) / 7) if usage else 0
     return {"jobs": round(per_day), "titles": titles, "excerpts": excerpts, "scores": scores,
-            "total": titles + excerpts + scores, "cap": runner.cfg.scoring.daily_max_calls, "used": used,
+            "total": titles + excerpts + scores, "cap": me.cfg.scoring.daily_max_calls, "used": used,
             "keyword_scores": round(sum(c for g, _, s, c in f if s == "in") / max(days, 1))}
 
 
@@ -86,8 +86,8 @@ def decide(job_filter: JobFilter, criteria: Criteria, prescreen_on: bool, job) -
 def add_filter_routes(app: FastAPI, state, page, require_csrf) -> None:
     runner = state.runner
 
-    def form_rows(submitted: dict | None = None):
-        data = runner.cfg.model_dump()
+    def form_rows(me, submitted: dict | None = None):
+        data = me.cfg.model_dump()
         rows = {}
         for f in FIELDS:
             value = st.get_path(data, f.key)
@@ -97,7 +97,7 @@ def add_filter_routes(app: FastAPI, state, page, require_csrf) -> None:
             if f.kind == "model" and shown and shown not in dict(choices):
                 choices = (*choices, (shown, shown))   # a model set in a config file
             rows[f.key] = {"f": f, "value": shown, "checked": checked, "choices": choices,
-                           "source": runner.cfg.value_sources.get(f.key, "default")}
+                           "source": me.cfg.value_sources.get(f.key, "default")}
         return rows
 
     def job_rows(rows, group: str):
@@ -114,16 +114,17 @@ def add_filter_routes(app: FastAPI, state, page, require_csrf) -> None:
                 break
         return out
 
-    def context(days: int, group: str, **extra):
-        rows = runner.store.decisions_since(utcnow() - timedelta(days=days))
+    def context(request: Request, days: int, group: str, **extra):
+        me = state.me(request)
+        rows = me.store.decisions_since(utcnow() - timedelta(days=days))
         counts = funnel(rows)
-        cfg = runner.cfg
+        cfg = me.cfg
         return dict(days=days, group=group, counts=counts, group_label=GROUP_LABEL, jobs=job_rows(rows, group),
-                    est=estimate(runner, counts, days), fields=form_rows(extra.pop("submitted", None)),
-                    mode=cfg.criteria.mode, prescreen_on=cfg.prescreen.enabled, scoring_on=bool(runner.scorer),
-                    first_look=bool(runner.prescreener), errors=extra.pop("errors", {}), **extra)
+                    est=estimate(me, counts, days), fields=form_rows(me, extra.pop("submitted", None)),
+                    mode=cfg.criteria.mode, prescreen_on=cfg.prescreen.enabled, scoring_on=bool(me.scorer),
+                    first_look=bool(me.prescreener), key_source=me.key_source, errors=extra.pop("errors", {}), **extra)
 
-    def draft(submitted: dict) -> tuple[Criteria | None, bool, str]:
+    def draft(me, submitted: dict) -> tuple[Criteria | None, bool, str]:
         """The criteria as edited in the form (not saved), whether the pre-screen would be on, or an error."""
         values = {}
         for f in FIELDS:
@@ -134,10 +135,10 @@ def add_filter_routes(app: FastAPI, state, page, require_csrf) -> None:
             except st.FieldError as e:
                 return None, False, f"{f.label}: {e}"
         try:
-            criteria = Criteria.model_validate({**runner.cfg.criteria.model_dump(), **values})
+            criteria = Criteria.model_validate({**me.cfg.criteria.model_dump(), **values})
         except ValidationError as e:
             return None, False, str(e.errors()[0]["msg"])
-        return criteria, "prescreen.enabled" in submitted and bool(runner.scorer), ""
+        return criteria, "prescreen.enabled" in submitted and bool(me.scorer), ""
 
     async def submitted_form(request: Request) -> dict[str, str]:
         form = await request.form()
@@ -148,41 +149,44 @@ def add_filter_routes(app: FastAPI, state, page, require_csrf) -> None:
         days = min(max(days, 1), 90)
         if group not in GROUP_LABEL and group not in ("out", "all"):
             group = "out"
-        return page(request, "filter.html", **context(days, group, saved=saved))
+        return page(request, "filter.html", **context(request, days, group, saved=saved))
 
     @app.post("/filter/save", dependencies=[Depends(require_csrf)])
     async def save(request: Request):
         submitted = await submitted_form(request)
-        errors, values, changed, new_cfg = validate_fields(runner, FIELDS, submitted)
+        me = state.me(request)
+        errors, values, changed, new_cfg = validate_fields(me, FIELDS, submitted)
         if not errors and values.get("criteria.mode") == "ai" and not values.get("prescreen.enabled"):
             errors["prescreen.enabled"] = "AI-only mode needs the AI first look on."
         if errors:
-            return page(request, "filter.html", **context(7, "out", saved="", submitted=submitted, errors=errors))
-        runner.ui_settings.save(changed)
-        runner.reconfigure(new_cfg)
+            return page(request, "filter.html", **context(request, 7, "out", saved="", submitted=submitted, errors=errors))
+        me.ui_settings.save(changed)
+        runner.refresh(me.uid)
         return RedirectResponse("/filter?saved=1", 303)
 
     @app.post("/filter/reset", dependencies=[Depends(require_csrf)])
     async def reset(request: Request):
-        runner.ui_settings.reset([f.key for f in FIELDS])
-        runner.reconfigure(st.apply(runner.base_cfg, runner.ui_settings.overlay()))
+        me = state.me(request)
+        me.ui_settings.reset([f.key for f in FIELDS])
+        runner.refresh(me.uid)
         return RedirectResponse("/filter?saved=reset", 303)
 
     @app.post("/filter/preview", dependencies=[Depends(require_csrf)])
     async def preview(request: Request):
         submitted = await submitted_form(request)
-        criteria, prescreen_on, error = draft(submitted)
+        me = state.me(request)
+        criteria, prescreen_on, error = draft(me, submitted)
         if criteria is None:
             return page(request, "filter_preview.html", error=error)
         new_filter = JobFilter(criteria)
-        cur_cfg = runner.cfg
+        cur_cfg = me.cfg
         now_in, now_out, total, passing_now, passing_new = [], [], 0, 0, 0
-        for r in runner.store.decisions_since(utcnow() - timedelta(days=PREVIEW_DAYS)):
+        for r in me.store.decisions_since(utcnow() - timedelta(days=PREVIEW_DAYS)):
             if r["status"] in ("duplicate", "stale"):
                 continue
             job = job_from_row(r)
             total += 1
-            before, _ = decide(runner.filter, cur_cfg.criteria, bool(runner.prescreener), job)
+            before, _ = decide(me.filter, cur_cfg.criteria, bool(me.prescreener), job)
             after, why = decide(new_filter, criteria, prescreen_on, job)
             passing_now += before
             passing_new += after
@@ -201,7 +205,7 @@ def add_filter_routes(app: FastAPI, state, page, require_csrf) -> None:
         title = submitted.get("try_title", "").strip()
         if not title:
             return page(request, "filter_try.html", error="Type a job title.", ok=False, why="", title="")
-        criteria, prescreen_on, error = draft(submitted)
+        criteria, prescreen_on, error = draft(state.me(request), submitted)
         if criteria is None:
             return page(request, "filter_try.html", error=error, ok=False, why="", title=title)
         from ..models import Job
@@ -212,8 +216,9 @@ def add_filter_routes(app: FastAPI, state, page, require_csrf) -> None:
 
     @app.post("/filter/score/{key:path}", dependencies=[Depends(require_csrf)])
     async def score_anyway(request: Request, key: str):
-        if runner.store.get_job(key) is None:
+        me = state.me(request)
+        if me.store.get_job(key) is None:
             raise HTTPException(404)
-        result = await runner.score_anyway(key)
-        row = runner.store.get_job(key)
+        result = await me.score_anyway(key)
+        row = me.store.get_job(key)
         return page(request, "filter_scored.html", result=result, r=row)

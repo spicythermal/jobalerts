@@ -19,6 +19,7 @@
   </nav>
   <form method="post" action="/logout" class="logout">
     <input type="hidden" name="csrf" value="{{ csrf }}">
+    <a href="/settings/account" class="muted small">{{ user.username }}</a>
     <button type="submit" class="link">Log out</button>
   </form>
 </header>

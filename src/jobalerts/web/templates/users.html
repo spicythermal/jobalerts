@@ -1,0 +1,102 @@
+{% extends "settings_base.html" %}
+{% block settings %}
+<h2>Users</h2>
+<p class="muted">Each user has their own jobs, filter, stories, profile, resumes, situation, alerts and phone
+notifications. Admins also manage users, job boards, connections, updates and the install's API keys. Job boards
+are polled once for everyone.</p>
+{% if saved == "sharing" %}<p class="ok" role="status">Saved. It's in use now.</p>
+{% elif saved == "deleted" %}<p class="ok" role="status">Deleted. Their files are in data/users/.trash/.</p>
+{% elif saved %}<p class="ok" role="status">Changed. That user's other sessions are logged out.</p>{% endif %}
+{% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+{% if made %}
+<div class="card notice stack" role="status">
+  <p><strong>{{ "Account made" if made.new else "Password reset" }} for {{ made.username }}.</strong> Give them this
+  one-time password; they choose their own when they log in. It isn't shown again.</p>
+  <input class="mono" readonly value="{{ made.password }}" aria-label="One-time password">
+</div>
+{% endif %}
+
+<div class="table-wrap">
+<table class="boards">
+  <thead><tr><th>User</th><th>Role</th><th>Last login</th><th></th></tr></thead>
+  <tbody>
+  {% for u in users %}
+  <tr class="{{ 'state-disabled' if u.disabled }}">
+    <td>{{ u.username }}{% if u.id == me_id %} <span class="muted small">(you)</span>{% endif %}
+      {% if u.disabled %}<br><span class="muted small">disabled</span>{% elif u.must_change %}<br><span class="muted small">hasn't chosen a password yet</span>{% endif %}</td>
+    <td>
+      {% if u.id == owner %}admin <span class="muted small">(first)</span>{% else %}
+      <form method="post" action="/settings/users/{{ u.id }}/role" class="tier">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <select name="role" aria-label="Role of {{ u.username }}">
+          {% for r in roles %}<option value="{{ r }}"{% if r == u.role %} selected{% endif %}>{{ r }}</option>{% endfor %}
+        </select>
+        <button type="submit" class="secondary">Set</button>
+      </form>
+      {% endif %}
+    </td>
+    <td class="small">{{ (u.last_login_at or "never")[:16].replace("T", " ") }}</td>
+    <td>
+      <div class="row-actions">
+        <form method="post" action="/settings/users/{{ u.id }}/reset" hx-confirm="Give {{ u.username }} a new one-time password? Their current one stops working.">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <button type="submit" class="link">Reset password</button>
+        </form>
+        {% if u.id != owner %}
+        <form method="post" action="/settings/users/{{ u.id }}/{{ 'enable' if u.disabled else 'disable' }}">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <button type="submit" class="link">{{ "Enable" if u.disabled else "Disable" }}</button>
+        </form>
+        {% endif %}
+      </div>
+      {% if u.id != owner %}
+      <details class="small">
+        <summary>Delete</summary>
+        <form method="post" action="/settings/users/{{ u.id }}/delete" class="inline">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <input name="confirm" autocomplete="off" placeholder="type {{ u.username }}" aria-label="Type {{ u.username }} to confirm">
+          <button type="submit" class="secondary">Delete account and data</button>
+        </form>
+      </details>
+      {% endif %}
+    </td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+
+<section class="card stack">
+  <h3>Add a user</h3>
+  <form method="post" action="/settings/users/add" class="inline">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input name="username" autocomplete="off" required placeholder="username" aria-label="Username"
+           pattern="[a-z0-9._\-]{2,32}">
+    <select name="role" aria-label="Role">
+      <option value="user">user</option><option value="admin">admin</option>
+    </select>
+    <button type="submit">Add</button>
+  </form>
+  <p class="help">2 to 32 characters: a-z, 0-9, dot, dash, underscore. You get a one-time password to give them.</p>
+  {% if address %}<p class="help">They open {{ address }} (on this network).</p>{% endif %}
+</section>
+
+<form method="post" action="/settings/users" class="card stack" novalidate>
+  <h3>API key sharing</h3>
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  {% for row in rows %}
+  {% set f = row.f %}
+  <div class="field{% if errors.get(f.key) %} has-error{% endif %}">
+    {% if f.kind == "bool" %}
+    <label class="check"><input type="checkbox" name="{{ f.key }}" value="1"{% if row.checked %} checked{% endif %}> {{ f.label }}</label>
+    {% else %}
+    <label for="u-{{ loop.index }}">{{ f.label }}</label>
+    <input id="u-{{ loop.index }}" name="{{ f.key }}" value="{{ row.value }}" inputmode="decimal">
+    {% endif %}
+    {% if errors.get(f.key) %}<p class="error">{{ errors[f.key] }}</p>{% endif %}
+    {% if f.help %}<p class="help">{{ f.help }}</p>{% endif %}
+  </div>
+  {% endfor %}
+  <button type="submit">Save</button>
+</form>
+{% endblock %}

@@ -23,7 +23,10 @@ h2 { font-size: 1.1rem; margin: 0; }
 .top nav { display: flex; gap: 4px; flex-wrap: wrap; flex: 1; }
 .top nav a { padding: 6px 10px; border-radius: 6px; text-decoration: none; color: var(--muted); }
 .top nav a[aria-current="page"] { background: var(--badge); color: var(--ink); }
-.logout { margin: 0; }
+.logout { margin: 0; display: flex; gap: 10px; align-items: center; }
+fieldset { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin: 0; }
+legend { font-weight: 600; padding: 0 4px; }
+details.small summary { cursor: pointer; color: var(--muted); }
 .page { max-width: 1100px; margin: 0 auto; padding: 20px 16px 40px; }
 .narrow { max-width: 420px; margin: 0 auto; padding: 48px 16px; }
 .full { padding: 0; }

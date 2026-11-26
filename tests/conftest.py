@@ -49,3 +49,8 @@ def with_reference_home(cfg):
     cfg.pay.current_home = cfg.pay.current_home.model_copy(update={"payment": 3400, "principal": 750,
                                                                    "upkeep": 450, "rate": 4.5})
     return cfg
+
+
+def key_url(name: str) -> str:
+    """The first admin's form for a key: the ntfy topic and token are their own, the rest the install's."""
+    return f"/settings/keys/{'mine' if name in ('NTFY_TOPIC', 'NTFY_TOKEN') else 'install'}/{name}"

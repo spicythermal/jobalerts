@@ -1,12 +1,7 @@
 {% extends "settings_base.html" %}
-{% block settings %}
-<h2>API keys</h2>
-<p class="muted">Keys go one way: you can set, replace or clear them here, but they are never shown again.
-They're stored encrypted on this machine. A key in <code>.env</code> wins over one saved here.</p>
-{% if saved == "cleared" %}<p class="ok" role="status">Cleared.</p>{% elif saved %}<p class="ok" role="status">Saved. It's in use now.</p>{% endif %}
-{% for row in rows %}
+{% macro key_card(row) %}
 {% set s = row.s %}
-<section class="card stack key" id="{{ s.name }}">
+<section class="card stack key" id="{{ row.scope }}-{{ s.name }}">
   <div class="row">
     <h3>{{ s.label }}</h3>
     <span class="badge {{ 'set' if s.is_set else 'unset' }}">
@@ -17,7 +12,7 @@ They're stored encrypted on this machine. A key in <code>.env</code> wins over o
   {% if s.source == "env" %}
   <p class="muted small">Set in <code>.env</code> (or the environment) on the machine running jobalerts; change it there.</p>
   {% else %}
-  <form method="post" action="/settings/keys/{{ s.name }}" class="inline">
+  <form method="post" action="/settings/keys/{{ row.scope }}/{{ s.name }}" class="inline">
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <input type="password" name="value" value="" autocomplete="new-password" spellcheck="false"
            aria-label="{{ s.label }}" placeholder="{{ 'Paste a new value to replace it' if s.is_set else 'Paste the key' }}">
@@ -27,17 +22,40 @@ They're stored encrypted on this machine. A key in <code>.env</code> wins over o
   {% endif %}
   <div class="row start">
     {% if row.testable and s.is_set %}
-    <button type="button" class="secondary" hx-post="/settings/keys/{{ s.name }}/test" hx-target="#test-{{ s.name }}">Test</button>
+    <button type="button" class="secondary" hx-post="/settings/keys/{{ row.scope }}/{{ s.name }}/test" hx-target="#test-{{ row.scope }}-{{ s.name }}">Test</button>
     {% endif %}
     {% if s.source == "ui" %}
-    <form method="post" action="/settings/keys/{{ s.name }}/clear">
+    <form method="post" action="/settings/keys/{{ row.scope }}/{{ s.name }}/clear">
       <input type="hidden" name="csrf" value="{{ csrf }}">
       <button type="submit" class="link">Clear</button>
     </form>
     {% endif %}
   </div>
-  <div id="test-{{ s.name }}" aria-live="polite"></div>
+  <div id="test-{{ row.scope }}-{{ s.name }}" aria-live="polite"></div>
   {% if not row.testable %}<p class="help">{{ no_test }}</p>{% endif %}
 </section>
-{% endfor %}
+{% endmacro %}
+{% block settings %}
+<h2>API keys</h2>
+<p class="muted">Keys go one way: you can set, replace or clear them here, but they are never shown again.
+They're stored encrypted on this machine.{% if owner or install %} A key in <code>.env</code> wins over one saved here.{% endif %}</p>
+{% if saved == "cleared" %}<p class="ok" role="status">Cleared.</p>{% elif saved %}<p class="ok" role="status">Saved. It's in use now.</p>{% endif %}
+
+<h3>Yours</h3>
+{% if not owner %}
+<p class="card{{ ' notice' if not key_source }}">AI scoring:
+  {% if key_source == "own" %}uses your own Anthropic key.
+  {% elif key_source == "shared" %}uses this install's key (shared by an admin, within a daily limit). Set your own below to use it instead.
+  {% elif key_source == "install" %}uses this install's key. Set your own below to use it instead.
+  {% elif share %}no key is set for this install yet. Set your own below, or ask an admin.
+  {% else %}off until you set your own Anthropic key below: this install doesn't share its key. Without one, jobs are
+  filtered by your keywords and pay index only.{% endif %}</p>
+{% endif %}
+{% for row in mine %}{{ key_card(row) }}{% endfor %}
+
+{% if install %}
+<h3>This install's (admins)</h3>
+<p class="muted small">Used for everyone: job board searches, Home Assistant, and AI scoring for admins{{ " and for users without their own key" if share }}.</p>
+{% for row in install %}{{ key_card(row) }}{% endfor %}
+{% endif %}
 {% endblock %}

@@ -215,9 +215,11 @@ def install(vault: Vault | None) -> None:
     _redactor.refresh()
 
 
-def secret(name: str) -> str:
+def secret(name: str, uid: int | None = None) -> str:
     """The install's value of a secret (the ntfy topic and token: the first user's): environment /
-    .env first, then the vault. "" when it isn't set."""
+    .env first, then the vault. With `uid`: that user's own value. "" when it isn't set."""
+    if uid is not None:
+        return _active.get(name, uid) if _active else ""
     if os.environ.get(name):
         return os.environ[name]
     return _active.install_value(name) if _active else ""

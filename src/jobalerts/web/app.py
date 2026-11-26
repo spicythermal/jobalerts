@@ -1,8 +1,11 @@
 """The web UI: FastAPI + Jinja templates + htmx, served by `jobalerts run` (and `jobalerts web`).
 
-Every page needs the admin login except /login, /setup, /static, /healthz and the map embed with a
-valid share token (for a Home Assistant Webpage card). All handlers are `async def`, so they run on
-the event loop thread that owns the SQLite connection.
+Every page needs a login except /login, /setup, /static, /healthz and the map embed with a valid
+share token (for a Home Assistant Webpage card). Each user sees only their own jobs, filter, stories,
+profile, settings and keys: pages get the logged-in user's pipeline (`state.me(request)`), never a
+user id from the request. Admin pages (users, connections, updates, the install's keys, board
+editing) answer 403 to everyone else (ADMIN_ONLY). All handlers are `async def`, so they run on the
+event loop thread that owns the SQLite connection.
 """
 from __future__ import annotations
 
@@ -22,6 +25,7 @@ from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+from ..users import UserError, Users, check_username
 from ..vault import secret_key
 from . import auth
 from .boards_pages import add_board_routes
@@ -29,13 +33,18 @@ from .filter_pages import add_filter_routes
 from .jobs_pages import add_job_routes
 from .settings_pages import SUBNAV, add_settings_routes
 from .stories_pages import add_story_routes
+from .users_pages import add_user_routes
 
 log = logging.getLogger(__name__)
 
 HERE = Path(__file__).parent
 OPEN_PATHS = ("/login", "/setup", "/healthz", "/static/", "/map/embed", "/favicon.ico")
 NAV = [("/", "Jobs"), ("/boards", "Boards"), ("/filter", "Filter"), ("/map", "Map"), ("/stories", "Stories"), ("/settings", "Settings")]
-META_HASH, META_VER, META_SHARE = "web.password_hash", "web.password_ver", "web.share_token"
+META_SHARE = "web.share_token"      # per user (store.USER_META)
+# Admins only: accounts, the install's connections, updates and keys, and editing the watch list.
+ADMIN_ONLY = ("/settings/users", "/settings/connections", "/settings/updates", "/settings/keys/install")
+# While a user must change the password an admin gave them, only these answer.
+MUST_CHANGE_OK = ("/settings/account", "/settings/account/password", "/logout")
 CSP_APP = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; "
            "connect-src 'self'; form-action 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; "
            "frame-src 'self'")
@@ -65,6 +74,10 @@ def safe_next(target: str | None) -> str:
     return target
 
 
+def admin_only(method: str, path: str) -> bool:
+    return any(path == p or path.startswith(p + "/") for p in ADMIN_ONLY) or (method != "GET" and path.startswith("/boards"))
+
+
 class WebState:
     def __init__(self, runner, key: bytes):
         self.runner = runner
@@ -73,40 +86,42 @@ class WebState:
         self.signer = auth.Signer(key)
         self.limiter = auth.LoginLimiter()
         self.setup_code = ""
-        if not self.password_hash():
-            raw = secrets.token_hex(4).upper()
-            # the desktop app makes the code itself and opens the setup page with it filled in
-            self.setup_code = self.cfg.web.setup_code.upper() or f"{raw[:4]}-{raw[4:]}"
-            log.warning("Web UI has no admin password yet. Open %s/setup and enter the setup code %s",
-                        self.base_url() or f"http://<this machine>:{self.cfg.web.port}", self.setup_code)
         self.test_transport = None  # tests swap in an httpx mock transport for the key Test buttons
-        # The settings pages need the vault and the UI settings; `jobalerts run`/`web` set them up in
-        # cli.open_runner, tests get them here.
+        # The settings pages need the vault, the UI settings and the accounts; `jobalerts run`/`web` set
+        # them up in cli.open_runner, tests get them here.
         if runner.vault is None:
             from ..vault import Vault
             runner.vault = Vault(runner.store, key)
         if runner.ui_settings is None:
             from ..settings import UiSettings
             runner.ui_settings = UiSettings(runner.store, runner.vault)
+        if runner.users is None:
+            runner.users = Users(runner.store)
+        self.users: Users = runner.users
+        if not self.users.any():
+            raw = secrets.token_hex(4).upper()
+            # the desktop app makes the code itself and opens the setup page with it filled in
+            self.setup_code = self.cfg.web.setup_code.upper() or f"{raw[:4]}-{raw[4:]}"
+            log.warning("Web UI has no admin account yet. Open %s/setup and enter the setup code %s",
+                        self.base_url() or f"http://<this machine>:{self.cfg.web.port}", self.setup_code)
 
     def base_url(self) -> str:
         return self.cfg.web.public_url.rstrip("/")
 
-    def password_hash(self) -> str:
-        return self.store.get_meta(META_HASH) or ""
+    def me(self, request: Request):
+        """The logged-in user's pipeline (Person): their store view, settings, filter, scorer."""
+        user = request.state.user
+        person = self.runner.person(user.id)
+        if person is None:
+            self.runner.sync_people()
+            person = self.runner.person(user.id)
+        if person is None:
+            raise HTTPException(403)
+        return person
 
-    def password_version(self) -> int:
-        return int(self.store.get_meta(META_VER) or 0)
-
-    def set_password(self, password: str) -> int:
-        version = self.password_version() + 1
-        self.store.set_meta(META_HASH, auth.hash_password(password))
-        self.store.set_meta(META_VER, str(version))
-        self.setup_code = ""
-        return version
-
-    def share_token(self) -> str:
-        return self.store.get_meta(META_SHARE) or ""
+    def share_token(self, person=None) -> str:
+        """A user's map share token (default: the first user's); "" when their link is off."""
+        return (person or self.runner.me).store.get_meta(META_SHARE) or ""
 
 
 def create_app(runner, key: bytes) -> FastAPI:
@@ -118,29 +133,38 @@ def create_app(runner, key: bytes) -> FastAPI:
     templates.env.filters["web_url"] = web_url
     app.mount("/static", StaticFiles(directory=str(HERE / "static")), name="static")
 
-    def read_session(request: Request) -> auth.Session:
+    def read_session(request: Request) -> tuple[auth.Session, object]:
         data = state.signer.loads(request.cookies.get(auth.COOKIE, ""))
         if not data or not isinstance(data.get("csrf"), str):
-            return auth.Session.new()
-        session = auth.Session(csrf=data["csrf"], user=str(data.get("user") or ""),
-                               ver=int(data.get("ver") or 0), exp=int(data.get("exp") or 0))
-        if session.user and (session.exp < time.time() or session.ver != state.password_version()):
-            session.user, session.changed = "", True  # expired, or the password changed since
-        return session
+            return auth.Session.new(), None
+        try:
+            session = auth.Session(csrf=data["csrf"], uid=int(data.get("uid") or 0), ver=int(data.get("ver") or 0),
+                                   exp=int(data.get("exp") or 0))
+        except (TypeError, ValueError):
+            return auth.Session.new(), None
+        user = state.users.get(session.uid) if session.uid else None
+        if session.uid and (user is None or user.disabled or session.exp < time.time() or session.ver != user.ver):
+            session.uid, session.changed, user = 0, True, None  # expired, removed, or the password or role changed
+        return session, user
 
     @app.middleware("http")
     async def gate(request: Request, call_next):
-        session = read_session(request)
-        request.state.session = session
+        session, user = read_session(request)
+        request.state.session, request.state.user = session, user
         path = request.url.path
         open_path = any(path == p or (p.endswith("/") and path.startswith(p)) for p in OPEN_PATHS)
-        if not open_path and not session.user:
-            if not state.password_hash():
+        if not open_path and user is None:
+            if not state.users.any():
                 response = RedirectResponse("/setup", 303)
             elif request.method == "GET" and "hx-request" not in request.headers:
                 response = RedirectResponse("/login?next=" + quote(path + (f"?{request.url.query}" if request.url.query else ""), safe=""), 303)
             else:
                 response = PlainTextResponse("login required", 401)
+        elif user is not None and user.must_change and not open_path and path not in MUST_CHANGE_OK:
+            response = (RedirectResponse("/settings/account?must=1", 303) if request.method == "GET"
+                        else PlainTextResponse("change your password first", 403))
+        elif user is not None and not user.admin and admin_only(request.method, path):
+            response = PlainTextResponse("admins only", 403)
         else:
             response = await call_next(request)
         if session.changed:
@@ -163,16 +187,20 @@ def create_app(runner, key: bytes) -> FastAPI:
             raise HTTPException(403, "The form expired. Reload the page and try again.")
 
     def page(request: Request, name: str, **context) -> HTMLResponse:
+        user = getattr(request.state, "user", None)
         context.update(request=request, csrf=request.state.session.csrf, nav=NAV, path=request.url.path,
-                       logged_in=bool(request.state.session.user))
+                       logged_in=user is not None, user=user, is_admin=bool(user and user.admin))
+        if "subnav" in context and not (user and user.admin):
+            context["subnav"] = [(k, label) for k, label in context["subnav"] if not admin_only("GET", f"/settings/{k}")]
         return templates.TemplateResponse(request, name, context)
 
-    def log_in(request: Request) -> None:
+    def log_in(request: Request, user) -> None:
         session: auth.Session = request.state.session
-        session.user, session.ver = "admin", state.password_version()
+        session.uid, session.ver = user.id, user.ver
         session.exp = int(time.time()) + cfg.web.session_days * 86400
         session.csrf = secrets.token_urlsafe(24)  # a new token after login (no fixation)
         session.changed = True
+        request.state.user = user
 
     # ------------------------------------------------------------------ login / setup
     @app.get("/healthz")
@@ -181,72 +209,91 @@ def create_app(runner, key: bytes) -> FastAPI:
 
     @app.get("/login")
     async def login_page(request: Request, next: str = "/"):
-        if not state.password_hash():
+        if not state.users.any():
             return RedirectResponse("/setup", 303)
-        if request.state.session.user:
+        if request.state.user:
             return RedirectResponse(safe_next(next), 303)
-        return page(request, "login.html", next=safe_next(next), error="")
+        return page(request, "login.html", next=safe_next(next), error="", username="")
 
     @app.post("/login", dependencies=[Depends(require_csrf)])
-    async def login(request: Request, password: str = Form(""), next: str = Form("/")):
+    async def login(request: Request, username: str = Form(""), password: str = Form(""), next: str = Form("/")):
         ip = request.client.host if request.client else "?"
-        if wait := state.limiter.wait(ip):
-            return page(request, "login.html", next=safe_next(next),
+        name = username.strip().lower()[:64]
+        if wait := max(state.limiter.wait(ip), state.limiter.wait("user:" + name)):
+            return page(request, "login.html", next=safe_next(next), username=name,
                         error=f"Too many tries. Wait {wait} seconds and try again.")
-        if not auth.check_password(password, state.password_hash()):
+        user = state.users.authenticate(name, password)
+        if user is None:
             state.limiter.failed(ip)
+            state.limiter.failed("user:" + name)
             log.warning("Web UI: failed login from %s", ip)
-            return page(request, "login.html", next=safe_next(next), error="Wrong password.")
+            return page(request, "login.html", next=safe_next(next), username=name,
+                        error="Wrong username or password.")
         state.limiter.succeeded(ip)
-        log_in(request)
-        return RedirectResponse(safe_next(next), 303)
+        state.limiter.succeeded("user:" + name)
+        log_in(request, user)
+        return RedirectResponse("/settings/account?must=1" if user.must_change else safe_next(next), 303)
 
     @app.post("/logout", dependencies=[Depends(require_csrf)])
     async def logout(request: Request):
         session = request.state.session
-        session.user, session.changed = "", True
+        session.uid, session.changed = 0, True
         return RedirectResponse("/login", 303)
 
     @app.get("/setup")
     async def setup_page(request: Request, code: str = ""):
-        if state.password_hash():
+        if state.users.any():
             return RedirectResponse("/login", 303)
-        return page(request, "setup.html", error="", code=code[:20])
+        return page(request, "setup.html", error="", code=code[:20], username="admin", share="no")
 
     @app.post("/setup", dependencies=[Depends(require_csrf)])
-    async def setup(request: Request, code: str = Form(""), password: str = Form(""), again: str = Form("")):
-        if state.password_hash():
+    async def setup(request: Request, code: str = Form(""), username: str = Form("admin"), password: str = Form(""),
+                    again: str = Form(""), share: str = Form("no")):
+        if state.users.any():
             return RedirectResponse("/login", 303)
         ip = request.client.host if request.client else "?"
+
+        def again_page(error: str):
+            return page(request, "setup.html", error=error, code="", username=username[:32], share=share)
         if wait := state.limiter.wait(ip):
-            return page(request, "setup.html", error=f"Too many tries. Wait {wait} seconds and try again.")
+            return again_page(f"Too many tries. Wait {wait} seconds and try again.")
         if not auth.tokens_match(code.strip().upper(), state.setup_code):
             state.limiter.failed(ip)
-            return page(request, "setup.html", error="That's not the setup code from the log.")
+            return again_page("That's not the setup code from the log.")
+        try:
+            name = check_username(username)
+        except UserError as e:
+            return again_page(str(e))
         if problem := auth.password_problem(password, again):
-            return page(request, "setup.html", error=problem)
+            return again_page(problem)
         state.limiter.succeeded(ip)
-        state.set_password(password)
-        log.info("Web UI admin password set")
-        log_in(request)
+        user = state.users.create(name, password, role="admin", must_change=False)
+        state.setup_code = ""
+        if share == "yes":     # off is the default
+            runner.ui_settings.save({"users.share_keys": True})
+        runner.refresh()
+        log.info("Web UI: admin account %s created", name)
+        log_in(request, user)
         return RedirectResponse("/", 303)
 
     # ------------------------------------------------------------------ pages
     @app.get("/map")
     async def map_page(request: Request):
-        return page(request, "map.html", enabled=bool(runner.pay and cfg.map.enabled))
+        return page(request, "map.html", enabled=bool(state.me(request).pay and cfg.map.enabled))
 
     @app.get("/map/embed")
     async def map_embed(request: Request, token: str = ""):
-        logged_in = bool(request.state.session.user)
+        logged_in = request.state.user is not None
         # The share link is off until you turn it on (Settings > Account); with it, the map leaves
         # out your figures. Without a login or the token: nothing, not even that the page exists.
-        by_token = not logged_in and auth.tokens_match(token, state.share_token())
-        if not logged_in and not by_token:
+        person = state.me(request) if logged_in else next(
+            (p for p in runner.everyone() if auth.tokens_match(token, state.share_token(p))), None)
+        by_token = not logged_in and person is not None
+        if person is None:
             raise HTTPException(404)
-        if not (runner.pay and cfg.map.enabled):
+        if not (person.pay and cfg.map.enabled):
             return PlainTextResponse("The cost-of-living map is off (pay.enabled / map.enabled).", 404)
-        html = await runner.current_map(shared=by_token)
+        html = await person.current_map(shared=by_token)
         if by_token:
             ancestors = " ".join(cfg.web.frame_origins) or "*"
         else:
@@ -261,45 +308,50 @@ def create_app(runner, key: bytes) -> FastAPI:
         return RedirectResponse("/settings/situation", 303)
 
     def share_link(request: Request) -> str:
-        if not state.share_token():
+        token = state.share_token(state.me(request))
+        if not token:
             return ""
         base = state.base_url() or str(request.base_url).rstrip("/")
-        return f"{base}/map/embed?token={state.share_token()}"
+        return f"{base}/map/embed?token={token}"
+
+    def account(request: Request, saved: str = "", error: str = "", must: bool = False):
+        return page(request, "account.html", share_link=share_link(request), saved=saved, error=error,
+                    must=must or request.state.user.must_change, subnav=SUBNAV, section="account")
 
     @app.get("/settings/account")
-    async def account_page(request: Request, saved: str = ""):
-        return page(request, "account.html", share_link=share_link(request), saved=saved, error="",
-                    subnav=SUBNAV, section="account")
+    async def account_page(request: Request, saved: str = "", must: str = ""):
+        return account(request, saved, must=bool(must))
 
     @app.post("/settings/account/password", dependencies=[Depends(require_csrf)])
     async def change_password(request: Request, current: str = Form(""), password: str = Form(""),
                               again: str = Form("")):
-        link = share_link(request)
-        if not auth.check_password(current, state.password_hash()):
-            return page(request, "account.html", share_link=link, saved="", error="The current password is wrong.",
-                        subnav=SUBNAV, section="account")
+        user = request.state.user
+        if not state.users.password_ok(user.id, current):
+            return account(request, error="The current password is wrong.")
         if problem := auth.password_problem(password, again):
-            return page(request, "account.html", share_link=link, saved="", error=problem, subnav=SUBNAV,
-                        section="account")
-        state.set_password(password)
-        log_in(request)  # this session stays logged in; every other one is logged out
+            return account(request, error=problem)
+        if password == current:
+            return account(request, error="Choose a new password, not the one you have.")
+        state.users.set_password(user.id, password)
+        log_in(request, state.users.get(user.id))  # this session stays logged in; every other one is logged out
         return RedirectResponse("/settings/account?saved=password", 303)
 
     @app.post("/settings/account/share-token", dependencies=[Depends(require_csrf)])
     async def rotate_share_token(request: Request):
         """Turn the Home Assistant map link on, or replace it (the old one stops working)."""
-        state.store.set_meta(META_SHARE, auth.new_token())
+        state.me(request).store.set_meta(META_SHARE, auth.new_token())
         return RedirectResponse("/settings/account?saved=share", 303)
 
     @app.post("/settings/account/share-off", dependencies=[Depends(require_csrf)])
     async def share_off(request: Request):
-        state.store.delete_meta(META_SHARE)
+        state.me(request).store.delete_meta(META_SHARE)
         return RedirectResponse("/settings/account?saved=share-off", 303)
 
     add_job_routes(app, state, page, require_csrf)
     add_board_routes(app, state, page, require_csrf)
     add_filter_routes(app, state, page, require_csrf)
     add_story_routes(app, state, page, require_csrf)
+    add_user_routes(app, state, page, require_csrf)
     add_settings_routes(app, state, page, require_csrf)
 
     return app

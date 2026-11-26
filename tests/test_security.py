@@ -20,7 +20,7 @@ from jobalerts.store import Store
 from jobalerts.web.app import create_app
 from jobalerts.web.settings_pages import SUBNAV
 
-from conftest import REPO, run, with_reference_home
+from conftest import REPO, run, with_reference_home, key_url
 from test_pipeline import make_job
 
 PASSWORD = "security test password"
@@ -46,7 +46,7 @@ def env(tmp_path, monkeypatch):
     client.post("/setup", data={"csrf": token, "code": app.state.web.setup_code, "password": PASSWORD, "again": PASSWORD})
     token = re.search(r'name="csrf" value="([^"]+)"', client.get("/settings/keys").text).group(1)
     for name, value in CANARIES.items():
-        assert client.post(f"/settings/keys/{name}", data={"csrf": token, "value": value}).status_code == 303
+        assert client.post(key_url(name), data={"csrf": token, "value": value}).status_code == 303
     vault.install(runner.vault)
     yield runner, app, client, token, sent, tmp_path
     vault.install(None)
@@ -80,8 +80,8 @@ def test_no_page_shows_a_secret(env):
         r = client.get(path)
         assert not leaked(r.text) and not leaked(str(r.headers)), path
     # failed form posts re-render pages: none echoes a stored key either
-    for path, data in (("/settings/keys/NTFY_TOKEN", {"value": " "}), ("/settings/situation", {"pay.reference_salary": "x"}),
-                       ("/settings/alerts", {"scoring.push_threshold": "x"}), ("/login", {"password": "x"})):
+    for path, data in ((key_url("NTFY_TOKEN"), {"value": " "}), ("/settings/situation", {"pay.reference_salary": "x"}),
+                       ("/settings/alerts", {"scoring.push_threshold": "x"}), ("/login", {"username": "admin", "password": "x"})):
         r = client.post(path, data={"csrf": token, **data})
         assert not leaked(r.text), path
     for name in CANARIES:
@@ -89,7 +89,7 @@ def test_no_page_shows_a_secret(env):
             app.state.web.test_transport = httpx.MockTransport(
                 lambda request: httpx.Response(401, text=f"bad key {request.headers.get('x-api-key')} "
                                                          f"{request.headers.get('authorization-key')}"))
-            r = client.post(f"/settings/keys/{name}/test", headers={"X-CSRF-Token": token})
+            r = client.post(key_url(name) + "/test", headers={"X-CSRF-Token": token})
             assert not leaked(r.text), name
 
 

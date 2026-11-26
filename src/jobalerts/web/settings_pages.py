@@ -1,5 +1,6 @@
-"""The Settings pages: your situation, search words, scoring and alerts, connections, API keys
-(write-only), profile and resumes. Account (password, share link) lives in app.py.
+"""The Settings pages: your situation, search words, scoring and alerts, API keys (write-only),
+profile and resumes are each user's own; connections, updates and the install's keys are the admins'
+(app.ADMIN_ONLY). Account (password, share link) lives in app.py, users in users_pages.py.
 
 API keys never travel back to the browser: the keys page shows only whether each one is set and
 where from. A failed save re-renders the form without the value that was typed.
@@ -19,13 +20,14 @@ from pydantic import ValidationError
 from .. import settings as st, updater
 from ..resumes import load_resumes
 from ..userdata import local_config_path
-from ..vault import SECRETS, _redactor, install as install_vault
+from ..users import OWNER
+from ..vault import INSTALL, INSTALL_SECRETS, USER_SECRETS, _redactor, install as install_vault
 
 log = logging.getLogger(__name__)
 
 SUBNAV = [("situation", "Your situation"), ("search", "Filter (own page)"), ("alerts", "Scoring and alerts"),
-          ("connections", "Connections"), ("keys", "API keys"), ("profile", "Profile and resumes"),
-          ("updates", "Updates"), ("account", "Account")]
+          ("keys", "API keys"), ("profile", "Profile and resumes"), ("account", "Account"),
+          ("connections", "Connections"), ("updates", "Updates"), ("users", "Users")]
 RESUME_TYPES = {".pdf", ".md", ".txt"}
 MAX_RESUME = 5 * 1024 * 1024
 NO_TEST = ("No test button: each call uses paid credits or a small trial allowance. The Boards page shows "
@@ -42,25 +44,32 @@ def resume_name(filename: str) -> str:
     return stem + suffix
 
 
-def validate_fields(runner, fields: list[st.Field], submitted: dict[str, str]):
-    """Check a form of these settings against the whole config. Returns (errors by key, parsed values,
-    the values to save (those that differ from the files, or were saved before), the new config or None)."""
+def my_keys(person) -> tuple[str, ...]:
+    """The keys a user sets for themselves (user 1's Anthropic key is the install's)."""
+    return tuple(n for n in USER_SECRETS if not (person.uid == OWNER and n == "ANTHROPIC_API_KEY"))
+
+
+def validate_fields(person, fields: list[st.Field], submitted: dict[str, str]):
+    """Check a form of these settings against the user's whole config. Returns (errors by key, parsed
+    values, the values to save (those that differ from the files, or were saved before), the new config
+    or None)."""
     errors, values = {}, {}
     for f in fields:
         try:
             values[f.key] = st.parse(f, submitted.get(f.key))
         except st.FieldError as e:
             errors[f.key] = str(e)
-    base = runner.base_cfg.model_dump()
-    current_ui = runner.ui_settings.values()
+    base_cfg, ui = person.base_cfg, person.ui_settings
+    base = base_cfg.model_dump()
+    current_ui = ui.values()
     changed = {k: v for k, v in values.items() if k in current_ui or st.get_path(base, k) != v}
     new_cfg = None
     if not errors:
-        overlay = st.deep_merge(runner.ui_settings.overlay(), {})
+        overlay = st.deep_merge(ui.overlay(), {})
         for key, value in changed.items():
             overlay = st.deep_merge(overlay, st.nest(key, value))
         try:
-            new_cfg = st.apply(runner.base_cfg, overlay, strict=True)
+            new_cfg = st.apply(base_cfg, overlay, strict=True)
         except ValidationError as e:
             errors.update({k: v for k, v in st.errors_by_field(e).items()} or {"": str(e)})
     return errors, values, changed, new_cfg
@@ -69,12 +78,11 @@ def validate_fields(runner, fields: list[st.Field], submitted: dict[str, str]):
 def add_settings_routes(app: FastAPI, state, page, require_csrf) -> None:
     runner = state.runner
 
-    def ui() -> st.UiSettings:
-        return runner.ui_settings
-
-    def context(section: str, **extra):
-        problems = runner.cfg.config_problems + [
-            f"{k}: saved on the Settings page by another version; not used by this one (kept)" for k in ui().unknown()]
+    def context(request: Request, section: str, **extra):
+        me = state.me(request)
+        problems = me.cfg.config_problems + [
+            f"{k}: saved on the Settings page by another version; not used by this one (kept)"
+            for k in me.ui_settings.unknown()]
         return dict(subnav=SUBNAV, section=section, problems=problems, **extra)
 
     def field_rows(section: str, cfg, form: dict | None = None):
@@ -90,55 +98,73 @@ def add_settings_routes(app: FastAPI, state, page, require_csrf) -> None:
             rows.append({"f": f, "value": shown, "checked": checked, "source": source})
         return rows
 
-    def local_sensitive(cfg) -> list[str]:
-        return [f.key for f in st.FIELDS if f.sensitive and cfg.value_sources.get(f.key) == "local"]
+    def local_sensitive(person) -> list[str]:
+        """Personal values from config.local.yaml (user 1's file) on the situation page."""
+        if person.uid != OWNER:
+            return []
+        return [f.key for f in st.FIELDS if f.sensitive and f.section == "situation"
+                and person.cfg.value_sources.get(f.key) == "local"]
 
-    def reconfigure(new_cfg) -> None:
-        runner.reconfigure(new_cfg)
+    def changed_settings(person, scope: str) -> None:
+        """Use the new settings now: the install's change everyone's, a user's only theirs."""
+        runner.refresh(None if scope == "install" else person.uid)
         _redactor.refresh()
 
     # ------------------------------------------------------------------ API keys (write-only)
     def keys_page(request: Request, saved: str, error: str = "", error_name: str = ""):
-        rows = [{"s": s, "testable": s.name in TESTS} for s in runner.vault.status()]
-        return page(request, "settings_keys.html", **context("keys", rows=rows, saved=saved, error=error,
-                                                             error_name=error_name, no_test=NO_TEST))
+        me = state.me(request)
+        mine = [{"s": s, "testable": s.name in TESTS, "scope": "mine"}
+                for s in runner.vault.status(me.uid, my_keys(me))]
+        install = ([{"s": s, "testable": s.name in TESTS, "scope": "install"}
+                    for s in runner.vault.status(INSTALL, INSTALL_SECRETS)] if request.state.user.admin else [])
+        return page(request, "settings_keys.html", **context(
+            request, "keys", mine=mine, install=install, saved=saved, error=error, error_name=error_name,
+            no_test=NO_TEST, owner=me.uid == OWNER, key_source=me.key_source, share=me.cfg.users.share_keys))
 
-    @app.post("/settings/keys/{name}", dependencies=[Depends(require_csrf)])
-    async def save_key(request: Request, name: str, value: str = Form("")):
-        if name not in SECRETS:
-            raise HTTPException(404)
+    def key_owner(request: Request, scope: str, name: str) -> int:
+        """Whose key a form changes; 404 for a key that isn't the user's to set."""
+        me = state.me(request)
+        if scope == "mine" and name in my_keys(me):
+            return me.uid
+        if scope == "install" and name in INSTALL_SECRETS and request.state.user.admin:
+            return INSTALL
+        raise HTTPException(404)
+
+    @app.post("/settings/keys/{scope}/{name}", dependencies=[Depends(require_csrf)])
+    async def save_key(request: Request, scope: str, name: str, value: str = Form("")):
+        uid = key_owner(request, scope, name)
         if not value.strip():
             return keys_page(request, "", "Paste the key, then Save.", name)
-        runner.vault.set(name, value)
+        runner.vault.set(name, value, uid)
         install_vault(runner.vault)
-        reconfigure(runner.cfg)
-        return RedirectResponse(f"/settings/keys?saved={name}#{name}", 303)
+        changed_settings(state.me(request), "install" if uid == INSTALL else "user")
+        return RedirectResponse(f"/settings/keys?saved={name}#{scope}-{name}", 303)
 
-    @app.post("/settings/keys/{name}/clear", dependencies=[Depends(require_csrf)])
-    async def clear_key(request: Request, name: str):
-        if name not in SECRETS:
-            raise HTTPException(404)
-        runner.vault.clear(name)
+    @app.post("/settings/keys/{scope}/{name}/clear", dependencies=[Depends(require_csrf)])
+    async def clear_key(request: Request, scope: str, name: str):
+        uid = key_owner(request, scope, name)
+        runner.vault.clear(name, uid)
         install_vault(runner.vault)
-        reconfigure(runner.cfg)
-        return RedirectResponse(f"/settings/keys?saved=cleared#{name}", 303)
+        changed_settings(state.me(request), "install" if uid == INSTALL else "user")
+        return RedirectResponse(f"/settings/keys?saved=cleared#{scope}-{name}", 303)
 
-    @app.post("/settings/keys/{name}/test", dependencies=[Depends(require_csrf)])
-    async def test_key(request: Request, name: str):
+    @app.post("/settings/keys/{scope}/{name}/test", dependencies=[Depends(require_csrf)])
+    async def test_key(request: Request, scope: str, name: str):
+        uid = key_owner(request, scope, name)
         if name not in TESTS:
             raise HTTPException(404)
         try:
-            ok, message = await TESTS[name](runner, state.test_transport)
+            ok, message = await TESTS[name](state.me(request), runner, state.test_transport, uid)
         except Exception as e:  # report, never echo a value
             ok, message = False, f"{type(e).__name__}: {e}"
         message = _redactor.redact(message)
         return page(request, "key_test.html", ok=ok, message=message)
 
-    # ------------------------------------------------------------------ updates
+    # ------------------------------------------------------------------ updates (admins)
     def updates_page(request: Request, saved: str, message: str = ""):
         return page(request, "settings_updates.html", **context(
-            "updates", status=runner.update_status(), rows=field_rows("updates", runner.cfg), errors={}, saved=saved,
-            message=message, running=runner.running, packaged=updater.is_packaged()))
+            request, "updates", status=runner.update_status(), rows=field_rows("updates", state.me(request).cfg),
+            errors={}, saved=saved, message=message, running=runner.running, packaged=updater.is_packaged()))
 
     @app.post("/settings/updates/check", dependencies=[Depends(require_csrf)])
     async def check_now(request: Request):
@@ -153,32 +179,35 @@ def add_settings_routes(app: FastAPI, state, page, require_csrf) -> None:
                         else ". Restart jobalerts to use it.")
         return updates_page(request, "", message)
 
-    # ------------------------------------------------------------------ profile and resumes
-    def profile_path() -> Path:
-        return runner.cfg.resolve(runner.cfg.scoring.profile_path)
+    # ------------------------------------------------------------------ profile and resumes (each user's)
+    def profile_path(person) -> Path:
+        return person.cfg.resolve(person.cfg.scoring.profile_path)
 
-    def resume_dir() -> Path:
-        return runner.cfg.resolve(runner.cfg.scoring.resume_dir)
+    def resume_dir(person) -> Path:
+        return person.cfg.resolve(person.cfg.scoring.resume_dir)
 
     def profile_page(request: Request, saved: str, error: str = ""):
-        path = profile_path()
-        resumes = [{"name": r.name, "chars": len(r.text)} for r in load_resumes(resume_dir())]
+        me = state.me(request)
+        path = profile_path(me)
+        resumes = [{"name": r.name, "chars": len(r.text)} for r in load_resumes(resume_dir(me))]
         return page(request, "settings_profile.html", **context(
-            "profile", profile=path.read_text(encoding="utf-8") if path.is_file() else "", resumes=resumes,
+            request, "profile", profile=path.read_text(encoding="utf-8") if path.is_file() else "", resumes=resumes,
             saved=saved, error=error))
 
     @app.post("/settings/profile", dependencies=[Depends(require_csrf)])
     async def save_profile(request: Request, profile: str = Form("")):
-        path = profile_path()
+        me = state.me(request)
+        path = profile_path(me)
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_suffix(".tmp")
         tmp.write_text(profile.replace("\r\n", "\n"), encoding="utf-8")
         tmp.replace(path)
-        reconfigure(runner.cfg)
+        changed_settings(me, "user")
         return RedirectResponse("/settings/profile?saved=profile", 303)
 
     @app.post("/settings/resumes", dependencies=[Depends(require_csrf)])
     async def upload_resume(request: Request, file: UploadFile):
+        me = state.me(request)
         try:
             name = resume_name(file.filename or "")
         except ValueError as e:
@@ -186,22 +215,23 @@ def add_settings_routes(app: FastAPI, state, page, require_csrf) -> None:
         data = await file.read(MAX_RESUME + 1)
         if len(data) > MAX_RESUME:
             return profile_page(request, "", "That file is over 5 MB.")
-        folder = resume_dir()
+        folder = resume_dir(me)
         folder.mkdir(parents=True, exist_ok=True)
         (folder / name).write_bytes(data)
-        reconfigure(runner.cfg)
+        changed_settings(me, "user")
         return RedirectResponse("/settings/profile?saved=resume", 303)
 
     @app.post("/settings/resumes/{name}/delete", dependencies=[Depends(require_csrf)])
     async def delete_resume(request: Request, name: str):
-        folder = resume_dir()
+        me = state.me(request)
+        folder = resume_dir(me)
         target = folder / Path(name).name
         if Path(name).name != name or not target.is_file():
             raise HTTPException(404)
         trash = folder / ".trash"
         trash.mkdir(exist_ok=True)
         shutil.move(str(target), trash / name)  # kept, not deleted: these may be your working files
-        reconfigure(runner.cfg)
+        changed_settings(me, "user")
         return RedirectResponse("/settings/profile?saved=removed", 303)
 
     # ------------------------------------------------------------------ field sections
@@ -215,80 +245,87 @@ def add_settings_routes(app: FastAPI, state, page, require_csrf) -> None:
             return updates_page(request, saved)
         if section == "search":   # the filter has its own page
             return RedirectResponse("/filter" + (f"?saved={saved}" if saved else ""), 303)
-        if section not in st.SECTIONS:
+        if section not in st.SECTIONS or section == "users":
             raise HTTPException(404)
-        cfg = runner.cfg
+        me = state.me(request)
         return page(request, "settings_section.html", **context(
-            section, title=st.SECTIONS[section], rows=field_rows(section, cfg), errors={}, saved=saved,
-            local_sensitive=local_sensitive(cfg) if section == "situation" else []))
+            request, section, title=st.SECTIONS[section], rows=field_rows(section, me.cfg), errors={}, saved=saved,
+            local_sensitive=local_sensitive(me) if section == "situation" else []))
 
     @app.post("/settings/{section}", dependencies=[Depends(require_csrf)])
     async def save_section(request: Request, section: str):
-        if section not in st.SECTIONS:
+        if section not in st.SECTIONS or section == "users":
             raise HTTPException(404)
+        me = state.me(request)
         form = await request.form()
         submitted = {k: v for k, v in form.items() if isinstance(v, str)}
-        errors, values, changed, new_cfg = validate_fields(runner, [f for f in st.FIELDS if f.section == section],
+        errors, values, changed, new_cfg = validate_fields(me, [f for f in st.FIELDS if f.section == section],
                                                            submitted)
-        if not errors and "pay.reference_location" in values and runner.pay \
-                and runner.pay.resolve(values["pay.reference_location"]) is None:
+        if not errors and "pay.reference_location" in values and me.pay \
+                and me.pay.resolve(values["pay.reference_location"]) is None:
             errors["pay.reference_location"] = "Not a place the pay index knows. Try \"City, ST\", a state or a country."
         if errors:
             return page(request, "settings_section.html", **context(
-                section, title=st.SECTIONS[section], rows=field_rows(section, runner.cfg, submitted),
+                request, section, title=st.SECTIONS[section], rows=field_rows(section, me.cfg, submitted),
                 errors=errors, saved="", local_sensitive=[]))
-        ui().save(changed)
-        reconfigure(new_cfg)
+        me.ui_settings.save(changed)
+        changed_settings(me, st.SCOPE[section])
         return RedirectResponse(f"/settings/{section}?saved=1", 303)
 
     @app.post("/settings/{section}/reset", dependencies=[Depends(require_csrf)])
     async def reset_section(request: Request, section: str):
         if section not in st.SECTIONS:
             raise HTTPException(404)
-        ui().reset([f.key for f in st.FIELDS if f.section == section])
-        reconfigure(st.apply(runner.base_cfg, ui().overlay()))
-        return RedirectResponse(f"/settings/{section}?saved=reset", 303)
+        me = state.me(request)
+        me.ui_settings.reset([f.key for f in st.FIELDS if f.section == section])
+        changed_settings(me, st.SCOPE[section])
+        return RedirectResponse(f"/settings/{'users' if section == 'users' else section}?saved=reset", 303)
 
     @app.post("/settings/situation/encrypt-local", dependencies=[Depends(require_csrf)])
     async def encrypt_local(request: Request):
         """Personal values from config.local.yaml (plain text) -> encrypted storage, and out of the file."""
-        keys = local_sensitive(runner.cfg)
-        data = runner.cfg.model_dump()
-        ui().save({k: st.get_path(data, k) for k in keys})
-        removed = st.move_out_of_local_file(local_config_path(runner.cfg.config_dir / "config.yaml"), keys)
+        me = state.me(request)
+        keys = local_sensitive(me)
+        if not keys:
+            return RedirectResponse("/settings/situation", 303)
+        data = me.cfg.model_dump()
+        me.ui_settings.save({k: st.get_path(data, k) for k in keys})
+        removed = st.move_out_of_local_file(local_config_path(runner.base_cfg.config_dir / "config.yaml"), keys)
         runner.base_cfg.value_sources = {k: v for k, v in runner.base_cfg.value_sources.items() if k not in removed}
-        reconfigure(st.apply(runner.base_cfg, ui().overlay()))
+        changed_settings(me, "user")
         log.info("Moved %d personal settings from config.local.yaml into encrypted storage", len(removed))
         return RedirectResponse("/settings/situation?saved=encrypted", 303)
 
 
 # ---------------------------------------------------------------------- key tests
-async def _anthropic(runner, transport):
+# (person, runner, transport, uid whose key: 0 = the install's) -> (ok, message)
+async def _anthropic(person, runner, transport, uid):
     from ..vault import secret
+    key = secret("ANTHROPIC_API_KEY") if uid == INSTALL else secret("ANTHROPIC_API_KEY", uid)
     async with httpx.AsyncClient(timeout=15, transport=transport) as client:
         r = await client.get("https://api.anthropic.com/v1/models", params={"limit": 1},
-                             headers={"x-api-key": secret("ANTHROPIC_API_KEY"), "anthropic-version": "2023-06-01"})
+                             headers={"x-api-key": key, "anthropic-version": "2023-06-01"})
     if r.status_code == 200:
         return True, "Anthropic accepted the key."
     return False, f"Anthropic answered {r.status_code}: {'the key was rejected' if r.status_code in (401, 403) else r.text[:200]}"
 
 
-async def _ntfy(runner, transport):
-    if runner.notifier.dry_run:
+async def _ntfy(person, runner, transport, uid):
+    if person.notifier.dry_run:
         return False, "No ntfy topic set (or this is a dry run)."
-    await runner.notifier.send("Job alerts test", "Sent from the Settings page. Notifications work.", priority=2,
+    await person.notifier.send("Job alerts test", "Sent from the Settings page. Notifications work.", priority=2,
                                tags=["white_check_mark"])
     return True, "Sent a test notification; check your phone."
 
 
-async def _mqtt(runner, transport):
+async def _mqtt(person, runner, transport, uid):
     if not runner.homeassistant:
         return False, "Home Assistant publishing is off or has no MQTT host (Connections)."
     total = await runner.publish_dashboard()
     return True, f"Published sensor.job_alerts ({total} matches)."
 
 
-async def _usajobs(runner, transport):
+async def _usajobs(person, runner, transport, uid):
     from ..vault import secret
     async with httpx.AsyncClient(timeout=15, transport=transport) as client:
         r = await client.get("https://data.usajobs.gov/api/search", params={"Keyword": "engineer", "ResultsPerPage": 1},

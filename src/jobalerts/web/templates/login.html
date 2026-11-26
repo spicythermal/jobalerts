@@ -6,9 +6,12 @@
 <form method="post" action="/login" class="card stack">
   <input type="hidden" name="csrf" value="{{ csrf }}">
   <input type="hidden" name="next" value="{{ next }}">
-  <label>Password <input type="password" name="password" autocomplete="current-password" required autofocus></label>
+  <label>Username <input name="username" autocomplete="username" autocapitalize="none" spellcheck="false" required
+    value="{{ username }}"{% if not username %} autofocus{% endif %}></label>
+  <label>Password <input type="password" name="password" autocomplete="current-password" required{% if username %} autofocus{% endif %}></label>
   {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
   <button type="submit">Log in</button>
 </form>
-<p class="muted">Forgot it? Run <code>jobalerts set-password</code> on the machine running jobalerts.</p>
+<p class="muted">Forgot it? An admin can reset it on Settings → Users. For the first admin, run
+<code>jobalerts set-password</code> on the machine running jobalerts.</p>
 {% endblock %}

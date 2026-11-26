@@ -145,7 +145,7 @@ def test_rescore_runs_in_the_background(env, monkeypatch):
         await asyncio.sleep(0)
         progress(1, 2)
         return [("j1",), ("j2",)], 0
-    monkeypatch.setattr(runner, "rescore", fake_rescore)
+    monkeypatch.setattr(runner.me, "rescore", fake_rescore)
     html = client.post("/stories/rescore", headers={"X-CSRF-Token": token}).text
     assert "Re-scoring" in html or "Re-scored 2 jobs" in html
     client.portal.call(asyncio.sleep, 0.05)

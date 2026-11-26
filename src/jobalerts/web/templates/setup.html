@@ -3,13 +3,23 @@
 {% block main_class %}narrow{% endblock %}
 {% block content %}
 <h1>Set up job alerts</h1>
-<p>Choose the password for this web UI.{% if not code %} Enter the setup code from the log
-(<code>docker compose logs jobalerts</code>, or the terminal where it runs).{% endif %}</p>
+<p>Make the admin account for this web UI. You can add other users afterwards (Settings → Users).{% if not code %}
+Enter the setup code from the log (<code>docker compose logs jobalerts</code>, or the terminal where it runs).{% endif %}</p>
 <form method="post" action="/setup" class="card stack">
   <input type="hidden" name="csrf" value="{{ csrf }}">
   <label>Setup code <input name="code" autocomplete="off" required{% if not code %} autofocus{% endif %} placeholder="ABCD-1234" value="{{ code }}"></label>
+  <label>Admin username <input name="username" autocomplete="username" autocapitalize="none" spellcheck="false" required
+    value="{{ username }}" pattern="[a-z0-9._\-]{2,32}"></label>
   <label>Password <input type="password" name="password" autocomplete="new-password" required minlength="10"{% if code %} autofocus{% endif %}></label>
   <label>Password again <input type="password" name="again" autocomplete="new-password" required minlength="10"></label>
+  <fieldset class="stack">
+    <legend>Other users and your Anthropic API key</legend>
+    <label class="check"><input type="radio" name="share" value="yes"{% if share == "yes" %} checked{% endif %}>
+      Share it: users without their own key are AI-scored with yours (within a daily limit). They may set their own.</label>
+    <label class="check"><input type="radio" name="share" value="no"{% if share != "yes" %} checked{% endif %}>
+      Keep it to admins: each user's AI scoring uses only their own key.</label>
+    <p class="help">Phone notifications are always each user's own. You can change this on Settings → Users.</p>
+  </fieldset>
   {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
   <button type="submit">Save and log in</button>
 </form>

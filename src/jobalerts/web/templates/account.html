@@ -1,12 +1,15 @@
 {% extends "settings_base.html" %}
 {% block settings %}
 <h2>Account</h2>
+<p class="muted">Logged in as <strong>{{ user.username }}</strong> ({{ user.role }}).</p>
+{% if must %}<p class="error" role="alert">Choose your own password to continue: the one you logged in with was
+set by an admin.</p>{% endif %}
 {% if saved == "password" %}<p class="ok" role="status">Password changed. Other devices are logged out.</p>{% endif %}
 {% if saved == "share" %}<p class="ok" role="status">The link below works now; any earlier link doesn't.</p>{% endif %}
 {% if saved == "share-off" %}<p class="ok" role="status">The Home Assistant map link is off.</p>{% endif %}
 <section class="card stack">
   <h3>Home Assistant map link</h3>
-  <p>A read-only link to the cost-of-living map, for a Home Assistant Webpage card, without logging in.
+  <p>A read-only link to your cost-of-living map, for a Home Assistant Webpage card, without logging in.
   Anyone who has the link sees:</p>
   <ul>
     <li>which metro is your home, and the pay index of every metro;</li>
