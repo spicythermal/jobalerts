@@ -48,6 +48,7 @@ trap 'rm -rf "$snap"' EXIT
 for p in config/profile.md config/companies.yaml stories resume_reference; do
   if [ -e "$p" ]; then mkdir -p "$snap/$(dirname "$p")" && cp -Rp "$p" "$snap/$p"; fi
 done
+git diff --binary HEAD > "$snap/local-edits.patch"   # edits to shipped files, put back if we roll back
 git show "$new:tools/migrate_user_data.sh" | sh
 # Every file of yours from the old locations must now be in data/, byte for byte.
 check_copy() {  # check_copy <old file> <new file>: fine if the old one doesn't exist
@@ -96,6 +97,9 @@ fi
 say "The new version didn't come up; going back to the old code"
 [ -n "$old_url" ] && git remote set-url origin "$old_url"
 git reset --hard --quiet "$old"
+if [ -s "$snap/local-edits.patch" ]; then
+  git apply "$snap/local-edits.patch" || echo "   Couldn't re-apply your edits to shipped files; they're in data/ and the backup." >&2
+fi
 $COMPOSE build && $COMPOSE up -d || true
 echo "   Running the old code again (commit $old). Your files are as they were, plus copies in data/."
 echo "   To undo completely: $COMPOSE down && cd .. && rm -rf '$folder' && tar -xzf '$backup'"
