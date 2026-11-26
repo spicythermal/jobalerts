@@ -1,0 +1,26 @@
+# systemd user service: start jobalerts when you log in (Linux desktop or laptop).
+#
+#   mkdir -p ~/.config/systemd/user
+#   cp contrib/jobalerts.service ~/.config/systemd/user/
+#   # edit WorkingDirectory and ExecStart below to match where you installed jobalerts
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now jobalerts
+#   journalctl --user -u jobalerts -f        # the log (the first-run setup code is printed here)
+#
+# To keep it running while you're logged out too: loginctl enable-linger $USER
+# When the computer sleeps, the service notices the gap on waking and catches up by itself.
+
+[Unit]
+Description=jobalerts: job board watcher and web UI
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/jobalerts
+ExecStart=%h/jobalerts/.venv/bin/jobalerts run
+Restart=on-failure
+RestartSec=30
+
+[Install]
+WantedBy=default.target

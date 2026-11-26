@@ -26,6 +26,7 @@ from .scheduler import Runner
 from .scorer import Scorer, ai_cost_usd
 from .sources import without_missing_keys
 from .store import Store, job_from_row
+from .runstate import InstanceLock
 from .userdata import seed_user_files
 from .settings import UiSettings, apply as apply_settings
 from .vault import Vault, install as install_vault, install_log_redaction, secret_key
@@ -153,8 +154,16 @@ def select_boards(cfg: Config, text: str | None):
 
 
 async def cmd_run(cfg: Config, args) -> int:
-    async with open_runner(cfg) as runner:
-        await runner.run_forever()
+    lock = InstanceLock(Path(cfg.database).resolve().parent / "jobalerts.lock")
+    if not lock.acquire():
+        print(f"jobalerts is already running on {cfg.database} (process {lock.holder()}). "
+              "One `run` per database; `jobalerts web` can run alongside it.")
+        return 1
+    try:
+        async with open_runner(cfg) as runner:
+            await runner.run_forever()
+    finally:
+        lock.release()
     return 0
 
 

@@ -87,6 +87,7 @@ class Runner:
         self._cap_noticed = store.get_meta(runstate.CAP_NOTICED) or ""  # UTC day of the last "AI daily cap reached" push
         self._collecting: list | None = None       # during a catch-up pass: (job, score) instead of pushes
         self._catching_up = False
+        self._board_locks: dict[str, asyncio.Lock] = {}
         self.pay: col.PayIndex | None = None
         self.pay_problem = ""  # shown in the digest until fixed
         self.load_pay()
@@ -109,6 +110,11 @@ class Runner:
 
     # ------------------------------------------------------------------ pipeline
     async def poll_board(self, board: Board) -> PollResult:
+        # One poll per board at a time: a catch-up after a wake runs while the board loops do.
+        async with self._board_locks.setdefault(board.key, asyncio.Lock()):
+            return await self._poll_board(board)
+
+    async def _poll_board(self, board: Board) -> PollResult:
         source = SOURCES[board.source]
         jobs = {j.key: j for j in await source.fetch(board, self.http)}
         known = self.store.known_keys(list(jobs))
@@ -136,7 +142,9 @@ class Runner:
                 result.matched.append(job)
             if status != "alert":
                 continue
-            if alerts_left > 0:
+            if self._collecting is not None:   # catching up: no per-board cap, one summary at the end
+                result.alerted += await self._notify(job, score)
+            elif alerts_left > 0:
                 alerts_left -= 1
                 result.alerted += await self._notify(job, score)
             else:
@@ -627,9 +635,10 @@ class Runner:
             raise SystemExit("No boards configured: add companies to companies.yaml or enable an aggregator.")
         note = ""
         if skipped:
-            note = " Not running (no API key in .env): " + ", ".join(sorted(skipped)) + "."
+            note = " Not running (no API key yet; Settings > API keys): " + ", ".join(sorted(skipped)) + "."
             for source, keys in sorted(skipped.items()):
-                log.info("%s is enabled but skipped until %s is set in .env", source, " and ".join(keys))
+                log.info("%s is enabled but skipped until %s %s set (.env or Settings > API keys)", source,
+                         " and ".join(keys), "are" if len(keys) > 1 else "is")
         if not self.prescreener and (n := self.store.drop_prescreen_queue()):
             log.info("AI pre-screen off: %d waiting jobs marked filtered", n)
         log.info("Watching %d boards", len(boards))
@@ -638,10 +647,7 @@ class Runner:
         last = runstate.last_heartbeat(self.store)
         runstate.beat(self.store)
         self.running = True
-        if last and (runstate.now() - last).total_seconds() > self.cfg.run.catchup_after:
-            await self.catch_up(last)
-        self.sync_boards()
-        tasks = [asyncio.create_task(self._supervise_boards(), name="boards"),
+        tasks = [asyncio.create_task(self._start_boards(last), name="boards"),
                  asyncio.create_task(self._daily_loop(), name="digest"),
                  asyncio.create_task(self._heartbeat_loop(), name="heartbeat")]
         if self.prescreener:
@@ -675,6 +681,22 @@ class Runner:
         for key, board in wanted.items():
             if key not in self.board_tasks:
                 self.board_tasks[key] = (board, asyncio.create_task(self._board_loop(board), name=key))
+
+    async def _start_boards(self, last_heartbeat: datetime | None) -> None:
+        """Catch up first if the service was off for a while, send a digest that came due meanwhile,
+        then run the board loops. (The web UI and the other loops run meanwhile.)"""
+        if last_heartbeat and (runstate.now() - last_heartbeat).total_seconds() > self.cfg.run.catchup_after:
+            try:
+                await self.catch_up(last_heartbeat)
+            except Exception:
+                log.exception("Catch-up failed; polling normally")
+        if self.digest_missed():
+            try:
+                await self.send_digest()
+            except Exception:
+                log.exception("Missed digest failed")
+        self.sync_boards()
+        await self._supervise_boards()
 
     async def _supervise_boards(self) -> None:
         """Waits on the board loops (they run until stopped); returns when none are left."""
@@ -739,6 +761,9 @@ class Runner:
         finally:
             self._collecting = None
             self._catching_up = False
+        for board, r in zip(boards, results):
+            if isinstance(r, Exception):
+                self.store.mark_board_failed(board.key, f"{type(r).__name__}: {r}")
         failed = sum(isinstance(r, Exception) for r in results)
         new = sum(len(r.matched) for r in results if not isinstance(r, Exception))
         cfg = self.cfg.scoring
@@ -832,11 +857,6 @@ class Runner:
     async def _daily_loop(self) -> None:
         tz = ZoneInfo(self.cfg.notify.timezone)
         hour, minute = (int(x) for x in self.cfg.notify.digest_time.split(":"))
-        if self.digest_missed():
-            try:
-                await self.send_digest()
-            except Exception:
-                log.exception("Missed digest failed")
         while True:
             now = datetime.now(tz)
             target = now.replace(hour=hour, minute=minute, second=0, microsecond=0)

@@ -298,10 +298,11 @@ def test_service_start_skips_aggregators_without_keys(env, monkeypatch):
         return None
     monkeypatch.setattr(runner, "_board_loop", fake_loop)
     monkeypatch.setattr(runner, "_daily_loop", no_digest)
+    monkeypatch.setattr(runner, "_heartbeat_loop", no_digest)
     run(runner.run_forever())
     assert started == ["greenhouse:acme"]
     (msg,) = notifier.sent
-    assert "Not running (no API key in .env): usajobs." in msg["message"]
+    assert "Not running (no API key yet; Settings > API keys): usajobs." in msg["message"]
 
 
 def test_backfill_scores_recent_baseline_matches_once(env):
