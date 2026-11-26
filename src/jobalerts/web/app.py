@@ -86,8 +86,6 @@ class WebState:
         if runner.ui_settings is None:
             from ..settings import UiSettings
             runner.ui_settings = UiSettings(runner.store, runner.vault)
-        if not self.store.get_meta(META_SHARE):
-            self.store.set_meta(META_SHARE, auth.new_token())
 
     def base_url(self) -> str:
         return self.cfg.web.public_url.rstrip("/")
@@ -238,12 +236,15 @@ def create_app(runner, key: bytes) -> FastAPI:
 
     @app.get("/map/embed")
     async def map_embed(request: Request, token: str = ""):
-        by_token = auth.tokens_match(token, state.share_token())
-        if not request.state.session.user and not by_token:
+        logged_in = bool(request.state.session.user)
+        # The share link is off until you turn it on (Settings > Account); with it, the map leaves
+        # out your figures. Without a login or the token: nothing, not even that the page exists.
+        by_token = not logged_in and auth.tokens_match(token, state.share_token())
+        if not logged_in and not by_token:
             raise HTTPException(404)
         if not (runner.pay and cfg.map.enabled):
             return PlainTextResponse("The cost-of-living map is off (pay.enabled / map.enabled).", 404)
-        html = await runner.current_map()
+        html = await runner.current_map(shared=by_token)
         if by_token:
             ancestors = " ".join(cfg.web.frame_origins) or "*"
         else:
@@ -257,17 +258,21 @@ def create_app(runner, key: bytes) -> FastAPI:
     async def settings_page(request: Request):
         return RedirectResponse("/settings/situation", 303)
 
+    def share_link(request: Request) -> str:
+        if not state.share_token():
+            return ""
+        base = state.base_url() or str(request.base_url).rstrip("/")
+        return f"{base}/map/embed?token={state.share_token()}"
+
     @app.get("/settings/account")
     async def account_page(request: Request, saved: str = ""):
-        base = state.base_url() or str(request.base_url).rstrip("/")
-        return page(request, "account.html", share_link=f"{base}/map/embed?token={state.share_token()}",
-                    saved=saved, error="", subnav=SUBNAV, section="account")
+        return page(request, "account.html", share_link=share_link(request), saved=saved, error="",
+                    subnav=SUBNAV, section="account")
 
     @app.post("/settings/account/password", dependencies=[Depends(require_csrf)])
     async def change_password(request: Request, current: str = Form(""), password: str = Form(""),
                               again: str = Form("")):
-        base = state.base_url() or str(request.base_url).rstrip("/")
-        link = f"{base}/map/embed?token={state.share_token()}"
+        link = share_link(request)
         if not auth.check_password(current, state.password_hash()):
             return page(request, "account.html", share_link=link, saved="", error="The current password is wrong.",
                         subnav=SUBNAV, section="account")
@@ -280,8 +285,14 @@ def create_app(runner, key: bytes) -> FastAPI:
 
     @app.post("/settings/account/share-token", dependencies=[Depends(require_csrf)])
     async def rotate_share_token(request: Request):
+        """Turn the Home Assistant map link on, or replace it (the old one stops working)."""
         state.store.set_meta(META_SHARE, auth.new_token())
         return RedirectResponse("/settings/account?saved=share", 303)
+
+    @app.post("/settings/account/share-off", dependencies=[Depends(require_csrf)])
+    async def share_off(request: Request):
+        state.store.delete_meta(META_SHARE)
+        return RedirectResponse("/settings/account?saved=share-off", 303)
 
     add_job_routes(app, state, page, require_csrf)
     add_board_routes(app, state, page, require_csrf)

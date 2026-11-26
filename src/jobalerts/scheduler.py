@@ -76,6 +76,7 @@ class Runner:
         self.homeassistant = homeassistant
         self._dashboard_stale = asyncio.Event()  # set after new matches so Home Assistant updates right away
         self.map_html: str | None = None    # the latest cost-of-living map page (web UI /map)
+        self.map_html_shared: str | None = None  # the same for the read-only Home Assistant link
         self.vault = None                   # API keys set on the Settings page (vault.Vault), set by cli.open_runner
         self.ui_settings = None             # settings.UiSettings, set by cli.open_runner / the web app
         self.base_cfg = cfg                 # config.yaml + config.local.yaml, before the UI's settings
@@ -556,7 +557,7 @@ class Runner:
             self.pay_problem = f"cost-of-living data in {path} unusable: {e}"
             log.warning("Pay index off: %s", self.pay_problem)
             return
-        log.info("Pay index: %s %s = 1.0 (%s); data built %s from %s", f"${cfg.reference_salary:,.0f}",
+        log.info("Pay index: your salary at %s = 1.0 (%s); data built %s from %s",
                  self.pay.home.label, f"take-home, {taxes.year} taxes" if taxes else "gross pay",
                  data.get("built"), path)
         if taxes and (problem := taxes.problem()):
@@ -903,23 +904,29 @@ class Runner:
         return bool(self.cfg.map.enabled and self.pay)
 
     async def refresh_map(self) -> str:
-        self.map_html = await self.map_page()
+        data = await self.map_data()
+        self.map_html = colmap.render(data)
+        self.map_html_shared = colmap.render(colmap.for_sharing(data))
         self._map_built = time.monotonic()
         return self.map_html
 
-    async def current_map(self) -> str:
-        """The map page for the web UI: the dashboard loop keeps it fresh in `run`; `jobalerts web`
-        (no loops) rebuilds it when it's older than homeassistant.interval."""
+    async def current_map(self, shared: bool = False) -> str:
+        """The map page for the web UI (`shared`: the version for the read-only Home Assistant link).
+        The dashboard loop keeps it fresh in `run`; `jobalerts web` (no loops) rebuilds it when it's
+        older than homeassistant.interval."""
         if self.map_html is None or time.monotonic() - self._map_built > self.cfg.homeassistant.interval:
             await self.refresh_map()
-        return self.map_html
+        return self.map_html_shared if shared else self.map_html
 
-    async def map_page(self) -> str:
-        """The cost-of-living map with the current top jobs (the price math runs off the event loop)."""
+    async def map_data(self) -> dict:
+        """The cost-of-living map's data with the current top jobs (the price math runs off the event loop)."""
         _, jobs = self.top_matches()
         _, step_ups = self.top_matches(by="step_up")
         pay = self.pay
-        return await asyncio.to_thread(lambda: colmap.render(colmap.build_map_data(pay, jobs, step_ups)))
+        return await asyncio.to_thread(colmap.build_map_data, pay, jobs, step_ups)
+
+    async def map_page(self) -> str:
+        return colmap.render(await self.map_data())
 
     async def publish_dashboard(self) -> int:
         total, jobs = self.top_matches()

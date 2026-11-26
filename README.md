@@ -140,7 +140,15 @@ jobalerts [-c CONFIG] [-v] {run,web,set-password,poll,discover,test-notify,diges
 `-c` defaults to `config/config.yaml` (or `$JOBALERTS_CONFIG`); `$JOBALERTS_DB` overrides the
 database path.
 
-## Upgrading an install from before 2026-11-24
+## Updating
+
+`git pull`, then `docker compose up -d --build` (or `pip install -e .` and restart). Your settings,
+keys, watch list, stories, resumes and database are all in `data/`, which updates never touch; the
+database is backed up before an upgrade changes it, and a setting a new version can't use is set
+aside on its own (the Settings page lists it) instead of stopping anything. Details and the few ways
+you could still lose something: [docs/upgrading.md](docs/upgrading.md).
+
+### Upgrading an install from before 2026-11-24
 
 Older versions kept the profile, watch list, stories and resumes in tracked files, and pulling
 the new version deletes them from the working tree. Move them into `data/` first:

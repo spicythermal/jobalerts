@@ -49,7 +49,9 @@ def add_settings_routes(app: FastAPI, state, page, require_csrf) -> None:
         return runner.ui_settings
 
     def context(section: str, **extra):
-        return dict(subnav=SUBNAV, section=section, **extra)
+        problems = runner.cfg.config_problems + [
+            f"{k}: saved on the Settings page by another version; not used by this one (kept)" for k in ui().unknown()]
+        return dict(subnav=SUBNAV, section=section, problems=problems, **extra)
 
     def field_rows(section: str, cfg, form: dict | None = None):
         data = cfg.model_dump()
@@ -196,7 +198,7 @@ def add_settings_routes(app: FastAPI, state, page, require_csrf) -> None:
             for key, value in changed.items():
                 overlay = st.deep_merge(overlay, st.nest(key, value))
             try:
-                new_cfg = st.apply(runner.base_cfg, overlay)
+                new_cfg = st.apply(runner.base_cfg, overlay, strict=True)
             except ValidationError as e:
                 errors.update({k: v for k, v in st.errors_by_field(e).items()} or {"": str(e)})
         if not errors and "pay.reference_location" in values and runner.pay \

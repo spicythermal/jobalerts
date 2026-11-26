@@ -164,6 +164,7 @@ const dollars = v => v == null ? "–" : "$" + Math.round(v).toLocaleString("en-
 const idx = v => v == null ? "–" : v.toFixed(2);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
 const REF = D.reference.salary;
+const REF_TEXT = D.reference.private ? "your current salary" : money(REF);   // the shared link doesn't spell it out
 
 const pick = (key, allowed, fallback) => {
   const v = params.get(key) || store.get(key);
@@ -302,7 +303,7 @@ function legendHtml() {
       })();
   const title = state.view === "index"
     ? `Pay index at ${money(D.salaries[state.si])}, ${housing}`
-    : `Salary to match ${money(REF)} at home, ${housing}`;
+    : `Salary to match ${REF_TEXT} at home, ${housing}`;
   const notes = ["much worse off", "", "", "about the same", "", "", "much better off"];
   let html = `<button type="button" class="head" aria-expanded="${!legendCollapsed}">${title}</button><div class="body">`;
   for (let i = BINS.length - 1; i >= 0; i--) {
@@ -350,8 +351,8 @@ function update() {
   if (state.jobs) jobLayer.addTo(map); else jobLayer.remove();
   drawLegend();
   document.getElementById("sub").textContent = state.view === "index"
-    ? `1.00 = as well off as ${money(REF)} staying in your home (take-home pay against local prices). Blue is better, red is worse.`
-    : `The salary that leaves you as well off as ${money(REF)} staying in your home. Blue needs less, red needs more.`;
+    ? `1.00 = as well off as ${REF_TEXT} staying in your home (take-home pay against local prices). Blue is better, red is worse.`
+    : `The salary that leaves you as well off as ${REF_TEXT} staying in your home. Blue needs less, red needs more.`;
   store.set("view", state.view); store.set("housing", state.housing);
   store.set("salary", D.salaries[state.si]); store.set("jobs", state.jobs ? "1" : "0");
   renderTable();
@@ -406,7 +407,7 @@ openBtn.addEventListener("click", renderTable);
 
 document.getElementById("about").innerHTML =
   `<p>The pay index compares take-home pay (after federal, state and local taxes) with local prices for your household, ` +
-  `against ${money(REF)} at home. Renting prices 40% of spending at the metro's HUD 4-bedroom rent; buying prices it at ` +
+  `against ${REF_TEXT} at home. Renting prices 40% of spending at the metro's HUD 4-bedroom rent; buying prices it at ` +
   `the monthly cost of owning a typical 4-bedroom home there. At home, both mean staying in your own house.</p>` +
   `<p>Dots show the metro as a whole. A job's own index (on its marker) also blends in its city's prices and taxes, ` +
   `so it can differ a little from its metro's dot. Selling and moving costs aren't included.</p>` +

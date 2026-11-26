@@ -251,6 +251,7 @@ class Place:
     buy_level: float | None = None  # price level for a family that buys a 4-bedroom home (US places only)
     buy_note: str = ""    # "own $1.87M 4-bed: $12.4K/mo, $374K down"
     metro: str = ""       # BEA metro name, for metro places
+    staying: bool = False  # your own home (pay.current_home): buy_note then holds your housing figures
 
 
 def _money(v: float) -> str:
@@ -285,8 +286,9 @@ class PayResult:
             return f"pay index {self.index:.2f}{f' ({s})' if s else ''}: {self.pay.text()} in {self.place.label}"
         ranges = ", ".join(f"{k} {v}" for k, v in (("rent", spread(self.low, self.high)),
                                                     ("buy", spread(self.buy_low, self.buy_high))) if v)
+        own = "staying in your home" if self.place.staying else self.place.buy_note  # never your mortgage figures
         return (f"pay index {self.index:.2f} rent · {self.buy_index:.2f} buy{f' ({ranges})' if ranges else ''}: "
-                f"{self.pay.text()} in {self.place.label}; {self.place.buy_note}")
+                f"{self.pay.text()} in {self.place.label}; {own}")
 
 
 def _parts(location: str) -> list[str]:
@@ -828,8 +830,9 @@ class PayIndex:
         rate = f" at {h.rate:g}%" if h.rate else ""
         note = (f"staying in your home{rate}: ${h.payment:,.0f} payment - ${h.principal:,.0f} principal + "
                 f"${h.upkeep:,.0f} upkeep + ${utilities:,.0f} utilities = {_money(monthly)}/mo")
-        return Place(f"{name} metro (RPP {self.metros[name]:.1f}; {note})", level, "USA", state, city,
-                     level if self.ownership else None, note, name)
+        # The label goes into alerts, the digest and Home Assistant: no figures of yours in it.
+        return Place(f"{name} metro (RPP {self.metros[name]:.1f}; staying in your home)", level, "USA", state, city,
+                     level if self.ownership else None, note, name, staying=True)
 
     def _state(self, st: str, city: str = "") -> Place | None:
         if st not in self.states:

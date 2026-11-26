@@ -134,12 +134,16 @@ def test_a_tampered_or_old_session_is_not_logged_in(app):
     assert other.get("/").status_code == 303
 
 
-def test_the_share_link_opens_the_map_and_nothing_else(app):
+def test_the_share_link_is_off_until_turned_on_and_opens_only_the_shared_map(app):
     client = set_up(app)
-    share = app.state.web.share_token()
     guest = TestClient(app, follow_redirects=False)
+    assert app.state.web.share_token() == "" and "The link is off" in client.get("/settings/account").text
+    assert guest.get("/map/embed?token=").status_code == 404 and guest.get("/map/embed?token=x").status_code == 404
+    client.post("/settings/account/share-token", data={"csrf": csrf_of(client, "/settings/account")})
+    share = app.state.web.share_token()
+    assert share and "/map/embed?token=" + share in client.get("/settings/account").text
     r = guest.get(f"/map/embed?token={share}")
-    assert r.status_code == 200 and "const D = {" in r.text
+    assert r.status_code == 200 and "const D = {" in r.text and '"private":true' in r.text
     assert "frame-ancestors *" in r.headers["content-security-policy"]
     assert r.headers["referrer-policy"] == "no-referrer"
     assert guest.get("/map/embed?token=nope").status_code == 404
@@ -147,7 +151,26 @@ def test_the_share_link_opens_the_map_and_nothing_else(app):
     assert guest.get(f"/settings/account?token={share}").status_code == 303
     client.post("/settings/account/share-token", data={"csrf": csrf_of(client, "/settings/account")})
     assert guest.get(f"/map/embed?token={share}").status_code == 404   # the old link stops working
-    assert "/map/embed?token=" + app.state.web.share_token() in client.get("/settings/account").text
+    client.post("/settings/account/share-off", data={"csrf": csrf_of(client, "/settings/account")})
+    assert guest.get(f"/map/embed?token={app.state.web.share_token()}").status_code == 404
+    assert "The link is off" in client.get("/settings/account").text
+
+
+def test_the_shared_map_and_pay_notes_carry_none_of_your_figures(app, runner):
+    import json as _json
+    from jobalerts import col, colmap
+    client = set_up(app)
+    private = client.get("/map/embed").text                      # logged in: the full map
+    assert "$3,400 payment" in private                             # the test household's mortgage
+    client.post("/settings/account/share-token", data={"csrf": csrf_of(client, "/settings/account")})
+    shared = TestClient(app).get(f"/map/embed?token={app.state.web.share_token()}").text
+    for figure in ("3,400", "$750", "4.5%", "Portland-Vancouver-Hillsboro, OR-WA metro (RPP"):
+        assert figure not in shared, figure
+    data = _json.loads(re.search(r"const D = (\{.*?\});\n", shared, re.S).group(1).replace("<\\/", "</"))
+    assert data["reference"]["private"] and data["reference"]["label"] == colmap._short(runner.pay.home.metro)
+    note = runner.pay.index(col.Pay(155_000, 155_000, "USD"), "Portland, OR").text()   # alerts, digest, HA
+    assert "staying in your home" in note and "3,400" not in note and "$750" not in note
+    assert "3,400" not in runner.pay.home.label
 
 
 def test_logged_in_map_page_and_its_script_hash(app, runner):

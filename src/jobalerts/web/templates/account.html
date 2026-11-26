@@ -2,16 +2,39 @@
 {% block settings %}
 <h2>Account</h2>
 {% if saved == "password" %}<p class="ok" role="status">Password changed. Other devices are logged out.</p>{% endif %}
-{% if saved == "share" %}<p class="ok" role="status">New share link made; the old one no longer works.</p>{% endif %}
+{% if saved == "share" %}<p class="ok" role="status">The link below works now; any earlier link doesn't.</p>{% endif %}
+{% if saved == "share-off" %}<p class="ok" role="status">The Home Assistant map link is off.</p>{% endif %}
 <section class="card stack">
   <h3>Home Assistant map link</h3>
-  <p>A read-only link to the cost-of-living map for a Home Assistant Webpage card. Anyone with the link can see
-  the map (pay indexes and your top jobs), nothing else.</p>
+  <p>A read-only link to the cost-of-living map, for a Home Assistant Webpage card, without logging in.
+  Anyone who has the link sees:</p>
+  <ul>
+    <li>which metro is your home, and the pay index of every metro;</li>
+    <li>the salary each metro needs to break even with staying home, which at your home metro is your current
+    salary;</li>
+    <li>your top jobs and step-ups, with their fit scores and pay indexes.</li>
+  </ul>
+  <p>It doesn't show your housing costs, mortgage, household, profile, stories, settings or keys, and it opens
+  nothing else. The link is a long random key: keep it in Home Assistant only, and make a new one if it leaks.</p>
+  {% if share_link %}
   <input class="mono" readonly value="{{ share_link }}" aria-label="Share link">
+  <div class="row start">
+    <form method="post" action="/settings/account/share-token">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <button type="submit" class="secondary">Make a new link</button>
+    </form>
+    <form method="post" action="/settings/account/share-off">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <button type="submit" class="link">Turn the link off</button>
+    </form>
+  </div>
+  {% else %}
+  <p class="muted">The link is off.</p>
   <form method="post" action="/settings/account/share-token">
     <input type="hidden" name="csrf" value="{{ csrf }}">
-    <button type="submit" class="secondary">Make a new link</button>
+    <button type="submit" class="secondary">Turn the link on</button>
   </form>
+  {% endif %}
 </section>
 <section class="card stack">
   <h3>Change password</h3>

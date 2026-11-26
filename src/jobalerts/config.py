@@ -5,6 +5,7 @@ resumes, watch list, config.local.yaml) live in the data folder; see userdata.py
 """
 from __future__ import annotations
 
+import logging
 import os
 import re
 from dataclasses import dataclass, field
@@ -17,6 +18,8 @@ from pydantic import BaseModel, Field, model_validator
 
 ATS = Literal["greenhouse", "lever", "ashby", "smartrecruiters", "workday", "ultipro",
               "personio", "workable", "bamboohr", "rippling", "breezy", "successfactors"]
+log = logging.getLogger(__name__)
+
 AGGREGATORS = ("usajobs", "adzuna", "jsearch", "theirstack")
 
 _ENV_REF = re.compile(r"\$\{(\w+)\}")
@@ -269,6 +272,7 @@ class Config(BaseModel):
     companies: list[Company] = []
     config_dir: Path = Path(".")
     value_sources: dict[str, str] = {}   # dotted setting name -> "local" (config.local.yaml) or "ui"
+    config_problems: list[str] = []      # your settings this version had to ignore (shown on the Settings page)
 
     def resolve(self, relative: str) -> Path:
         """A path relative to the config directory. `..` is resolved by name, so "../data/x" is the
@@ -337,20 +341,22 @@ def _read_yaml(path: Path) -> dict:
 
 
 def load_config(path: str | Path) -> Config:
-    from .userdata import EXAMPLES, deep_merge, leaf_keys, local_config_path, migrate_old_config
+    from .userdata import EXAMPLES, leaf_keys, local_config_path, migrate_old_config, validate_layered
     path = Path(path).resolve()
     load_dotenv(Path.cwd() / ".env")
     load_dotenv(path.parent.parent / ".env")
-    raw, sources = _read_yaml(path), {}
+    raw, over, sources = _read_yaml(path), {}, {}
     local = local_config_path(path)
     migrate_old_config(path, local)
     if local.is_file():
         over = _read_yaml(local)
-        raw = deep_merge(raw, over)
-        sources = {key: "local" for key in leaf_keys(over)}
-    cfg = Config.model_validate(raw)
+    cfg, problems, used = validate_layered(Config, raw, over, "config.local.yaml")
+    for problem in problems:
+        log.warning("Settings: %s", problem)
+    sources = {key: "local" for key in leaf_keys(used)}
     cfg.config_dir = path.parent
     cfg.value_sources = sources
+    cfg.config_problems = problems
     companies_path = cfg.resolve(cfg.companies_file)
     if not companies_path.is_file():  # not created yet (userdata.seed_user_files): the shipped example
         companies_path = EXAMPLES / "companies.yaml"

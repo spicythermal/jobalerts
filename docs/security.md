@@ -13,10 +13,13 @@ email, profile, stories, resumes). This page says what protects them and where t
 - Sessions are HMAC-signed, HttpOnly, SameSite=Lax cookies (30 days). Changing the password logs
   out every other session. Set `web.secure_cookies: true` when you serve it over HTTPS.
 - Every form and htmx request carries a CSRF token.
-- The **Home Assistant map link** (`/map/embed?token=…`) opens the cost-of-living map and nothing
-  else, read-only. Anyone with the link sees the map: pay indexes, break-even salaries (which
-  reveal roughly what you earn) and your top jobs. "Make a new link" on Settings → Account retires
-  the old one. `web.frame_origins` limits which sites may embed it.
+- The **Home Assistant map link** (`/map/embed?token=…`) is **off until you turn it on** on Settings
+  → Account. It's the one page reachable without a login, by a 256-bit random key in the link,
+  read-only, and opens nothing else. It shows which metro is your home, every metro's pay index,
+  the salary each needs to break even with staying home (at your home metro, your current salary),
+  and your top jobs. It leaves out your housing costs, mortgage, household and everything else.
+  "Make a new link" retires the old one; "Turn the link off" removes it. `web.frame_origins` limits
+  which sites may embed it.
 - Pages are sent with a strict Content-Security-Policy (scripts only from the app itself; the map
   page also loads Leaflet and the state outlines from public CDNs), `nosniff` and `no-store`. Text
   from job boards is escaped, and a posting link is only rendered if it's http(s).
@@ -49,9 +52,17 @@ proxy every request comes from the proxy's address, so the login backoff applies
   before the web UI), Settings → Your situation offers to move them into encrypted storage.
 - Your profile, stories and resumes are plain files in `data/` (the AI needs to read them, and you
   may edit them elsewhere). They're never committed: `data/` is gitignored.
+- Phone pushes (ntfy), the digest and the Home Assistant sensor carry job titles, fit scores and pay
+  notes. Pay notes never include your salary or housing figures: a job in your home metro says
+  "staying in your home". The full breakdown is only on a job's page (logged in) and in
+  `jobalerts pay` on the machine itself. (Notes stored before this rule are cleaned on upgrade.)
 - The AI scorer sends your profile, stories, resume openings, your stay-or-move preference and the
   place you live to Anthropic's API with each scoring call. Nothing else leaves the machine except
-  what you configure: ntfy pushes (job titles, scores, pay notes) and the Home Assistant sensor.
+  what you configure above.
+- Every page except `/login`, `/setup`, `/healthz`, the static files and the map link needs the
+  login; without it they redirect to the login page (or answer 401/404) and show nothing.
+  `tests/test_upgrades.py` saves personal values, then fetches every page as a stranger and
+  checks none of them appears.
 
 ## What the encryption does and doesn't do
 

@@ -2,12 +2,16 @@
 from __future__ import annotations
 
 import json
+import logging
+import re
 import sqlite3
 from collections import Counter
 from datetime import datetime, timedelta
 from pathlib import Path
 
 from .models import Job, normalize_company, parse_dt, utcnow
+
+log = logging.getLogger(__name__)
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS jobs (
@@ -106,15 +110,31 @@ def job_from_row(r: sqlite3.Row) -> Job:
                salary=r["salary"] or "", description=r["description"] or "")
 
 
+# Bumped when an upgrade changes stored data (column additions below don't need it). Before an
+# upgrade step runs, the database is copied to data/backups/ (the last KEEP_BACKUPS are kept).
+#   1: everything up to the web UI   2: stored pay notes without your housing figures
+SCHEMA_VERSION = 2
+KEEP_BACKUPS = 5
+_HOUSING_FIGURES = re.compile(r"staying in your home(?: at [\d.]+%)?: [^;)]*")
+
+
 class Store:
     def __init__(self, path: str | Path):
-        if str(path) != ":memory:":
-            Path(path).parent.mkdir(parents=True, exist_ok=True)
+        self.path = None if str(path) == ":memory:" else Path(path)
+        if self.path:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+        existed = bool(self.path and self.path.is_file() and self.path.stat().st_size)
         # autocommit; the web UI's handlers share the connection (same event loop in `run`; a worker
         # thread under the test client), never at the same time.
         self.db = sqlite3.connect(str(path), isolation_level=None, check_same_thread=False)
         self.db.row_factory = sqlite3.Row
         self.db.execute("PRAGMA journal_mode=WAL")
+        version = self.db.execute("PRAGMA user_version").fetchone()[0]
+        if version > SCHEMA_VERSION:
+            log.warning("This database was written by a newer jobalerts (schema %d, this one knows %d); "
+                        "nothing is changed, but some of it may not show", version, SCHEMA_VERSION)
+        elif existed and version < SCHEMA_VERSION:
+            self.backup(f"before-schema-{SCHEMA_VERSION}")
         self.db.executescript(SCHEMA)
         columns = {r["name"] for r in self.db.execute("PRAGMA table_info(jobs)")}
         if "best_resume" not in columns:  # databases created before resume matching
@@ -137,6 +157,30 @@ class Store:
         for col in ("cache_read_tokens", "cache_write_tokens"):  # databases created before the AI cost sensor
             if col not in usage_columns:
                 self.db.execute(f"ALTER TABLE ai_usage ADD COLUMN {col} INTEGER NOT NULL DEFAULT 0")
+        if version < 2:  # pay notes go to phone pushes and Home Assistant: no mortgage figures in them
+            for r in self.db.execute("SELECT key, pay_note FROM jobs WHERE pay_note LIKE '%staying in your home%'").fetchall():
+                self.db.execute("UPDATE jobs SET pay_note=? WHERE key=?",
+                                (_HOUSING_FIGURES.sub("staying in your home", r["pay_note"]), r["key"]))
+        if version < SCHEMA_VERSION:
+            self.db.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+
+    def backup(self, reason: str) -> Path | None:
+        """A consistent copy of the database in data/backups/ (SQLite's online backup); keeps the last
+        KEEP_BACKUPS. Done automatically before an upgrade changes stored data."""
+        if not self.path:
+            return None
+        folder = self.path.parent / "backups"
+        folder.mkdir(exist_ok=True)
+        target = folder / f"{self.path.stem}-{utcnow():%Y%m%d-%H%M%S-%f}-{reason}.db"
+        dest = sqlite3.connect(target)
+        try:
+            self.db.backup(dest)
+        finally:
+            dest.close()
+        for old in sorted(folder.glob(f"{self.path.stem}-*.db"))[:-KEEP_BACKUPS]:
+            old.unlink()
+        log.info("Database backed up to %s", target)
+        return target
 
     def close(self) -> None:
         self.db.close()

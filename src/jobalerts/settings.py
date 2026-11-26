@@ -18,7 +18,7 @@ import yaml
 from pydantic import ValidationError
 
 from .config import Config
-from .userdata import LOCAL_HEADER, deep_merge
+from .userdata import LOCAL_HEADER, RENAMED, deep_merge, validate_layered
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS settings (
@@ -211,8 +211,19 @@ class UiSettings:
     def __init__(self, store, vault):
         self.store, self.vault = store, vault
         store.db.executescript(SCHEMA)
+        for old, new in RENAMED.items():   # settings a later version renamed keep their saved value
+            if not store.db.execute("SELECT 1 FROM settings WHERE key=?", (new,)).fetchone():
+                store.db.execute("UPDATE settings SET key=? WHERE key=?", (new, old))
 
     def values(self) -> dict[str, object]:
+        """Saved values of settings this version knows (by their current names)."""
+        return {k: v for k, v in self.all_values().items() if k in BY_KEY}
+
+    def unknown(self) -> list[str]:
+        """Saved values of settings this version no longer has (kept, in case you go back)."""
+        return sorted(k for k in self.all_values() if k not in BY_KEY)
+
+    def all_values(self) -> dict[str, object]:
         out = {}
         for r in self.store.db.execute("SELECT key, value, encrypted FROM settings"):
             text = self.vault.decrypt(r["value"]) if r["encrypted"] else r["value"]
@@ -240,13 +251,19 @@ class UiSettings:
             self.store.db.execute("DELETE FROM settings WHERE key=?", (key,))
 
 
-def apply(base: Config, overlay: dict) -> Config:
-    """`base` (config.yaml + config.local.yaml) with the UI's settings on top. Raises ValidationError."""
-    data = base.model_dump(exclude={"companies", "config_dir", "value_sources"})
-    cfg = Config.model_validate(deep_merge(data, overlay))
+def apply(base: Config, overlay: dict, strict: bool = False) -> Config:
+    """`base` (config.yaml + config.local.yaml) with the UI's settings on top. A saved value this
+    version can't use is dropped and listed in cfg.config_problems instead of losing them all; with
+    `strict` (saving a form) an invalid value raises ValidationError so the form can say why."""
+    data = base.model_dump(exclude={"companies", "config_dir", "value_sources", "config_problems"})
+    if strict:
+        cfg, problems = Config.model_validate(deep_merge(data, overlay)), []
+    else:
+        cfg, problems, overlay = validate_layered(Config, data, overlay, "the Settings page")
     cfg.config_dir, cfg.companies = base.config_dir, base.companies
     ui_keys = {key for key in BY_KEY if get_path(overlay, key) is not None}
     cfg.value_sources = {**base.value_sources, **{k: "ui" for k in ui_keys}}
+    cfg.config_problems = base.config_problems + problems
     return cfg
 
 

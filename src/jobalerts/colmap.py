@@ -108,6 +108,19 @@ def build_map_data(pi: col.PayIndex, jobs: list[dict] | None = None, step_ups: l
     }
 
 
+def for_sharing(data: dict) -> dict:
+    """The map for the read-only Home Assistant link: without your home's label or housing figures,
+    and with "your current salary" instead of the amount in its text. (Break-even salaries still
+    show, and they imply roughly what you earn; the Account page says so.)"""
+    out = json.loads(json.dumps(data))
+    out["reference"] = {"salary": data["reference"]["salary"], "label": out["reference"]["metro"] or "your home",
+                        "metro": out["reference"]["metro"], "private": True}
+    for m in out["metros"]:
+        if m.get("home"):
+            m["own_note"] = "staying in your home"
+    return out
+
+
 def render(data: dict) -> str:
     """The page with its data inlined (one file: nothing to fetch but the map library and tiles)."""
     template = files("jobalerts").joinpath("map_template.html").read_text(encoding="utf-8")

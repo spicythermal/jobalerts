@@ -14,6 +14,7 @@ without the old file locations, plus the household the old taxes.yaml held).
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 import shutil
@@ -29,6 +30,90 @@ PATH_KEYS = {("companies_file",), ("database",), ("scoring", "profile_path"), ("
              ("scoring", "stories_dir"), ("pay", "col_data"), ("pay", "tax_rules"), ("pay", "tax_data")}
 LOCAL_HEADER = ("# Your settings: only what differs from config/config.yaml, merged on top of it.\n"
                 "# Not tracked by git. Secrets stay in .env or on the Settings page, never here.\n")
+
+
+# Settings that a later version moved to a new name: old dotted name -> new one. config.local.yaml and
+# the Settings page's saved values are carried over on load, so an update never loses them.
+RENAMED: dict[str, str] = {}
+
+
+def get_dotted(tree: dict, dotted: str):
+    node = tree
+    for part in dotted.split("."):
+        if not isinstance(node, dict) or part not in node:
+            return None
+        node = node[part]
+    return node
+
+
+def pop_dotted(tree: dict, dotted: str):
+    """Remove a value from a nested dict (and dicts it leaves empty); returns it, or None."""
+    parts = dotted.split(".")
+    nodes = [tree]
+    for part in parts[:-1]:
+        nxt = nodes[-1].get(part) if isinstance(nodes[-1], dict) else None
+        if not isinstance(nxt, dict):
+            return None
+        nodes.append(nxt)
+    value = nodes[-1].pop(parts[-1], None) if isinstance(nodes[-1], dict) else None
+    for node, part in zip(reversed(nodes[:-1]), reversed(parts[:-1])):
+        if isinstance(node.get(part), dict) and not node[part]:
+            del node[part]
+    return value
+
+
+def set_dotted(tree: dict, dotted: str, value) -> None:
+    parts = dotted.split(".")
+    for part in parts[:-1]:
+        tree = tree.setdefault(part, {})
+    tree[parts[-1]] = value
+
+
+def apply_renames(tree: dict) -> list[str]:
+    """Move values under renamed settings to their new names (a value already under the new name wins)."""
+    moved = []
+    for old, new in RENAMED.items():
+        value = pop_dotted(tree, old)
+        if value is not None:
+            if get_dotted(tree, new) is None:
+                set_dotted(tree, new, value)
+            moved.append(f"{old} → {new}")
+    return moved
+
+
+def validate_layered(model, base: dict, over: dict, where: str):
+    """`over` on top of `base`, validated as `model`. A value of yours that this version can't use
+    (renamed away, removed, or no longer valid) is dropped instead of stopping everything; the rest
+    stays. Returns (validated config, problems in plain words, the part of `over` that was used).
+    Errors in `base` still raise."""
+    from pydantic import ValidationError
+    over = json.loads(json.dumps(over))   # a copy; dropped keys mustn't touch the caller's tree
+    problems = [f"renamed in this version: {m}" for m in apply_renames(over)]
+    for _ in range(50):
+        try:
+            cfg = model.model_validate(deep_merge(base, over))
+            break
+        except ValidationError as e:
+            dropped = False
+            for err in e.errors():
+                loc = [str(x) for x in err["loc"]]
+                for n in range(len(loc), 0, -1):    # the longest part of the path that's yours
+                    dotted = ".".join(loc[:n])
+                    if get_dotted(over, dotted) is not None:
+                        pop_dotted(over, dotted)
+                        problems.append(f"{dotted} in {where} isn't valid in this version ({err['msg']}); ignored")
+                        dropped = True
+                        break
+            if not dropped:
+                raise
+    else:
+        raise ValueError(f"too many invalid settings in {where}")
+    used = leaf_keys(cfg.model_dump())
+    for key in sorted(leaf_keys(over)):
+        if key not in used and not any(key.startswith(u + ".") for u in used):
+            problems.append(f"{key} in {where} isn't used by this version; ignored")
+            pop_dotted(over, key)
+    return cfg, problems, over
 
 
 def local_config_path(config_path: Path) -> Path:

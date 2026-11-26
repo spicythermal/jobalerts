@@ -116,9 +116,11 @@ async def open_runner(cfg: Config, *, dry_run: bool = False, memory_store: bool 
     base_cfg, ui = cfg, (UiSettings(key_store, vault) if vault else None)
     if ui:
         try:
-            cfg = apply_settings(base_cfg, ui.overlay())
+            cfg = apply_settings(base_cfg, ui.overlay())   # a value this version can't use is dropped, not all
         except ValidationError as e:
             log.warning("Settings saved on the web UI don't fit this version's config; using the files only: %s", e)
+        for problem in cfg.config_problems[len(base_cfg.config_problems):]:
+            log.warning("Settings: %s", problem)
     http = HttpClient(cfg.contact_email, cfg.polling.host_min_interval)
     notifier = Notifier(cfg.notify, dry_run=dry_run)
     homeassistant = None if dry_run else make_homeassistant(cfg)

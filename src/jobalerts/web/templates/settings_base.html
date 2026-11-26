@@ -2,6 +2,13 @@
 {% block title %}Settings · Job alerts{% endblock %}
 {% block content %}
 <h1>Settings</h1>
+{% if problems %}
+<div class="card notice" role="status">
+  <p><strong>Some of your settings don't apply to this version</strong> (after an update). Everything else of
+  yours is in use. Check these and set them again where needed:</p>
+  <ul>{% for p in problems %}<li class="small">{{ p }}</li>{% endfor %}</ul>
+</div>
+{% endif %}
 <div class="settings">
   <nav class="subnav" aria-label="Settings sections">
     {% for key, label in subnav %}
