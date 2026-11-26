@@ -772,8 +772,11 @@ class Runner:
         if self.cfg.update.mode == "install" and status.can_install:
             await self.install_update()
         elif self.store.get_meta("update.notified") != status.latest:
-            changes = "\n".join(f"• {c.split(' ', 1)[-1]}" for c in status.commits[:5])
-            more = f"\n…and {status.behind - 5} more" if status.behind > 5 else ""
+            if status.commits:
+                changes = "\n".join(f"• {c.split(' ', 1)[-1]}" for c in status.commits[:5])
+                more = f"\n…and {status.behind - 5} more" if status.behind > 5 else ""
+            else:   # the desktop app: a release and its notes
+                changes, more = "\n".join(f"• {n}" for n in status.notes[:5]) or f"Version {status.latest}", ""
             how = (f"Can't install it on its own: {status.problem}" if status.problem
                    else "Install it on Settings → Updates (or `jobalerts update`).")
             home = self.cfg.web.public_url.rstrip("/")

@@ -85,6 +85,13 @@ The Stop hook keeps Claude working while any `- [ ]` remains. Add `BLOCKED: <rea
 - [x] First-look prompt neutral (no built-in field): framing per mode, the user's field words and `prescreen.guidance` → verify: tests
 - [x] Docs + commit + push Phase 27
 
+## Phase 28 – Windows and Mac installers (user request 2026-11-26; unsigned)
+- [x] `desktop.py` launcher: app folder per OS, shipped config copied on start, web UI on 127.0.0.1, browser opens with the setup code filled in, tray/menu-bar icon (Open, Start at login, Quit), second start opens the browser, start at login on first run, `--background`, `--self-test` → verify: tests/test_desktop.py; self-test and launch of a PyInstaller build on Linux
+- [x] Updates for the desktop app from GitHub Releases: daily check, release notes on Settings → Updates, download checked against SHA256SUMS.txt, silent Windows installer / Mac app swap, restart → verify: tests (mocked downloads)
+- [x] `packaging/` (PyInstaller spec, Inno Setup script), `.github/workflows/release.yml` (build, self-test, installer/dmg, release) → verify: Linux build; Windows and Mac only in Actions
+- [~] First release built and tried on a real Windows PC and Mac (needs user: public repository, a tag, a test install)
+- [x] docs/install.md, docs/releasing.md, README
+
 ## User-gated
 - [~] Full TheirStack key in `.env` → live call (needs user: full key)
 - [~] Adzuna plan decision (needs user)
@@ -93,3 +100,4 @@ The Stop hook keeps Claude working while any `- [ ]` remains. Add `BLOCKED: <rea
 ## Progress log
 <!-- Append one line per completed task: date – task – how verified. Never write personal data here. -->
 2026-11-26 – Phase 27 Filter page + AI-only mode – 325 tests, ruff, screenshots desktop and phone
+2026-11-26 – Phase 28 desktop installers – 331 tests; Linux PyInstaller build passes --self-test and a launch; Windows/Mac builds untested until the first Actions run

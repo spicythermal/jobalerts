@@ -16,7 +16,7 @@ from fastapi import Depends, FastAPI, Form, HTTPException, Request, UploadFile
 from fastapi.responses import RedirectResponse
 from pydantic import ValidationError
 
-from .. import settings as st
+from .. import settings as st, updater
 from ..resumes import load_resumes
 from ..userdata import local_config_path
 from ..vault import SECRETS, _redactor, install as install_vault
@@ -138,7 +138,7 @@ def add_settings_routes(app: FastAPI, state, page, require_csrf) -> None:
     def updates_page(request: Request, saved: str, message: str = ""):
         return page(request, "settings_updates.html", **context(
             "updates", status=runner.update_status(), rows=field_rows("updates", runner.cfg), errors={}, saved=saved,
-            message=message, running=runner.running))
+            message=message, running=runner.running, packaged=updater.is_packaged()))
 
     @app.post("/settings/updates/check", dependencies=[Depends(require_csrf)])
     async def check_now(request: Request):

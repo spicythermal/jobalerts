@@ -1,0 +1,107 @@
+name: Release
+# Builds the desktop app for Windows and Mac, starts each build once (--self-test), and publishes them
+# on a GitHub release when a version tag is pushed:  git tag v1.2.3 && git push origin v1.2.3
+# A tag with a suffix (v1.2.3-rc1) makes a pre-release, which the app's update check ignores.
+# Run by hand (Actions → Release → Run workflow) to build and test without releasing.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            asset: windows-setup.exe
+          - os: macos-latest          # Apple silicon
+            asset: mac-arm64.dmg
+          - os: macos-15-intel        # Intel Macs; a failure here doesn't stop the release
+            asset: mac-intel.dmg
+            optional: true
+    runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.optional == true }}
+    env:
+      JOBALERTS_SELFTEST_REPORT: ${{ github.workspace }}/selftest.txt
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Version from the tag
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then v="${GITHUB_REF_NAME#v}"; else v="0.0.0-dev.${GITHUB_RUN_NUMBER}"; fi
+          echo "VERSION=$v" >> "$GITHUB_ENV"
+          python - "$v" <<'PY'
+          import re, sys, pathlib
+          p = pathlib.Path("src/jobalerts/__init__.py")
+          p.write_text(re.sub(r'__version__ = ".*"', f'__version__ = "{sys.argv[1]}"', p.read_text()))
+          PY
+      - name: Build
+        run: |
+          python -m pip install --upgrade pip
+          pip install ".[desktop]" "pyinstaller>=6.10"
+          pyinstaller --noconfirm --clean packaging/jobalerts.spec
+      - name: Self-test (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath dist\jobalerts\jobalerts.exe -ArgumentList "--self-test" -Wait -PassThru
+          Get-Content selftest.txt -ErrorAction SilentlyContinue
+          if ($p.ExitCode -ne 0) { exit 1 }
+      - name: Self-test (Mac)
+        if: runner.os == 'macOS'
+        run: |
+          dist/jobalerts.app/Contents/MacOS/jobalerts --self-test || { cat selftest.txt; exit 1; }
+          cat selftest.txt
+      - name: Installer (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          if (-not (Get-Command iscc -ErrorAction SilentlyContinue)) { choco install innosetup -y --no-progress }
+          $iscc = (Get-Command iscc -ErrorAction SilentlyContinue).Source
+          if (-not $iscc) { $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" }
+          & $iscc "/DAppVersion=$env:VERSION" packaging\jobalerts.iss
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          Move-Item "dist\jobalerts-$env:VERSION-windows-setup.exe" "jobalerts-$env:VERSION-${{ matrix.asset }}" -Force
+      - name: Disk image (Mac)
+        if: runner.os == 'macOS'
+        run: |
+          mkdir dmg && cp -R dist/jobalerts.app dmg/ && ln -s /Applications dmg/Applications
+          for i in 1 2 3; do   # hdiutil sometimes fails with "Resource busy" on build machines
+            hdiutil create -volname jobalerts -srcfolder dmg -ov -format UDZO "jobalerts-$VERSION-${{ matrix.asset }}" && break
+            sleep 10
+          done
+          test -f "jobalerts-$VERSION-${{ matrix.asset }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: jobalerts-*-${{ matrix.asset }}
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: assets
+          merge-multiple: true
+      - name: Checksums
+        run: cd assets && sha256sum jobalerts-* > SHA256SUMS.txt && cat SHA256SUMS.txt
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: assets/*
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          generate_release_notes: true
+          body: |
+            Install: [Windows and Mac guide](https://github.com/spicythermal/jobalerts/blob/main/docs/install.md).
+            Windows: `jobalerts-…-windows-setup.exe`. Mac: `jobalerts-…-mac-arm64.dmg` (Apple silicon) or `-mac-intel.dmg`.

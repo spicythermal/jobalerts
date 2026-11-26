@@ -8,7 +8,10 @@
   <p>This copy: <span class="mono">{{ status.current or "unknown" }}</span>{% if status.current_date %} ({{ status.current_date }}){% endif %}
     {% if status.upstream %}· updates from <span class="mono">{{ status.upstream }}</span>{% endif %}
     <span class="muted small">· checked {{ status.checked_at[:16]|replace("T", " ") }} UTC</span></p>
-  {% if status.available %}
+  {% if status.available and packaged %}
+  <h3>Version {{ status.latest }} is available</h3>
+  {% if status.notes %}<ul class="small">{% for n in status.notes %}<li>{{ n }}</li>{% endfor %}</ul>{% endif %}
+  {% elif status.available %}
   <h3>{{ status.behind }} new change{{ "s" if status.behind != 1 }} (to <span class="mono">{{ status.latest }}</span>)</h3>
   <ul class="plain small">{% for c in status.commits %}<li><span class="mono">{{ c[:7] }}</span> {{ c[8:] }}</li>{% endfor %}</ul>
   {% else %}
@@ -22,13 +25,18 @@
     <form method="post" action="/settings/updates/check"><input type="hidden" name="csrf" value="{{ csrf }}">
       <button type="submit" class="secondary">Check now</button></form>
     {% if status and status.can_install %}
-    <form method="post" action="/settings/updates/install" hx-confirm="Install {{ status.behind }} change(s) and restart?">
+    <form method="post" action="/settings/updates/install" hx-confirm="{% if packaged %}Install version {{ status.latest }} and restart?{% else %}Install {{ status.behind }} change(s) and restart?{% endif %}">
       <input type="hidden" name="csrf" value="{{ csrf }}"><button type="submit">Update now</button></form>
     {% endif %}
   </div>
-  <p class="help">An update fast-forwards to the newest version, backs up the database first (data/backups/), and goes
-  back by itself if the new version fails its start-up check. Everything of yours is in data/ and isn't touched.
-  A Docker install is updated from the host: <code>tools/update-docker.sh</code>.</p>
+  {% if packaged %}
+  <p class="help">Update now backs up the database, downloads the installer for this computer from GitHub, checks it
+  against the release's checksums, installs it and restarts jobalerts. Your data isn't changed.</p>
+  {% else %}
+  <p class="help">Update now backs up the database (data/backups/), fast-forwards to the newest version, and returns
+  to the previous version if the new one fails its start-up check. data/ isn't changed. Docker installs update from
+  the host: <code>tools/update-docker.sh</code>.</p>
+  {% endif %}
 </section>
 <form method="post" action="/settings/updates" class="card stack">
   <input type="hidden" name="csrf" value="{{ csrf }}">

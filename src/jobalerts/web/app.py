@@ -75,7 +75,8 @@ class WebState:
         self.setup_code = ""
         if not self.password_hash():
             raw = secrets.token_hex(4).upper()
-            self.setup_code = f"{raw[:4]}-{raw[4:]}"
+            # the desktop app makes the code itself and opens the setup page with it filled in
+            self.setup_code = self.cfg.web.setup_code.upper() or f"{raw[:4]}-{raw[4:]}"
             log.warning("Web UI has no admin password yet. Open %s/setup and enter the setup code %s",
                         self.base_url() or f"http://<this machine>:{self.cfg.web.port}", self.setup_code)
         self.test_transport = None  # tests swap in an httpx mock transport for the key Test buttons
@@ -207,10 +208,10 @@ def create_app(runner, key: bytes) -> FastAPI:
         return RedirectResponse("/login", 303)
 
     @app.get("/setup")
-    async def setup_page(request: Request):
+    async def setup_page(request: Request, code: str = ""):
         if state.password_hash():
             return RedirectResponse("/login", 303)
-        return page(request, "setup.html", error="")
+        return page(request, "setup.html", error="", code=code[:20])
 
     @app.post("/setup", dependencies=[Depends(require_csrf)])
     async def setup(request: Request, code: str = Form(""), password: str = Form(""), again: str = Form("")):

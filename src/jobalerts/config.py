@@ -189,6 +189,7 @@ class WebConfig(BaseModel):
                                          # (empty = any; the link is read-only and needs its token)
     session_days: int = 30               # stay logged in this long
     secure_cookies: bool = False         # true when you reach it over HTTPS (e.g. behind a reverse proxy)
+    setup_code: str = ""                 # set by the desktop app (JOBALERTS_SETUP_CODE), which fills it in for you
 
 
 class AggregatorConfig(BaseModel):
@@ -378,6 +379,11 @@ def load_config(path: str | Path) -> Config:
     cfg.companies = [Company.model_validate(c) for c in _read_yaml(companies_path).get("companies") or []]
     if os.environ.get("JOBALERTS_DB"):
         cfg.database = os.environ["JOBALERTS_DB"]
+    if os.environ.get("JOBALERTS_WEB_BIND"):     # the desktop app: this computer only
+        cfg.web.bind = os.environ["JOBALERTS_WEB_BIND"]
+    if os.environ.get("JOBALERTS_WEB_PORT"):
+        cfg.web.port = int(os.environ["JOBALERTS_WEB_PORT"])
+    cfg.web.setup_code = os.environ.get("JOBALERTS_SETUP_CODE", "")
     if not cfg.contact_email:
         cfg.contact_email = os.environ.get("CONTACT_EMAIL", "")
     return cfg

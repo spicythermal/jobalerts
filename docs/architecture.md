@@ -50,7 +50,8 @@ boards (ATS feeds, aggregator searches)
 | `dashboard.py` | Top matches and AI cost; MQTT publisher for Home Assistant |
 | `notify.py` | ntfy pushes |
 | `discover.py` | Find a company's ATS board |
-| `updater.py` | Repository check, install, rollback |
+| `updater.py` | Updates: from the git repository (checkout), or from GitHub Releases (desktop app) |
+| `desktop.py` | The desktop app's launcher: app folder, local-only web UI, browser, tray icon, start at login |
 
 ## Files
 
@@ -81,6 +82,12 @@ boards (ATS feeds, aggregator searches)
 
 Config layers, lowest first: `config/config.yaml` → `data/config.local.yaml` → the `settings`
 table. `Config.value_sources` records which layer each value came from.
+
+## Desktop app
+
+`packaging/`: PyInstaller spec and launcher, Inno Setup script. `.github/workflows/release.yml` builds,
+self-tests and publishes them on version tags ([releasing.md](releasing.md)). The app copies the shipped
+`config/` into its folder on each start and keeps `data/` beside it, so the same relative paths work.
 
 ## Conventions
 

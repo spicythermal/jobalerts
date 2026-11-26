@@ -190,6 +190,8 @@ def restart_into_new_version() -> None:
     log.info("Restarting into the updated version")
     for handler in logging.getLogger().handlers:
         handler.flush()
+    if getattr(sys, "frozen", False):   # the desktop app: its installer or update script starts the new one
+        return
     if os.name == "nt":
         raise SystemExit(75)
     os.execv(sys.executable, [sys.executable, "-m", "jobalerts", *sys.argv[1:]])
