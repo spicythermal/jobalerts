@@ -1,13 +1,13 @@
-"""The desktop app: what the Windows installer and the Mac app start.
+"""The desktop app: what the Windows installer starts.
 
 It runs the same service as `jobalerts run`, set up for one person on their own computer:
 
-- data in the user's app folder (Windows: %LOCALAPPDATA%\\jobalerts, Mac: ~/Library/Application
-  Support/jobalerts, Linux: ~/.local/share/jobalerts; JOBALERTS_HOME overrides), with the shipped
+- data in the user's app folder (Windows: %LOCALAPPDATA%\\jobalerts, elsewhere
+  ~/.local/share/jobalerts; JOBALERTS_HOME overrides), with the shipped
   config/ copied next to it on every start;
 - the web UI on this computer only (127.0.0.1:8765);
 - the browser opens on start, at the setup page with the setup code filled in the first time;
-- a tray (Windows) or menu-bar (Mac) icon: Open, Start at login, Quit;
+- a tray icon: Open, Start at login, Quit;
 - starting it again while it runs only opens the browser;
 - start at login (on by default the first time; the icon's menu turns it off).
 
@@ -43,8 +43,6 @@ def app_home() -> Path:
         return Path(os.environ["JOBALERTS_HOME"])
     if sys.platform == "win32":
         return Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local") / "jobalerts"
-    if sys.platform == "darwin":
-        return Path.home() / "Library" / "Application Support" / "jobalerts"
     return Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local" / "share") / "jobalerts"
 
 
@@ -148,16 +146,6 @@ class Service:
 
 # ---------------------------------------------------------------- start at login
 
-def _app_path() -> Path | None:
-    """The Mac .app bundle this runs from, if any."""
-    exe = Path(sys.executable).resolve()
-    return next((p for p in exe.parents if p.suffix == ".app"), None)
-
-
-def _launch_agent() -> Path:
-    return Path.home() / "Library" / "LaunchAgents" / f"{APP_ID}.plist"
-
-
 def autostart_enabled() -> bool:
     if sys.platform == "win32":
         import winreg
@@ -167,8 +155,6 @@ def autostart_enabled() -> bool:
                 return True
         except OSError:
             return False
-    if sys.platform == "darwin":
-        return _launch_agent().is_file()
     return False
 
 
@@ -188,22 +174,6 @@ def set_autostart(on: bool) -> bool:
                 except OSError:
                     pass
         return True
-    if sys.platform == "darwin":
-        app, plist = _app_path(), _launch_agent()
-        if on and app:
-            plist.parent.mkdir(parents=True, exist_ok=True)
-            plist.write_text(f"""<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict>
-  <key>Label</key><string>{APP_ID}</string>
-  <key>ProgramArguments</key><array><string>/usr/bin/open</string><string>-a</string><string>{app}</string>
-    <string>--args</string><string>--background</string></array>
-  <key>RunAtLoad</key><true/>
-</dict></plist>
-""")
-        elif not on:
-            plist.unlink(missing_ok=True)
-        return bool(app) or not on
     return False
 
 
@@ -221,7 +191,7 @@ def first_run_autostart(home: Path) -> None:
         marker.write_text(json.dumps(state))
 
 
-# ---------------------------------------------------------------- the tray / menu-bar icon
+# ---------------------------------------------------------------- the tray icon
 
 def _icon_image():
     from PIL import Image, ImageDraw
@@ -328,7 +298,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="jobalerts-desktop")
     parser.add_argument("--background", action="store_true", help="don't open the browser (start at login)")
     parser.add_argument("--self-test", action="store_true", help="start in a temporary folder, check, exit")
-    args, _ = parser.parse_known_args(argv)     # macOS may add its own arguments
+    args, _ = parser.parse_known_args(argv)
     if args.self_test:
         return self_test()
 

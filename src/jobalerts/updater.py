@@ -2,7 +2,7 @@
 
 For an install that is a git checkout (a desktop, or a server without Docker). Docker installs are
 updated from the host by tools/update-docker.sh: the container holds neither the repository nor a
-way to rebuild itself. The desktop app (Windows installer, Mac app) updates from GitHub Releases
+way to rebuild itself. The desktop app (Windows installer) updates from GitHub Releases
 instead: check_release() and install_release() below.
 
 An update only ever fast-forwards to the branch's upstream (e.g. origin/main). It refuses when you
@@ -17,7 +17,6 @@ import hashlib
 import json
 import logging
 import os
-import platform
 import re
 import subprocess
 import sys
@@ -198,14 +197,9 @@ def is_packaged() -> bool:
     return bool(getattr(sys, "frozen", False))
 
 
-def asset_suffix(system: str | None = None, machine: str | None = None) -> str:
-    """The end of the release file name of the installer for this computer."""
-    system = system or sys.platform
-    if system == "win32":
-        return "-windows-setup.exe"
-    if system == "darwin":
-        return "-mac-arm64.dmg" if (machine or platform.machine()) == "arm64" else "-mac-intel.dmg"
-    return ""
+def asset_suffix(system: str | None = None) -> str:
+    """The end of the release file name of the installer for this computer ("" = none: Windows only)."""
+    return "-windows-setup.exe" if (system or sys.platform) == "win32" else ""
 
 
 def version_key(version: str) -> tuple[int, ...]:
@@ -283,24 +277,10 @@ def verify(path: Path, sums: str) -> bool:
     return False
 
 
-MAC_SWAP = """#!/bin/sh
-# Replace the running jobalerts.app with the downloaded one, then start it (written by jobalerts' updater).
-while kill -0 "$1" 2>/dev/null; do sleep 1; done
-app="$2"; dmg="$3"; mnt=$(mktemp -d)
-hdiutil attach -nobrowse -readonly -mountpoint "$mnt" "$dmg" >/dev/null || { open "$app"; exit 1; }
-if [ -d "$mnt/jobalerts.app" ]; then
-  rm -rf "$app.old" && mv "$app" "$app.old" && ditto "$mnt/jobalerts.app" "$app" && rm -rf "$app.old" \
-    || { rm -rf "$app"; mv "$app.old" "$app"; }
-fi
-hdiutil detach "$mnt" >/dev/null
-open "$app"
-"""
-
-
 def install_release(store=None, status: UpdateStatus | None = None) -> tuple[bool, str]:
     """Download this computer's installer from the newest release, check SHA256SUMS.txt's signature
-    and the installer's hash in it, and start it; the app then exits (cli.restart_into_new_version) and the installer starts the new one.
-    Windows: the setup program, silently. Mac: a script swaps jobalerts.app once this process ends."""
+    and the installer's hash in it, and start the setup program (silently, after an admin clicked Update
+    now); the app then exits (cli.restart_into_new_version) and the installer starts the new one."""
     status = status or check_release()
     if not status.can_install:
         return False, status.problem or "already up to date"
@@ -325,14 +305,6 @@ def install_release(store=None, status: UpdateStatus | None = None) -> tuple[boo
         flags = getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
         subprocess.Popen([str(target), "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CLOSEAPPLICATIONS",
                           "/FORCECLOSEAPPLICATIONS"], creationflags=flags, close_fds=True)
-    elif sys.platform == "darwin":
-        app = Path(sys.executable).resolve().parents[2]      # …/jobalerts.app/Contents/MacOS/jobalerts
-        if app.suffix != ".app":
-            return False, f"not running from jobalerts.app ({app}); install the new version by hand"
-        script = folder / "swap.sh"
-        script.write_text(MAC_SWAP)
-        subprocess.Popen(["/bin/sh", str(script), str(os.getpid()), str(app), str(target)], start_new_session=True,
-                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     else:
         return False, "updates for this system aren't supported; download the new version by hand"
     log.info("Installing version %s from %s", status.latest, target.name)

@@ -34,7 +34,7 @@ GPL-3.0. Personal data (your settings, profile, stories, resumes, watch list) st
 
 ## Quick start
 
-**Windows or Mac app:** download the installer from the
+**Windows app:** download the installer from the
 [latest release](https://github.com/spicythermal/jobalerts/releases/latest). Steps:
 [docs/install.md](docs/install.md).
 
@@ -151,7 +151,7 @@ database path.
 
 ## Updating
 
-- Windows or Mac app: Settings → Updates.
+- Windows app: Settings → Updates.
 - Python install: checks the repository daily and tells you; Settings → Updates or
   `jobalerts update` installs.
 - Docker: `tools/update-docker.sh` on the host; `contrib/jobalerts-update.timer` runs it daily.

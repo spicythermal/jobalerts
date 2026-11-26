@@ -1,5 +1,5 @@
 # PyInstaller build of the desktop app: `pyinstaller packaging/jobalerts.spec` from the repository root.
-# Output: dist/jobalerts/ (Windows, Linux) or dist/jobalerts.app (Mac). See docs/releasing.md.
+# Output: dist/jobalerts/ (Windows; Linux for testing). See docs/releasing.md.
 import sys
 from pathlib import Path
 
@@ -21,13 +21,7 @@ a = Analysis(
     excludes=["tkinter", "pytest", "ruff", "IPython", "matplotlib", "numpy"],
 )
 pyz = PYZ(a.pure)
+icon = root / "packaging" / "jobalerts.ico"
 exe = EXE(pyz, a.scripts, [], exclude_binaries=True, name="jobalerts", console=False,
-          icon=str(root / "packaging" / ("jobalerts.ico" if sys.platform == "win32" else "jobalerts.icns"))
-          if (root / "packaging" / ("jobalerts.ico" if sys.platform == "win32" else "jobalerts.icns")).is_file() else None)
+          icon=str(icon) if sys.platform == "win32" and icon.is_file() else None)
 coll = COLLECT(exe, a.binaries, a.datas, name="jobalerts")
-if sys.platform == "darwin":
-    app = BUNDLE(coll, name="jobalerts.app", bundle_identifier="io.github.spicythermal.jobalerts",
-                 version=version["__version__"],
-                 info_plist={"LSUIElement": True,               # menu-bar icon only, no Dock icon
-                             "CFBundleShortVersionString": version["__version__"],
-                             "NSHighResolutionCapable": True})

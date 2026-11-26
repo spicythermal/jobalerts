@@ -18,7 +18,6 @@ RELEASE = {
     "body": "## What's changed\n- Filter page\n- Faster polls\n\n**Full Changelog**: https://example.invalid/compare",
     "assets": [
         {"name": "jobalerts-1.4.0-windows-setup.exe", "browser_download_url": "https://dl.invalid/v1.4.0/jobalerts-1.4.0-windows-setup.exe"},
-        {"name": "jobalerts-1.4.0-mac-arm64.dmg", "browser_download_url": "https://dl.invalid/v1.4.0/jobalerts-1.4.0-mac-arm64.dmg"},
         {"name": "SHA256SUMS.txt", "browser_download_url": "https://dl.invalid/v1.4.0/SHA256SUMS.txt"},
         {"name": "SHA256SUMS.txt.sig", "browser_download_url": "https://dl.invalid/v1.4.0/SHA256SUMS.txt.sig"},
     ],
@@ -40,9 +39,7 @@ def test_versions_and_assets():
     assert updater.version_key("v1.10.0") > updater.version_key("1.9.3")
     assert updater.version_key("v2.0.0-rc1") == (2, 0, 0)
     assert updater.asset_suffix("win32") == "-windows-setup.exe"
-    assert updater.asset_suffix("darwin", "arm64") == "-mac-arm64.dmg"
-    assert updater.asset_suffix("darwin", "x86_64") == "-mac-intel.dmg"
-    assert updater.asset_suffix("linux") == ""
+    assert updater.asset_suffix("darwin") == "" and updater.asset_suffix("linux") == ""   # the app is Windows only
 
 
 def test_reading_a_release():
@@ -52,9 +49,9 @@ def test_reading_a_release():
     assert s.notes[:2] == ["Filter page", "Faster polls"]
     s = updater.read_release(RELEASE, "1.4.0", "-windows-setup.exe")
     assert not s.available
-    s = updater.read_release(RELEASE, "1.3.2", "-mac-intel.dmg")      # no Intel build in this release
+    s = updater.read_release(RELEASE, "1.3.2", updater.asset_suffix("darwin"))
     assert s.available and not s.can_install and "no installer" in s.problem
-    s = updater.read_release({**RELEASE, "assets": RELEASE["assets"][:3]}, "1.3.2", "-windows-setup.exe")
+    s = updater.read_release({**RELEASE, "assets": RELEASE["assets"][:2]}, "1.3.2", "-windows-setup.exe")
     assert s.available and not s.can_install and "isn't signed" in s.problem
     s = updater.check_release(get=lambda *a, **k: (_ for _ in ()).throw(OSError("offline")))
     assert "couldn't check" in s.problem and not s.available
@@ -99,7 +96,7 @@ def test_install_release_checks_the_download(tmp_path, monkeypatch):
     assert ok and "1.4.0" in message and backups == ["before-update"], message
     assert started[0][0].endswith("jobalerts-1.4.0-windows-setup.exe") and "/VERYSILENT" in started[0]
 
-    no_sums = updater.read_release({**RELEASE, "assets": RELEASE["assets"][:2]}, "1.3.2", "-windows-setup.exe")
+    no_sums = updater.read_release({**RELEASE, "assets": RELEASE["assets"][:1]}, "1.3.2", "-windows-setup.exe")
     ok, message = updater.install_release(status=no_sums)
     assert not ok and "isn't signed" in message
     unsigned = updater.UpdateStatus(**{**status.__dict__, "signature": ""})

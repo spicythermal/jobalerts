@@ -1,5 +1,5 @@
 name: Release
-# Builds the desktop app for Windows and Mac, starts each build once (--self-test), and puts them on a
+# Builds the Windows desktop app, starts the build once (--self-test), and puts the installer on a
 # draft GitHub release when a version tag is pushed:  git tag v1.2.3 && git push origin v1.2.3
 # The maintainer signs SHA256SUMS.txt and publishes the draft; the app installs only releases signed
 # with its release key. Actions are pinned to commits.
@@ -20,13 +20,7 @@ jobs:
         include:
           - os: windows-latest
             asset: windows-setup.exe
-          - os: macos-latest          # Apple silicon
-            asset: mac-arm64.dmg
-          - os: macos-15-intel        # Intel Macs; a failure here doesn't stop the release
-            asset: mac-intel.dmg
-            optional: true
     runs-on: ${{ matrix.os }}
-    continue-on-error: ${{ matrix.optional == true }}
     env:
       JOBALERTS_SELFTEST_REPORT: ${{ github.workspace }}/selftest.txt
     steps:
@@ -56,11 +50,6 @@ jobs:
           $p = Start-Process -FilePath dist\jobalerts\jobalerts.exe -ArgumentList "--self-test" -Wait -PassThru
           Get-Content selftest.txt -ErrorAction SilentlyContinue
           if ($p.ExitCode -ne 0) { exit 1 }
-      - name: Self-test (Mac)
-        if: runner.os == 'macOS'
-        run: |
-          dist/jobalerts.app/Contents/MacOS/jobalerts --self-test || { cat selftest.txt; exit 1; }
-          cat selftest.txt
       - name: Installer (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -71,15 +60,6 @@ jobs:
           & $iscc "/DAppVersion=$env:VERSION" packaging\jobalerts.iss
           if ($LASTEXITCODE -ne 0) { exit 1 }
           Move-Item "dist\jobalerts-$env:VERSION-windows-setup.exe" "jobalerts-$env:VERSION-${{ matrix.asset }}" -Force
-      - name: Disk image (Mac)
-        if: runner.os == 'macOS'
-        run: |
-          mkdir dmg && cp -R dist/jobalerts.app dmg/ && ln -s /Applications dmg/Applications
-          for i in 1 2 3; do   # hdiutil sometimes fails with "Resource busy" on build machines
-            hdiutil create -volname jobalerts -srcfolder dmg -ov -format UDZO "jobalerts-$VERSION-${{ matrix.asset }}" && break
-            sleep 10
-          done
-          test -f "jobalerts-$VERSION-${{ matrix.asset }}"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         with:
           name: ${{ matrix.asset }}
@@ -106,5 +86,5 @@ jobs:
           prerelease: ${{ contains(github.ref_name, '-') }}
           generate_release_notes: true
           body: |
-            Install: [Windows and Mac guide](https://github.com/spicythermal/jobalerts/blob/main/docs/install.md).
-            Windows: `jobalerts-…-windows-setup.exe`. Mac: `jobalerts-…-mac-arm64.dmg` (Apple silicon) or `-mac-intel.dmg`.
+            Install: [Windows guide](https://github.com/spicythermal/jobalerts/blob/main/docs/install.md).
+            Windows: `jobalerts-…-windows-setup.exe`. Other systems: run it with Python or Docker (README).
