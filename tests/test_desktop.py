@@ -37,7 +37,9 @@ def release_keypair():
 
 def test_versions_and_assets():
     assert updater.version_key("v1.10.0") > updater.version_key("1.9.3")
-    assert updater.version_key("v2.0.0-rc1") == (2, 0, 0)
+    assert updater.version_key("v2.0.0-rc1") < updater.version_key("2.0.0-rc2") < updater.version_key("v2.0.0")
+    assert updater.version_key("2.0.0-rc9") > updater.version_key("1.9.9")
+    assert updater.version_key("v1.2") == updater.version_key("1.2.0")
     assert updater.asset_suffix("win32") == "-windows-setup.exe"
     assert updater.asset_suffix("darwin") == "" and updater.asset_suffix("linux") == ""   # the app is Windows only
 
@@ -49,6 +51,8 @@ def test_reading_a_release():
     assert s.notes[:2] == ["Filter page", "Faster polls"]
     s = updater.read_release(RELEASE, "1.4.0", "-windows-setup.exe")
     assert not s.available
+    s = updater.read_release(RELEASE, "1.4.0-rc2", "-windows-setup.exe")   # a tester's rc is offered the release
+    assert s.available and s.can_install
     s = updater.read_release(RELEASE, "1.3.2", updater.asset_suffix("darwin"))
     assert s.available and not s.can_install and "no installer" in s.problem
     s = updater.read_release({**RELEASE, "assets": RELEASE["assets"][:2]}, "1.3.2", "-windows-setup.exe")

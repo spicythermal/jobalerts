@@ -113,3 +113,4 @@ The Stop hook keeps Claude working while any `- [ ]` remains. Add `BLOCKED: <rea
 2026-11-26 – Security fixes: ntfy server is the install's (admins), logout ends the session server-side, map links http(s) only, key-test errors to the log, no automatic update installs – 356 tests, ruff, privacy guard
 2026-11-26 – Signed releases: tools/sign_release.py, updater requires SHA256SUMS.txt.sig from RELEASE_KEY, release workflow makes drafts, actions pinned to commits – 357 tests, ruff, privacy guard
 2026-11-26 – Mac desktop app removed (no way to test it): Windows-only installer, updater and launcher Mac code gone, docs say Mac and Linux run with Python or Docker – 357 tests, ruff, Linux PyInstaller build passes --self-test
+2026-11-26 – Pre-release versions sort before their release (1.2.3-rc2 < 1.2.3), so rc testers are offered the release – 357 tests, ruff

@@ -16,7 +16,7 @@ The maintainer then signs `SHA256SUMS.txt` with the release key (`tools/sign_rel
 `SHA256SUMS.txt.sig` and publishes the release. Installed apps don't see a draft.
 
 A tag with a suffix (`v1.2.3-rc1`) makes a pre-release; installed apps don't offer pre-releases as
-updates. Actions → Release → Run workflow builds and tests without releasing (the files are on the
+updates. An app on `1.2.3-rc1` is offered `1.2.3`. Actions → Release → Run workflow builds and tests without releasing (the files are on the
 run's page).
 
 Installed apps check `releases/latest` daily and tell an admin about a newer version. On

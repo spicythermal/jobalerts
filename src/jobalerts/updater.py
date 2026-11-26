@@ -203,8 +203,15 @@ def asset_suffix(system: str | None = None) -> str:
 
 
 def version_key(version: str) -> tuple[int, ...]:
-    """'v1.2.3' -> (1, 2, 3); a suffix such as '-rc1' is ignored."""
-    return tuple(int(n) for n in re.findall(r"\d+", version.lstrip("vV").split("-")[0])[:3])
+    """Sortable: 'v1.2.3' -> (1, 2, 3, 1, 0); a pre-release comes before its release:
+    '1.2.3-rc2' -> (1, 2, 3, 0, 2), so an app on 1.2.3-rc2 is offered 1.2.3."""
+    base, _, suffix = version.strip().lstrip("vV").partition("-")
+    numbers = [int(n) for n in re.findall(r"\d+", base)[:3]]
+    numbers += [0] * (3 - len(numbers))
+    if not suffix:
+        return (*numbers, 1, 0)
+    step = re.search(r"\d+", suffix)
+    return (*numbers, 0, int(step.group()) if step else 0)
 
 
 def read_release(release: dict, current: str, suffix: str) -> UpdateStatus:
