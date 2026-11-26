@@ -515,7 +515,7 @@ async def cmd_top(cfg: Config, args) -> int:
     async with open_runner(cfg, memory_store=False) as runner:
         days = args.days or cfg.homeassistant.days
         total, jobs = runner.top_matches(args.n, days)
-        print(f"{total} matches posted in the last {days} days" + (f"; best fits:" if jobs else "."))
+        print(f"{total} matches posted in the last {days} days" + ("; best fits:" if jobs else "."))
         _print_top(jobs)
         _, step_ups = runner.top_matches(args.n, days, by="step_up")
         if step_ups:

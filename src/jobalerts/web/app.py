@@ -16,7 +16,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -48,6 +48,11 @@ _INLINE_SCRIPT = re.compile(r"<script>(.*?)</script>", re.S)
 def script_hashes(html: str) -> str:
     return " ".join("'sha256-" + base64.b64encode(hashlib.sha256(s.encode()).digest()).decode() + "'"
                     for s in _INLINE_SCRIPT.findall(html))
+
+
+def web_url(url: str | None) -> str:
+    """A link from a job board, only if it's http(s): never `javascript:` or `data:` from a posting."""
+    return url if isinstance(url, str) and url.lower().startswith(("https://", "http://")) else "#"
 
 
 def safe_next(target: str | None) -> str:
@@ -108,6 +113,7 @@ def create_app(runner, key: bytes) -> FastAPI:
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
     app.state.web = state
     templates = Jinja2Templates(directory=str(HERE / "templates"))
+    templates.env.filters["web_url"] = web_url
     app.mount("/static", StaticFiles(directory=str(HERE / "static")), name="static")
 
     def read_session(request: Request) -> auth.Session:

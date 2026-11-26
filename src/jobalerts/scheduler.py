@@ -703,7 +703,7 @@ class Runner:
         while self.board_tasks:
             tasks = {task for _, task in self.board_tasks.values()}
             done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
-            for key, (board, task) in list(self.board_tasks.items()):
+            for key, (_board, task) in list(self.board_tasks.items()):
                 if task in done:
                     del self.board_tasks[key]
                     if not task.cancelled() and task.exception():
@@ -776,7 +776,7 @@ class Runner:
         home = self.cfg.web.public_url.rstrip("/")
         summary = (f"{new} new match{'es' if new != 1 else ''} since {since.astimezone(ZoneInfo(self.cfg.notify.timezone)):%a %H:%M}"
                    f" ({len(collected)} strong)")
-        for job, score in ranked[len(top):]:
+        for job, _score in ranked[len(top):]:
             self.store.update_job(job.key, status="digest", reason="catch-up: in the report")
         report = {"at": runstate.now().isoformat(timespec="seconds"), "since": since.isoformat(timespec="seconds"),
                   "gap": runstate.human(gap), "summary": summary + (f"; {failed} boards failed" if failed else ""),

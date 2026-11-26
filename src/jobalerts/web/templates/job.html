@@ -7,7 +7,7 @@
   {% if status_text.get(job.status) %}· {{ status_text[job.status] }}{% endif %}</p>
 <div class="row start">
   {% set where = "page" %}{% include "job_actions.html" %}
-  <a class="button" href="{{ job.url }}" rel="noopener noreferrer" target="_blank">Open posting ↗</a>
+  <a class="button" href="{{ job.url|web_url }}" rel="noopener noreferrer" target="_blank">Open posting ↗</a>
 </div>
 <section class="card stack">
   <h2>Fit</h2>

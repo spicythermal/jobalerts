@@ -140,5 +140,10 @@ def test_job_text_is_escaped(env):
     job = make_job(7, title='<script>alert("x")</script> Physicist', company="<img src=x onerror=alert(1)>")
     runner.store.insert_job(job, "alerted")
     runner.store.update_job(job.key, status="alerted", score=90, score_summary="<b>bold</b>")
+    evil = make_job(8, title="Link Physicist")
+    evil.url = "javascript:alert(document.cookie)"
+    runner.store.insert_job(evil, "alerted")
+    runner.store.update_job(evil.key, status="alerted", score=91)
     html = client.get("/").text
     assert "<script>alert" not in html and "&lt;script&gt;" in html and "<img src=x" not in html
+    assert "javascript:" not in html            # a posting's link is only ever http(s)

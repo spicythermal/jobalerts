@@ -25,7 +25,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8"]
+dev = ["pytest>=8", "ruff>=0.6"]
 taxes = ["policyengine-us==2.88.9"]   # only to rebuild config/tax_data/ (tools/build_tax_data.py; Python <= 3.14)
 
 [project.scripts]
@@ -40,3 +40,14 @@ jobalerts = ["map_template.html", "examples/*", "examples/stories/*", "web/templ
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["F", "B"]          # pyflakes (undefined names, unused imports) and likely bugs
+ignore = ["B905", "B008"]    # zip(strict=) and FastAPI's Form()/Depends() defaults are intended
+
+[tool.ruff.lint.per-file-ignores]
+"tests/test_catchup.py" = ["F811"]   # reuses test_pipeline's `env` fixture by importing it

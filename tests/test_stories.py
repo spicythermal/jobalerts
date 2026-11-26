@@ -7,7 +7,7 @@ from jobalerts.scorer import Scorer
 from jobalerts.stories import load_stories
 from jobalerts.store import Store, stories_from_row
 
-from conftest import REPO, run
+from conftest import run
 from test_scorer import FakeMessages, JOB, response
 
 STORY = """---

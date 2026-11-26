@@ -17,11 +17,9 @@ import base64
 import hashlib
 import hmac
 import json
-import os
 import secrets
 import time
 from dataclasses import dataclass, field
-from pathlib import Path
 
 from ..vault import load_or_create_key  # noqa: F401 (re-exported for the web app)
 

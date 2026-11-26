@@ -1,5 +1,4 @@
 """AI pre-screen: the Claude calls (fake client) and the pipeline around them (fake pre-screener)."""
-import json
 from types import SimpleNamespace
 
 import pytest

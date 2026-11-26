@@ -17,6 +17,6 @@
   {% if job.stories %}<p class="muted small">Stories: {{ job.stories|join("; ") }}</p>{% endif %}
   <div class="row">
     {% set where = "list" %}{% include "job_actions.html" %}
-    <a href="{{ job.url }}" rel="noopener noreferrer" target="_blank">Open posting ↗</a>
+    <a href="{{ job.url|web_url }}" rel="noopener noreferrer" target="_blank">Open posting ↗</a>
   </div>
 </li>
