@@ -75,3 +75,5 @@ Back up `data/` now and then (it holds everything of yours, including `secret.ke
 - **Losing `data/secret.key`:** saved keys and personal settings can't be read any more; set them again.
 - **Installs from before 2026-11-24** kept your files in the repository. Run
   `tools/migrate_user_data.sh` once before pulling (see the README).
+- **Installs cloned from the earlier repository** (before the move to GitHub) can't pull the new
+  history. Use `tools/switch-to-public.sh` once (see the README); it backs everything up first.

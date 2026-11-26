@@ -168,6 +168,19 @@ The script never overwrites anything in `data/`. On the next start your old `con
 `data/config.local.yaml` (only the values you had changed) and your old household moves with it.
 The Map card in Home Assistant needs the new share link from Settings → Account.
 
+### Moving an install from the project's earlier repository
+
+Installs cloned before jobalerts moved to GitHub have a different history, so `git pull` and the
+updater refuse to switch. One script does the move on a Docker install, keeping all your files:
+
+```sh
+git fetch https://github.com/spicythermal/jobalerts.git main && git show FETCH_HEAD:tools/switch-to-public.sh | sh
+```
+
+It backs up the whole folder next to it first, copies your files into `data/` and checks each one,
+switches the code, rebuilds, and waits for the new version to pass `jobalerts check`. If that fails
+it goes back to the old code, with your edits, and prints how to restore the backup.
+
 ## Limitations
 
 - Companies on iCIMS, Taleo, Eightfold or in-house career sites have no clean public feed; the
