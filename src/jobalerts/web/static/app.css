@@ -27,6 +27,8 @@ h2 { font-size: 1.1rem; margin: 0; }
 fieldset { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin: 0; }
 legend { font-weight: 600; padding: 0 4px; }
 details.small summary { cursor: pointer; color: var(--muted); }
+.table-wrap.spaced { margin-bottom: 16px; }
+@media (max-width: 600px) { table.boards .wide-only { display: none; } }
 .page { max-width: 1100px; margin: 0 auto; padding: 20px 16px 40px; }
 .narrow { max-width: 420px; margin: 0 auto; padding: 48px 16px; }
 .full { padding: 0; }
@@ -57,7 +59,8 @@ button.link { background: none; border: none; color: var(--muted); padding: 6px;
 }
 h3 { font-size: 1rem; margin: 0; }
 .small { font-size: 0.85rem; }
-.settings { display: grid; grid-template-columns: 200px 1fr; gap: 24px; align-items: start; }
+.settings { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 24px; align-items: start; }
+.settings-body { min-width: 0; }
 .subnav { display: flex; flex-direction: column; gap: 2px; position: sticky; top: 12px; }
 .subnav a { padding: 7px 10px; border-radius: 6px; text-decoration: none; color: var(--muted); }
 .subnav a[aria-current="page"] { background: var(--badge); color: var(--ink); font-weight: 600; }
@@ -76,7 +79,7 @@ label.check input { width: auto; }
 .badge.unset { background: var(--line); color: var(--muted); }
 ul.plain { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 6px; }
 @media (max-width: 760px) {
-  .settings { grid-template-columns: 1fr; }
+  .settings { grid-template-columns: minmax(0, 1fr); }
   .subnav { flex-direction: row; overflow-x: auto; position: static; }
   .subnav a { white-space: nowrap; }
 }

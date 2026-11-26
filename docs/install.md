@@ -26,8 +26,9 @@ Steps 3–4 are needed only the first time.
 
 ## First start
 
-Your browser opens jobalerts with the setup code filled in. Choose a password and click **Save and log
-in**. Then follow [Setup](../README.md#setup) in the README.
+Your browser opens jobalerts with the setup code filled in. Keep the username `admin` or choose
+another, choose a password, and choose whether other users may use your Anthropic API key. Click
+**Save and log in**. Then follow [Setup](../README.md#setup) in the README.
 
 jobalerts runs in the background and starts when you log in. Its icon is in the taskbar's notification
 area (Windows) or the menu bar (Mac):
@@ -38,6 +39,16 @@ area (Windows) or the menu bar (Mac):
 
 The address is `http://127.0.0.1:8765`; it works only on this computer. Phone pushes still work
 (Settings → API keys → ntfy); they link to the employer's posting.
+
+## Other users
+
+Settings → Users → **Add a user** makes an account and shows a one-time password to give them. Each
+user has their own jobs, filter, stories, profile, resumes and settings.
+
+To let them use it from other computers on your network: Settings → Connections → "Desktop app:
+other computers on this network can open it", then Quit and start jobalerts again. Settings → Users
+shows the address to open. Windows asks once whether to allow jobalerts through the firewall: allow
+it on private networks.
 
 ## Updates
 

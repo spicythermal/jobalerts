@@ -6,10 +6,11 @@ Updates replace the program and `config/`. They don't change `data/`.
 
 | Data | Location | On update |
 |---|---|---|
-| Settings page values | `data/jobalerts.db` (`settings`; personal values encrypted) | Kept. Only changed values are stored, so new defaults apply to the rest. |
-| API keys | `data/jobalerts.db` (`secrets`); key in `data/secret.key` | Kept. |
+| Settings page values | `data/jobalerts.db` (`settings_by_user`; personal values encrypted) | Kept. Only changed values are stored, so new defaults apply to the rest. |
+| API keys | `data/jobalerts.db` (`secrets_by_user`); key in `data/secret.key` | Kept. |
+| Accounts | `data/jobalerts.db` (`users`) | Kept. |
 | File overrides | `data/config.local.yaml` | Kept; merged over the new `config/config.yaml`. |
-| Watch list, profile, stories, resumes | `data/companies.yaml`, `data/profile.md`, `data/stories/`, `data/resumes/` | Kept. Examples are copied only when a file is missing. |
+| Watch list, profile, stories, resumes | `data/companies.yaml`, `data/profile.md`, `data/stories/`, `data/resumes/`; other users' in `data/users/<id>/` | Kept. Examples are copied only when a file is missing. |
 | Jobs, scores, job states, board health | `data/jobalerts.db` | Kept. |
 
 Git ignores `data/`. Docker mounts `data/` from the host and `config/` read-only.
@@ -27,6 +28,13 @@ Before changing stored data, an update copies the database to
 `data/backups/jobalerts-<time>-before-schema-<n>.db` (last five kept). To go back: stop jobalerts, copy
 the backup over `data/jobalerts.db`, start the older version. A database from a newer version is
 opened unchanged, with a warning.
+
+### Accounts (schema 3)
+
+The update that added accounts turns the single password into the account `admin` (the first admin):
+log in with username `admin` and your old password. Everyone is logged out once. Your jobs, scores,
+saved jobs, settings and keys become that account's. The old tables are left as they were, so the
+previous version still runs on the database if you go back (without what changed since).
 
 ## Python install (git checkout)
 

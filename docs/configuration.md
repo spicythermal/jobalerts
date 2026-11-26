@@ -7,6 +7,11 @@ each overriding the one before:
 2. `data/config.local.yaml`: your overrides (only what differs).
 3. The Settings page: stored in the database; personal values encrypted.
 
+With several users: Your situation, the Filter page, Scoring and alerts, profile, stories, resumes and
+the ntfy topic and token are each user's own. Connections, Updates, Users, the watch list and the
+other keys are the install's; admins change them. `data/config.local.yaml` and `.env` are the first
+admin's: other users start from `config/config.yaml` for their own sections.
+
 | File | Contents |
 |---|---|
 | `.env` | Optional keys: `NTFY_TOPIC`, `ANTHROPIC_API_KEY`, `MQTT_PASSWORD`, aggregator keys. Or set them on Settings → API keys. |
@@ -14,6 +19,7 @@ each overriding the one before:
 | `data/stories/` | Work stories, one project per file. Format: `src/jobalerts/examples/stories/README.md`. |
 | `data/resumes/` | Resumes: PDF, `.md` or `.txt`. |
 | `data/profile.md` | Target roles, priorities, deal-breakers. |
+| `data/users/<id>/` | Another user's `profile.md`, `stories/` and `resumes/` (the first admin's are in `data/`). |
 
 ## Word lists (`criteria`)
 

@@ -16,9 +16,9 @@ are polled once for everyone.</p>
 </div>
 {% endif %}
 
-<div class="table-wrap">
+<div class="table-wrap spaced">
 <table class="boards">
-  <thead><tr><th>User</th><th>Role</th><th>Last login</th><th></th></tr></thead>
+  <thead><tr><th>User</th><th>Role</th><th class="wide-only">Last login</th><th></th></tr></thead>
   <tbody>
   {% for u in users %}
   <tr class="{{ 'state-disabled' if u.disabled }}">
@@ -35,7 +35,7 @@ are polled once for everyone.</p>
       </form>
       {% endif %}
     </td>
-    <td class="small">{{ (u.last_login_at or "never")[:16].replace("T", " ") }}</td>
+    <td class="small wide-only">{{ (u.last_login_at or "never")[:16].replace("T", " ") }}</td>
     <td>
       <div class="row-actions">
         <form method="post" action="/settings/users/{{ u.id }}/reset" hx-confirm="Give {{ u.username }} a new one-time password? Their current one stops working.">

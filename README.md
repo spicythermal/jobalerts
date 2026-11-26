@@ -22,8 +22,10 @@ poll board ─► new jobs? ─► keyword filter ─► pay index ─► Claude
   profile, a step-up score for credible promotions, and the three stories that fit it best.
 - **Priced:** a pay index compares take-home pay against local prices (rent or buy) with what you
   have now, for your household. Stay, open to moving, or anywhere: you choose how moves count.
-- **Yours:** a web UI (jobs, boards, map, stories, settings) behind a password, and optionally
+- **Yours:** a web UI (jobs, boards, map, stories, settings) behind a login, and optionally
   phone pushes (ntfy) and Home Assistant sensors.
+- **Shared:** several people can use one install, each with their own profile, stories, filter,
+  scores and phone pushes. Boards are polled once for all.
 - **On all the time or not:** run it on a home server, or on a PC that's only on sometimes; after
   a gap it catches up by itself.
 
@@ -52,8 +54,8 @@ python -m venv .venv && .venv/bin/pip install -e .     # Windows: .venv\Scripts\
 .venv/bin/jobalerts run                                 # prints the setup code
 ```
 
-Open `http://<this machine>:8765/setup`, enter the setup code and choose a password. The first start
-creates `data/` with an example profile, two example stories and a 10-company watch list.
+Open `http://<this machine>:8765/setup`, enter the setup code, and make the admin account. The first
+start creates `data/` with an example profile, two example stories and a 10-company watch list.
 
 ## Web UI
 
@@ -71,8 +73,12 @@ creates `data/` with an example profile, two example stories and a 10-company wa
 - **Map:** US metros colored by pay index for a salary, renting or buying, with your top jobs.
 - **Stories:** edit work stories and preview what the AI reads. Re-score recent jobs after a change.
 - **Settings:** your situation (salary, home, housing cost, household, stay or move), scoring and
-  alerts, notifications and Home Assistant, API keys (write-only), profile and resumes, updates,
-  password and the Home Assistant map link.
+  alerts, API keys (write-only), profile and resumes, password and the Home Assistant map link. Admins
+  also: connections and Home Assistant, updates, and users.
+
+Each user sees their own jobs, scores, filter, stories, profile and settings. Admins add users on
+Settings → Users and choose whether users may use the install's Anthropic key
+([security](docs/security.md#users)).
 
 ## Setup
 
@@ -112,18 +118,21 @@ More: [configuration](docs/configuration.md), [security](docs/security.md),
 ## Commands
 
 ```
-jobalerts [-c CONFIG] [-v] {run,web,set-password,update,check,backup,poll,discover,test-notify,digest,top,stats,backfill,map,pay}
+jobalerts [-c CONFIG] [-v] {run,web,set-password,users,update,check,backup,poll,discover,test-notify,digest,top,stats,backfill,map,pay}
 
   run                  the service: polls every board on its interval, with the web UI on port 8765
   web                  the web UI only (no polling or pushes), over the same database
-  set-password         set or reset the web UI password
+  set-password [NAME]  set or reset a web UI password (default: the first admin's)
+  users {list,add,reset,admin,user,disable,enable,delete} [NAME] [--admin]
+                       manage web UI accounts (add and reset print a one-time password)
   poll [--dry-run] [--board TEXT] [--score N]
                        one pass over every board (--dry-run stores and sends nothing)
   discover [TARGET ...] [--file FILE] [--add] [--tier TIER] [--name NAME]
                        find companies' job boards by name, careers URL or a list file
   test-notify          send a sample alert to your ntfy topic
-  digest [--dry-run]   send the daily digest now
-  top [-n N] [--days D] [--push]
+  digest [--dry-run] [--user NAME]
+                       send the daily digest now
+  top [-n N] [--days D] [--push] [--user NAME]
                        best recent matches; --push also updates the Home Assistant sensor
   stats                board health, request rates, detection delay, AI spend
   backfill [--dry-run] [--push] [--days N] [--rescore]

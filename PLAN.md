@@ -89,8 +89,16 @@ The Stop hook keeps Claude working while any `- [ ]` remains. Add `BLOCKED: <rea
 - [x] `desktop.py` launcher: app folder per OS, shipped config copied on start, web UI on 127.0.0.1, browser opens with the setup code filled in, tray/menu-bar icon (Open, Start at login, Quit), second start opens the browser, start at login on first run, `--background`, `--self-test` → verify: tests/test_desktop.py; self-test and launch of a PyInstaller build on Linux
 - [x] Updates for the desktop app from GitHub Releases: daily check, release notes on Settings → Updates, download checked against SHA256SUMS.txt, silent Windows installer / Mac app swap, restart → verify: tests (mocked downloads)
 - [x] `packaging/` (PyInstaller spec, Inno Setup script), `.github/workflows/release.yml` (build, self-test, installer/dmg, release) → verify: Linux build; Windows and Mac only in Actions
-- [~] First release built and tried on a real Windows PC and Mac (needs user: public repository, a tag, a test install)
+- [~] First release built and tried on a real Windows PC and Mac: v0.1.0-rc1 built; Windows and Apple-silicon builds passed their self-test in Actions, the Intel Mac self-test failed (needs user: its log, and a test install)
 - [x] docs/install.md, docs/releasing.md, README
+
+## Phase 29 – Multiple users per install (user request 2026-11-26)
+- [x] Accounts: `users` table (scrypt), roles admin/user, setup makes the first admin and asks whether users may use the install's Anthropic key; username login limited per address and per name; one-time passwords for new accounts and resets, changed at first login; sessions end on password/role/access changes; first admin can't be removed; `jobalerts users`, `set-password [NAME]` → verify: tests/test_users.py
+- [x] Per-user storage (schema 3): `user_jobs`, `ai_calls`, `settings_by_user`, `secrets_by_user`; the single-user data becomes user 1's; old tables left for going back → verify: upgrade test from a single-password database
+- [x] Pipeline per user (`Person`): each board polled once, each job through every user's filter, pay index, score, pushes and digest; other users start from the shipped defaults (not config.local.yaml or .env), files in data/users/<id>/; key chain (own key, else the install's when shared, else none) and a shared daily cap → verify: tests
+- [x] Web per user: every page the logged-in user's; admin-only users, connections, updates, install keys, board editing; Users page; keys page split into yours / the install's → verify: test_isolation.py (canaries in every personal value, crawled as both users), 403 crawl, live run, screenshots
+- [x] Desktop app: `web.lan` lets other computers on the network open it → verify: test
+- [x] Docs (security, configuration, upgrading, install, architecture, README)
 
 ## User-gated
 - [~] Full TheirStack key in `.env` → live call (needs user: full key)
@@ -101,3 +109,4 @@ The Stop hook keeps Claude working while any `- [ ]` remains. Add `BLOCKED: <rea
 <!-- Append one line per completed task: date – task – how verified. Never write personal data here. -->
 2026-11-26 – Phase 27 Filter page + AI-only mode – 325 tests, ruff, screenshots desktop and phone
 2026-11-26 – Phase 28 desktop installers – 331 tests; Linux PyInstaller build passes --self-test and a launch; Windows/Mac builds untested until the first Actions run
+2026-11-26 – Phase 29 multiple users – 350 tests (isolation crawl, 403 crawl, upgrade), ruff, live run, screenshots desktop and phone

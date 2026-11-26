@@ -646,9 +646,20 @@ async def cmd_test_notify(cfg: Config, args) -> int:
     return 0
 
 
+def pick_person(runner, args):
+    """--user NAME: that user's pipeline; without it the first user's."""
+    name = getattr(args, "user", None)
+    if not name:
+        return runner.me
+    user = runner.users.by_name(name) if runner.users else None
+    if user is None or user.id not in runner.people:
+        raise SystemExit(f"No enabled user called {name} (jobalerts users list).")
+    return runner.people[user.id]
+
+
 async def cmd_digest(cfg: Config, args) -> int:
     async with open_runner(cfg, dry_run=args.dry_run, memory_store=False) as runner:
-        print(await runner.send_digest(mark=not args.dry_run))
+        print(await pick_person(runner, args).send_digest(mark=not args.dry_run))
     return 0
 
 
@@ -683,10 +694,14 @@ def _print_top(jobs: list[dict], step_up: bool = False) -> None:
 async def cmd_top(cfg: Config, args) -> int:
     async with open_runner(cfg, memory_store=False) as runner:
         days = args.days or cfg.homeassistant.days
-        total, jobs = runner.top_matches(args.n, days)
+        person = pick_person(runner, args)
+        if args.push and person is not runner.me:
+            print("Home Assistant shows the first user's jobs; --push works without --user only.")
+            return 1
+        total, jobs = person.top_matches(args.n, days)
         print(f"{total} matches posted in the last {days} days" + ("; best fits:" if jobs else "."))
         _print_top(jobs)
-        _, step_ups = runner.top_matches(args.n, days, by="step_up")
+        _, step_ups = person.top_matches(args.n, days, by="step_up")
         if step_ups:
             print("\nBiggest step ups (AI step-up score, a credible promotion):")
             _print_top(step_ups, step_up=True)
@@ -830,10 +845,12 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("test-notify", help="send a sample alert to your ntfy topic")
     g = sub.add_parser("digest", help="send the daily digest now")
     g.add_argument("--dry-run", action="store_true", help="print it instead of sending")
+    g.add_argument("--user", help="whose digest (default: the first admin's)")
     t = sub.add_parser("top", help="best recent matches (what the Home Assistant sensor shows)")
     t.add_argument("-n", type=int, default=0, help="how many (default: homeassistant.top_n)")
     t.add_argument("--days", type=int, default=0, help="posted in the last N days (default: homeassistant.days)")
     t.add_argument("--push", action="store_true", help="also update the Home Assistant sensor now")
+    t.add_argument("--user", help="whose matches (default: the first admin's)")
     sub.add_parser("stats", help="board health, request rates, detection delay, AI spend")
     b = sub.add_parser("backfill", help="pay-index the matches already processed (no AI calls), then AI-score the "
                                         "matches that were already open when each board was first polled "
