@@ -1,0 +1,22 @@
+{% if error %}<p class="error" role="alert">{{ error }}</p>{% else %}
+<p role="status">Of <strong>{{ total }}</strong> jobs first seen in the last {{ days }} days, <strong>{{ passing_now }}</strong>
+reach the AI {{ "first look" if ai_mode else "score" }} with your saved settings; with these edits <strong>{{ passing_new }}</strong> would.
+{% if not n_in and not n_out %}No job would change.{% endif %}</p>
+{% if n_in %}
+<h3>{{ n_in }} would now get through{% if n_in > now_in|length %} (first {{ now_in|length }}){% endif %}</h3>
+<ul class="plain small">
+{% for j in now_in %}<li id="p-{{ loop.index }}"><a href="{{ j.r.url }}" rel="noopener noreferrer" target="_blank">{{ j.r.title }}</a>
+  <span class="muted">· {{ j.r.company }} · {{ j.why }}</span>
+  {% if j.can_score %}<button type="button" class="link" hx-post="/filter/score/{{ j.r.key|urlencode }}" hx-target="#p-{{ loop.index }}"
+    hx-swap="beforeend" hx-disabled-elt="this">score it now</button>{% endif %}</li>{% endfor %}
+</ul>
+{% endif %}
+{% if n_out %}
+<h3>{{ n_out }} would now be turned down{% if n_out > now_out|length %} (first {{ now_out|length }}){% endif %}</h3>
+<ul class="plain small">
+{% for j in now_out %}<li><a href="{{ j.r.url }}" rel="noopener noreferrer" target="_blank">{{ j.r.title }}</a>
+  <span class="muted">· {{ j.r.company }} · {{ j.why }}</span>{% if j.r.score is not none %} <span class="badge">scored {{ j.r.score }}</span>{% endif %}</li>{% endfor %}
+</ul>
+{% endif %}
+<p class="help">Judged on title and location only (descriptions aren't stored). Saving changes new jobs only.</p>
+{% endif %}

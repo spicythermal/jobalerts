@@ -61,12 +61,18 @@ and a 10-company watch list; replace them with your own on the web UI.
 - **Boards:** every watched company and aggregator search, polling fine or failing, when it runs
   next, jobs listed and recent matches. Add a company (it finds the board for you), turn boards on
   or off, change how often they're polled, remove them.
+- **Filter:** what happened to every new job (too old, a title word, the location, the AI's first
+  look, pay, or scored) as a funnel you can click into, with the reason for each job turned down
+  and a "Score it" button to give one the full AI score anyway. Choose **keywords first** (the word
+  lists decide; the AI takes a cheap second look at what they turn down) or **AI only** (every new
+  job goes to the AI in stages: titles in batches, then excerpts, then a full score for what
+  survives), pick the model for each stage, tell the first look what to turn down in your own words,
+  and edit the word lists. Preview edits against the last 30 days, or try a single title, before saving.
 - **Map:** every US metro colored by the pay index at any salary, renting or buying, with the
   salary that breaks even with staying where you are, and your top jobs.
 - **Stories:** your work stories, with a live preview of exactly what the AI reads. After you
   change them, re-score recent jobs in the background.
-- **Settings:** your situation (salary, home, housing cost, household, stay or move), what to look
-  for, scoring and alerts, notifications and Home Assistant, API keys (write-only: never shown
+- **Settings:** your situation (salary, home, housing cost, household, stay or move), scoring and alerts, notifications and Home Assistant, API keys (write-only: never shown
   again once saved), profile and resumes, password and the Home Assistant map link.
 
 Changes apply at once, without a restart.
@@ -78,7 +84,7 @@ Changes apply at once, without a restart.
 2. **Settings → Profile and resumes:** what you want next and your deal-breakers; upload resumes.
 3. **Stories:** write a story for each piece of work you'd tell in an interview. The more specific
    the result, the better the scores.
-4. **Settings → What to look for:** field and role words for job titles.
+4. **Filter:** field and role words for job titles, or switch to AI only.
 5. **Boards:** add the companies you want to watch.
 6. **Settings → API keys:** an [Anthropic](https://console.anthropic.com) key for AI scoring (about
    $0.001 per job), and an [ntfy](https://ntfy.sh) topic for phone pushes. Optional: USAJobs, Adzuna,

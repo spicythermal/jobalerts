@@ -11,6 +11,11 @@ companies_file: ../data/companies.yaml   # your watch list, relative to this fil
 # An example for physics, beams, plasma, optics and R&D leadership roles: replace the word lists
 # with your own field. A wide net on purpose: AI scoring ranks what gets through.
 criteria:
+  # keywords: the lists below decide, and the AI pre-screen takes a second look at what they turn down.
+  # ai: the lists are off except title_exclude, seniority_exclude, description_exclude and max_age_days;
+  #     every other new job gets the AI's first look (titles in batches, then excerpts), and what
+  #     survives gets the full score. Needs prescreen.enabled. The Filter page shows both side by side.
+  mode: keywords
   # Phrases are case-insensitive whole words, plurals included ("beam" matches "Beams").
   # A * at either end lets the phrase run into a longer word: "*physicist" matches
   # "Cryophysicist", "diagnostic*" matches "Diagnostician", "research*" matches "Researcher".
@@ -272,6 +277,9 @@ prescreen:
   title_batch: 50           # titles per pass-1 call
   posting_batch: 8          # postings per pass-2 call
   excerpt_chars: 3000       # description characters per posting in pass 2
+  model: ""                 # model for both passes; "" = scoring.model. A cheap model is enough here
+  guidance: ""              # your own words for what to turn down or keep (Filter page)
+  ai_delay: 120             # AI-only mode: seconds after new jobs arrive before a run (gathers a batch)
 
 # ---------------------------------------------------------------- cost-of-living pay index
 # Take-home pay against local prices, relative to the reference: your current salary where you

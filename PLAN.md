@@ -78,6 +78,13 @@ The Stop hook keeps Claude working while any `- [ ]` remains. Add `BLOCKED: <rea
 - [x] Docker: `tools/update-docker.sh` (fetch, migrate if needed, backup via the container, pull, rebuild, health check, roll back) + systemd timer; the image knows its commit → verify: script dry run with podman
 - [x] Docs + commit + push Phase 26
 
+## Phase 27 – Filter page: see and tune what reaches the AI (user request 2026-11-26)
+- [x] `/filter`: funnel of every new job by what decided it (age, title words, location, AI first look, pay, scored), click into a group, reason per job; "Score it" on a turned-down job (full score, never pushed) → verify: tests/test_filter_page.py
+- [x] Controls on the page: word lists, description excludes; preview of edits against the last 30 days; try a single title; reset; Settings → "What to look for" moved here → verify: tests
+- [x] AI-only mode (`criteria.mode: ai`): hard excludes, then every job to the batched first look (titles 50/call, excerpts 8/call), then the full score; separate model per stage (`prescreen.model`, `scoring.model`); runs `prescreen.ai_delay` after new jobs; falls back to word lists without the AI; daily-call estimate on the page → verify: tests
+- [x] First-look prompt neutral (no built-in field): framing per mode, the user's field words and `prescreen.guidance` → verify: tests
+- [x] Docs + commit + push Phase 27
+
 ## User-gated
 - [~] Full TheirStack key in `.env` → live call (needs user: full key)
 - [~] Adzuna plan decision (needs user)
@@ -85,3 +92,4 @@ The Stop hook keeps Claude working while any `- [ ]` remains. Add `BLOCKED: <rea
 
 ## Progress log
 <!-- Append one line per completed task: date – task – how verified. Never write personal data here. -->
+2026-11-26 – Phase 27 Filter page + AI-only mode – 325 tests, ruff, screenshots desktop and phone

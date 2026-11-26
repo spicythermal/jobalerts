@@ -1,7 +1,9 @@
-"""AI second look at jobs the keyword filter turned down (but no hard exclude did).
+"""AI first look at new jobs, before the full score: a cascade of cheap batched calls.
 
+Keyword mode: a second look at the jobs the keyword lists turned down (but no hard exclude did).
 Keyword lists miss good jobs with unexpected titles ("Manager, Generator Operations" at a fusion
-company). Instead of scoring each of those in full, two cheap Claude calls sort them first:
+company). AI-only mode (criteria.mode: ai): every new job that no hard exclude dropped comes here.
+Instead of scoring each job in full, two cheap calls sort them first, on prescreen.model:
 
   pass 1  titles, 50 at a time: name only the clear misfits; the rest go on
   pass 2  title + company + the start of the description, 8 at a time: "no" only when clearly
@@ -19,7 +21,7 @@ import anthropic
 from pydantic import BaseModel, ValidationError
 
 from .vault import secret
-from .config import Prescreen, Scoring
+from .config import Criteria, Prescreen, Scoring
 from .models import Job
 from .resumes import Resume
 from .scorer import resumes_block
@@ -27,17 +29,22 @@ from .store import Store
 
 log = logging.getLogger(__name__)
 
-SYSTEM = """You pre-screen job postings for one candidate. A cheap keyword filter has already rejected \
-these postings by title; your job is to catch the ones it should not have rejected. Every posting you \
-pass is then read in full and scored by a more careful reviewer, so passing a posting costs little and \
-missing a good one costs a lot. Be inclusive when in doubt.
+INTRO = {
+    "keywords": "A cheap keyword filter has already rejected these postings by title; your job is to catch "
+                "the ones it should not have rejected.",
+    "ai": "These are new postings from the candidate's job boards; your job is to set aside the ones clearly "
+          "not worth a closer look.",
+}
 
-Say no to roles plainly outside the candidate's field or level: HR, finance, legal, sales, marketing, \
-facilities, trades and technicians, entry-level, and software or IT work unrelated to physics, \
-hardware or scientific computing. Generic engineering titles (for example "Principal Electrical \
-Engineer") at companies in the candidate's industries deserve a closer look, and so do stretch roles \
-a level or two above the candidate's current one (manager of managers, director, head of a function).
+SYSTEM = """You pre-screen job postings for one candidate. {intro} Every posting you pass is then read \
+in full and scored by a more careful reviewer, so passing a posting costs little and missing a good one \
+costs a lot. Be inclusive when in doubt.
 
+Say no to roles plainly outside the candidate's field or level, judged from their resumes and profile \
+below{field}. Generic titles (for example "Principal Engineer" or "Program Manager") at companies in the \
+candidate's industries deserve a closer look, and so do stretch roles a level or two above the \
+candidate's current one (manager of managers, director, head of a function).
+{guidance}
 {resumes}
 
 <candidate_profile>
@@ -82,14 +89,26 @@ def postings_prompt(jobs: list[Job], excerpt_chars: int) -> str:
             "most 12 words.")
 
 
+def system_prompt(cfg: Prescreen, criteria: Criteria, profile: str, resumes: list[Resume]) -> str:
+    """The pre-screen's instructions: the mode's framing, the candidate's field words (the Filter page's
+    field list) and their own guidance, then resumes and profile."""
+    words = [w.strip("* ") for w in criteria.title_field if w.strip("* ")][:40]
+    field = f" (their field, in their own words: {', '.join(words)})" if words else ""
+    guidance = cfg.guidance.strip()
+    return SYSTEM.format(intro=INTRO[criteria.mode], field=field,
+                         guidance=f"\n<candidate_guidance>\n{guidance}\n</candidate_guidance>\n" if guidance else "",
+                         resumes=resumes_block(resumes), profile=profile.strip() or "(no profile provided)")
+
+
 class Prescreener:
     def __init__(self, cfg: Prescreen, scoring: Scoring, store: Store, profile: str,
-                 resumes: list[Resume] | None = None, client: anthropic.AsyncAnthropic | None = None):
+                 resumes: list[Resume] | None = None, client: anthropic.AsyncAnthropic | None = None,
+                 criteria: Criteria | None = None):
         self.cfg = cfg
         self.scoring = scoring
         self.store = store
-        self.system = SYSTEM.format(profile=profile.strip() or "(no profile provided)",
-                                    resumes=resumes_block(resumes or []))
+        self.model = cfg.model or scoring.model
+        self.system = system_prompt(cfg, criteria or Criteria(), profile, resumes or [])
         self.client = client or anthropic.AsyncAnthropic(api_key=secret("ANTHROPIC_API_KEY") or None, max_retries=3, timeout=120.0)
 
     async def clear_misfits(self, jobs: list[Job]) -> set[int] | None:
@@ -122,7 +141,7 @@ class Prescreener:
             return None
         try:
             response = await self.client.messages.create(
-                model=self.scoring.model,
+                model=self.model,
                 max_tokens=8000,  # Haiku thinks by default and thinking counts toward max_tokens
                 system=[{"type": "text", "text": self.system, "cache_control": {"type": "ephemeral"}}],
                 messages=[{"role": "user", "content": prompt}],

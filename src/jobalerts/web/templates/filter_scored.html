@@ -1,0 +1,5 @@
+{% if result in ("digest", "low", "low_pay", "filtered", "closed", "stale") and r %}
+<span class="small" role="status">{% if r.score is not none %}score <strong>{{ r.score }}</strong>{% endif %}
+{{ {"digest": "· in the digest", "low": "· low fit", "low_pay": "· pay under your floor", "filtered": "· " ~ (r.reason or "filtered"),
+    "closed": "· the posting was taken down", "stale": "· too old"}[result] }}</span>
+{% else %}<span class="error small" role="status">Not scored: {{ result }}.</span>{% endif %}

@@ -60,6 +60,9 @@ def _score_cols(score: FitScore | None) -> dict:
             "score_basis": score.basis or None}
 
 
+AI_ONLY_WAITING = "AI only: waiting for the AI's first look"
+
+
 class Runner:
     def __init__(self, cfg: Config, store: Store, http: HttpClient, notifier: Notifier,
                  scorer: Scorer | None = None, homeassistant: MqttPublisher | None = None,
@@ -92,6 +95,8 @@ class Runner:
         self._collecting: list | None = None       # during a catch-up pass: (job, score) instead of pushes
         self._catching_up = False
         self._board_locks: dict[str, asyncio.Lock] = {}
+        self._prescreen_wake = asyncio.Event()     # AI-only mode: new jobs are waiting for the pre-screen
+        self._prescreen_task: asyncio.Task | None = None
         self.pay: col.PayIndex | None = None
         self.pay_problem = ""  # shown in the digest until fixed
         self.load_pay()
@@ -108,6 +113,10 @@ class Runner:
         if self.rebuild:
             self.scorer, prescreener, self.homeassistant = self.rebuild(cfg, self.store)
             self.prescreener = prescreener if self.scorer else None
+        if self.running and self.prescreener and (self._prescreen_task is None or self._prescreen_task.done()):
+            self._prescreen_task = asyncio.create_task(self._prescreen_loop(), name="prescreen")
+        if self.prescreener and cfg.criteria.mode == "ai":
+            self._prescreen_wake.set()
         self.map_html = None
         self._dashboard_stale.set()
         self.sync_boards()   # a key saved in Settings starts its aggregator searches
@@ -331,6 +340,14 @@ class Runner:
         if self.filter.is_stale(job):
             self.store.insert_job(job, "stale", f"published {job.age_days():.0f} days ago")
             return "stale", None
+        if self.cfg.criteria.mode == "ai" and self.prescreener:
+            # AI only: the hard excludes still apply; everything else gets the AI's first look in batches
+            if hit := self.filter.hard_exclude(job):
+                self.store.insert_job(job, "filtered", f"title excludes '{hit}'")
+                return "filtered", None
+            self.store.hold_for_prescreen(job, AI_ONLY_WAITING)
+            self._prescreen_wake.set()
+            return "prescreen", None
         ok, why = self.filter.check_basic(job)
         if not ok:
             if self.prescreener and not self.filter.hard_exclude(job):
@@ -657,7 +674,8 @@ class Runner:
                  asyncio.create_task(self._heartbeat_loop(), name="heartbeat"),
                  asyncio.create_task(self._update_loop(), name="updates")]
         if self.prescreener:
-            tasks.append(asyncio.create_task(self._prescreen_loop(), name="prescreen"))
+            self._prescreen_task = asyncio.create_task(self._prescreen_loop(), name="prescreen")
+            tasks.append(self._prescreen_task)
         tasks.append(asyncio.create_task(self.refresh_pay_data(), name="col-refresh"))
         if self.cfg.map.enabled and not self.pay:
             log.warning("map.enabled is set but the pay index is off (pay.enabled); no map")
@@ -666,7 +684,11 @@ class Runner:
         if self.cfg.web.enabled:
             from .web.app import serve
             tasks.append(asyncio.create_task(serve(self), name="web"))
-        await asyncio.gather(*tasks)
+        try:
+            await asyncio.gather(*tasks)
+        finally:   # a pre-screen loop started later by a Settings change isn't in `tasks`
+            if self._prescreen_task and not self._prescreen_task.done():
+                self._prescreen_task.cancel()
 
     # ------------------------------------------------------------------ the boards being polled
     def active_boards(self) -> list[Board]:
@@ -890,12 +912,48 @@ class Runner:
             await asyncio.sleep(wait)
 
     async def _prescreen_loop(self) -> None:
+        """Every prescreen.interval; in AI-only mode also prescreen.ai_delay after new jobs arrive, so
+        alerts don't wait an hour (the delay gathers a poll round's jobs into one batch)."""
         while True:
-            await asyncio.sleep(self.cfg.prescreen.interval)
+            try:
+                await asyncio.wait_for(self._prescreen_wake.wait(), timeout=self.cfg.prescreen.interval)
+                await asyncio.sleep(self.cfg.prescreen.ai_delay)
+            except asyncio.TimeoutError:
+                pass
+            self._prescreen_wake.clear()
+            if not self.prescreener:
+                continue
             try:
                 await self.run_prescreen(self.active_boards())
             except Exception:
                 log.exception("Pre-screen run failed")
+
+    async def score_anyway(self, key: str) -> str:
+        """Full AI score for a job the filter turned down (the Filter page's button). It's never pushed:
+        a high score lands in the digest. Returns the new status, or why it couldn't be scored."""
+        row = self.store.get_job(key)
+        if row is None:
+            return "not found"
+        if not self.scorer:
+            return "AI scoring is off"
+        if self.scorer.capped():
+            return "today's AI calls are used up"
+        job = job_from_row(row)
+        board = next((b for b in self.active_boards() if (b.source, b.slug) == (job.source, job.board)), None)
+        if board is None:
+            return "its board isn't watched any more"
+        self.store.update_job(key, status="processing", reason="scored on request (Filter page)")
+        try:
+            status, _ = await self._finish(job, board, SOURCES[job.source])
+        except Exception as e:
+            log.exception("score anyway: %s failed", key)
+            self.store.update_job(key, status="error", reason=str(e)[:200])
+            return "error"
+        if status == "alert":
+            status = "digest"
+            self.store.update_job(key, status="digest")
+        self._dashboard_stale.set()
+        return status
 
     def digest_missed(self, now: datetime | None = None) -> bool:
         """A digest was due while the service was off: the last one sent is older than the latest

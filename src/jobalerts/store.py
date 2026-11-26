@@ -331,6 +331,14 @@ class Store:
                GROUP BY k""", (_iso(since),)).fetchall()
         return {r["k"]: r["n"] for r in rows}
 
+    def decisions_since(self, since: datetime) -> list[sqlite3.Row]:
+        """Every job first seen since `since`, newest first, with what the filter and the AI decided (the
+        Filter page). No descriptions: they're stored only while a job waits for the pre-screen."""
+        return self.db.execute(
+            """SELECT key, source, board, job_id, company, title, url, location, remote, salary, published_at,
+                      first_seen_at, status, reason, score, NULL AS description FROM jobs WHERE first_seen_at>=?
+               ORDER BY first_seen_at DESC""", (_iso(since),)).fetchall()
+
     def get_job(self, key: str) -> sqlite3.Row | None:
         return self.db.execute("SELECT * FROM jobs WHERE key=?", (key,)).fetchone()
 

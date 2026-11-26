@@ -62,9 +62,15 @@ def make_prescreener(cfg: Config, store: Store, scorer: Scorer | None) -> Prescr
     if not cfg.prescreen.enabled or scorer is None:
         return None
     _, profile, resumes, _ = _profile_and_resumes(cfg)
-    log.info("AI pre-screen on: jobs the keywords turn down get a second look every %d min",
-             cfg.prescreen.interval // 60)
-    return Prescreener(cfg.prescreen, cfg.scoring, store, profile, resumes, client=scorer.client)
+    model = cfg.prescreen.model or cfg.scoring.model
+    if cfg.criteria.mode == "ai":
+        log.info("AI-only filter: every new job gets an AI first look (%s), then the full score (%s)",
+                 model, cfg.scoring.model)
+    else:
+        log.info("AI pre-screen on: jobs the keywords turn down get a second look every %d min (%s)",
+                 cfg.prescreen.interval // 60, model)
+    return Prescreener(cfg.prescreen, cfg.scoring, store, profile, resumes, client=scorer.client,
+                       criteria=cfg.criteria)
 
 
 def make_scorer(cfg: Config, store: Store) -> Scorer | None:

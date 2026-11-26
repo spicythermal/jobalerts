@@ -23,7 +23,7 @@ from ..vault import SECRETS, _redactor, install as install_vault
 
 log = logging.getLogger(__name__)
 
-SUBNAV = [("situation", "Your situation"), ("search", "What to look for"), ("alerts", "Scoring and alerts"),
+SUBNAV = [("situation", "Your situation"), ("search", "Filter (own page)"), ("alerts", "Scoring and alerts"),
           ("connections", "Connections"), ("keys", "API keys"), ("profile", "Profile and resumes"),
           ("updates", "Updates"), ("account", "Account")]
 RESUME_TYPES = {".pdf", ".md", ".txt"}
@@ -40,6 +40,30 @@ def resume_name(filename: str) -> str:
     if not stem or suffix not in RESUME_TYPES:
         raise ValueError("Upload a PDF, Markdown (.md) or text (.txt) resume.")
     return stem + suffix
+
+
+def validate_fields(runner, fields: list[st.Field], submitted: dict[str, str]):
+    """Check a form of these settings against the whole config. Returns (errors by key, parsed values,
+    the values to save (those that differ from the files, or were saved before), the new config or None)."""
+    errors, values = {}, {}
+    for f in fields:
+        try:
+            values[f.key] = st.parse(f, submitted.get(f.key))
+        except st.FieldError as e:
+            errors[f.key] = str(e)
+    base = runner.base_cfg.model_dump()
+    current_ui = runner.ui_settings.values()
+    changed = {k: v for k, v in values.items() if k in current_ui or st.get_path(base, k) != v}
+    new_cfg = None
+    if not errors:
+        overlay = st.deep_merge(runner.ui_settings.overlay(), {})
+        for key, value in changed.items():
+            overlay = st.deep_merge(overlay, st.nest(key, value))
+        try:
+            new_cfg = st.apply(runner.base_cfg, overlay, strict=True)
+        except ValidationError as e:
+            errors.update({k: v for k, v in st.errors_by_field(e).items()} or {"": str(e)})
+    return errors, values, changed, new_cfg
 
 
 def add_settings_routes(app: FastAPI, state, page, require_csrf) -> None:
@@ -189,6 +213,8 @@ def add_settings_routes(app: FastAPI, state, page, require_csrf) -> None:
             return profile_page(request, saved)
         if section == "updates":
             return updates_page(request, saved)
+        if section == "search":   # the filter has its own page
+            return RedirectResponse("/filter" + (f"?saved={saved}" if saved else ""), 303)
         if section not in st.SECTIONS:
             raise HTTPException(404)
         cfg = runner.cfg
@@ -202,26 +228,8 @@ def add_settings_routes(app: FastAPI, state, page, require_csrf) -> None:
             raise HTTPException(404)
         form = await request.form()
         submitted = {k: v for k, v in form.items() if isinstance(v, str)}
-        errors, values = {}, {}
-        for f in st.FIELDS:
-            if f.section != section:
-                continue
-            try:
-                values[f.key] = st.parse(f, submitted.get(f.key))
-            except st.FieldError as e:
-                errors[f.key] = str(e)
-        base = runner.base_cfg.model_dump()
-        current_ui = ui().values()
-        changed = {k: v for k, v in values.items() if k in current_ui or st.get_path(base, k) != v}
-        new_cfg = None
-        if not errors:
-            overlay = st.deep_merge(ui().overlay(), {})
-            for key, value in changed.items():
-                overlay = st.deep_merge(overlay, st.nest(key, value))
-            try:
-                new_cfg = st.apply(runner.base_cfg, overlay, strict=True)
-            except ValidationError as e:
-                errors.update({k: v for k, v in st.errors_by_field(e).items()} or {"": str(e)})
+        errors, values, changed, new_cfg = validate_fields(runner, [f for f in st.FIELDS if f.section == section],
+                                                           submitted)
         if not errors and "pay.reference_location" in values and runner.pay \
                 and runner.pay.resolve(values["pay.reference_location"]) is None:
             errors["pay.reference_location"] = "Not a place the pay index knows. Try \"City, ST\", a state or a country."

@@ -82,6 +82,18 @@ turning it on:
 jobalerts poll --dry-run --score 5
 ```
 
+**Keywords first, or AI only** (`criteria.mode`, the Filter page). With `keywords` the word lists
+decide and the AI second look below catches what they miss. With `ai` the word lists are off except
+`title_exclude`, `seniority_exclude`, `description_exclude` and `max_age_days`: every other new job
+goes through the same two cheap passes, then the full score. Batching keeps the calls down: titles go
+50 to a call and excerpts 8 to a call, so a day of 400 new jobs costs about 8 title calls, ~18 excerpt
+calls and ~70 full scores. The Filter page estimates this from your own last week. The first look
+runs on `prescreen.model` ("" = `scoring.model`); `prescreen.guidance` adds your own words about what
+to turn down or keep, and your field words (`criteria.title_field`) are included as your field. In
+AI-only mode the first look runs `prescreen.ai_delay` seconds (120) after new jobs arrive, not hourly.
+`scoring.daily_max_calls` is this program's own budget for all Claude calls; when it's spent, waiting
+jobs keep until the next UTC day.
+
 **AI second look at rejected titles** (`prescreen` in `config.yaml`, on whenever scoring is):
 keyword lists miss good jobs with unexpected titles ("Manager, Generator Operations" at a fusion
 company). A job the keywords turn down, but no `title_exclude` / `seniority_exclude` phrase did, waits

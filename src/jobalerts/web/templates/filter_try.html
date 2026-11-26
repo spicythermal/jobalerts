@@ -1,0 +1,3 @@
+{% if error %}<p class="error" role="alert">{{ error }}</p>
+{% elif ok %}<p class="ok" role="status">✓ “{{ title }}” gets through: {{ why }}.</p>
+{% else %}<p class="error" role="status">✕ “{{ title }}” is turned down: {{ why }}.</p>{% endif %}

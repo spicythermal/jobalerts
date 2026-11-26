@@ -15,6 +15,7 @@ boards (ATS feeds, aggregator searches)
             └─ Runner.poll_board / _process
                  ├─ store: new job? (first poll of a board = silent baseline)
                  ├─ filters.JobFilter: title / seniority / location / age   ─ rejected ─► prescreen queue
+                 │    (criteria.mode "ai": only exclude/seniority/age; every other job ─► prescreen queue)
                  ├─ col.PayIndex: stated pay → take-home (taxes.py) ÷ local prices → pay gate
                  ├─ scorer.Scorer (Claude): fit 0–100, step-up, red flags, best resume, top 3 stories
                  └─ route: push (notify.py) │ digest │ stored
@@ -37,7 +38,7 @@ boards (ATS feeds, aggregator searches)
 | `http.py` | Polite async HTTP client |
 | `sources/` | One adapter per ATS (Greenhouse, Lever, Ashby, SmartRecruiters, Workday, UKG, Personio, Workable, BambooHR, Rippling, Breezy, SuccessFactors) and aggregator (USAJobs, Adzuna, JSearch, TheirStack) |
 | `filters.py` | Keyword prefilter (plurals, wildcards, field words beat soft excludes) |
-| `prescreen.py` | Cheap Claude second look at titles the keywords turned down |
+| `prescreen.py` | Cheap batched Claude first look (titles, then excerpts): at what the keywords turned down, or at every new job in AI-only mode |
 | `scorer.py` | Claude fit scoring against work stories (or resumes) and the profile |
 | `stories.py`, `resumes.py` | Read work stories (Markdown + front matter) and resumes (PDF/MD/TXT) |
 | `col.py` | Cost-of-living data build (BEA, HUD, Zillow, Freddie Mac, World Bank, Census) and the pay index (rent and buy, move vs stay) |

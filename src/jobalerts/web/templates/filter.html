@@ -1,0 +1,174 @@
+{% extends "base.html" %}
+{% block title %}Filter · Job alerts{% endblock %}
+{% macro field(key, rows=4) %}{% set row = fields[key] %}{% set f = row.f %}
+  <div class="field{% if errors.get(key) %} has-error{% endif %}">
+    {% if f.kind == "bool" %}
+    <label class="check"><input type="checkbox" name="{{ key }}" value="1"{% if row.checked %} checked{% endif %}> {{ f.label }}</label>
+    {% else %}
+    <label for="f-{{ key }}">{{ f.label }}</label>
+    {% if f.kind == "lines" or f.kind == "longtext" %}
+    <textarea id="f-{{ key }}" name="{{ key }}" rows="{{ [rows, (row.value.count('\n') + 2)]|max if row.value else rows }}">{{ row.value }}</textarea>
+    {% elif f.kind in ("choice", "model") %}
+    <select id="f-{{ key }}" name="{{ key }}">
+      {% for value, text in row.choices %}<option value="{{ value }}"{% if row.value == value %} selected{% endif %}>{{ text }}</option>{% endfor %}
+    </select>
+    {% else %}
+    <input id="f-{{ key }}" name="{{ key }}" value="{{ row.value }}"{% if f.kind == "int" %} inputmode="numeric"{% endif %}>
+    {% endif %}
+    {% endif %}
+    {% if errors.get(key) %}<p class="error">{{ errors[key] }}</p>{% endif %}
+    {% if f.help %}<p class="help">{{ f.help }}</p>{% endif %}
+    <p class="source">{% if row.source == "ui" %}Saved here{% elif row.source == "local" %}From data/config.local.yaml{% else %}Default{% endif %}</p>
+  </div>
+{% endmacro %}
+{% block content %}
+<h1>Filter</h1>
+<p class="muted">Which new jobs reach the AI score, which are turned down, and why.
+{% if mode == "ai" and first_look %}<strong>AI only:</strong> every new job gets the AI's first look in batches; the word lists are off except exclude and seniority words.
+{% else %}<strong>Keywords first:</strong> the word lists decide{% if first_look %}, and the AI takes a second look at what they turn down{% endif %}.{% endif %}</p>
+{% if saved == "1" %}<p class="ok" role="status">Saved. New jobs are filtered this way from now on; jobs already turned down stay as they are (use “Score it anyway”).</p>
+{% elif saved == "reset" %}<p class="ok" role="status">Back to the defaults from the config files.</p>{% endif %}
+{% if errors %}<p class="error" role="alert">Nothing was saved: fix the fields marked below.</p>{% endif %}
+{% if errors.get("") %}<p class="error">{{ errors[""] }}</p>{% endif %}
+{% if mode == "ai" and not first_look %}<p class="error" role="alert">AI-only mode is set, but the AI isn't available
+(no Anthropic API key, or AI scoring is off), so the word lists are filtering instead.</p>{% endif %}
+
+<section class="card stack" aria-labelledby="funnel-h">
+  <div class="row">
+    <h2 id="funnel-h">What happened to new jobs</h2>
+    <nav class="tabs" aria-label="Period">
+      {% for d in (1, 7, 30) %}<a href="/filter?days={{ d }}&group={{ group }}"{% if d == days %} aria-current="page"{% endif %}>{{ "today" if d == 1 else d ~ " days" }}</a>{% endfor %}
+    </nav>
+  </div>
+  <div class="summary" role="status">
+    <span><strong>{{ counts.total }}</strong> new jobs</span>
+    <span><a href="/filter?days={{ days }}&group=out#jobs"><strong>{{ counts.stages.out }}</strong> turned down</a></span>
+    {% if counts.stages.wait %}<span><a href="/filter?days={{ days }}&group=waiting#jobs"><strong>{{ counts.stages.wait }}</strong> waiting for the AI</a></span>{% endif %}
+    <span><strong>{{ counts.stages["in"] }}</strong> scored by the AI</span>
+    {% if counts.baseline %}<span class="muted">{{ counts.baseline }} open at a board's first poll (not judged)</span>{% endif %}
+    {% if counts.duplicates %}<span class="muted">{{ counts.duplicates }} duplicates</span>{% endif %}
+  </div>
+  <div class="table-wrap">
+  <table class="boards funnel">
+    <thead><tr><th>Decided by</th><th class="num">Jobs</th><th class="bar-cell"><span class="sr-only">Share</span></th></tr></thead>
+    <tbody>
+    {% for g, label, stage, n in counts.groups %}{% if n or stage == "in" %}
+    <tr class="stage-{{ stage }}{% if group == g %} current{% endif %}">
+      <td>{% if stage == "out" %}✕{% elif stage == "in" %}✓{% else %}·{% endif %}
+        <a href="/filter?days={{ days }}&group={{ g }}#jobs">{{ label }}</a></td>
+      <td class="num">{{ n }}</td>
+      <td class="bar-cell"><meter min="0" max="{{ counts.total or 1 }}" value="{{ n }}">{{ n }}</meter></td>
+    </tr>
+    {% endif %}{% endfor %}
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<section class="card stack" id="jobs" aria-labelledby="jobs-h">
+  <div class="row">
+    <h2 id="jobs-h">{% if group == "out" %}Turned down{% elif group == "all" %}All new jobs{% else %}{{ group_label[group] }}{% endif %}
+      <span class="muted small">· last {{ "day" if days == 1 else days ~ " days" }}{% if jobs|length >= 100 %}, newest 100{% endif %}</span></h2>
+    <nav class="tabs" aria-label="Which jobs">
+      <a href="/filter?days={{ days }}&group=out#jobs"{% if group == "out" %} aria-current="page"{% endif %}>Turned down</a>
+      <a href="/filter?days={{ days }}&group=all#jobs"{% if group == "all" %} aria-current="page"{% endif %}>All</a>
+    </nav>
+  </div>
+  {% if jobs %}
+  <div class="table-wrap">
+  <table class="boards turned-down">
+    <thead><tr><th>Job</th><th>Why</th><th><span class="sr-only">Score</span></th></tr></thead>
+    <tbody>
+    {% for j in jobs %}{% set r = j.r %}
+    <tr>
+      <td><a href="{{ r.url }}" rel="noopener noreferrer" target="_blank">{{ r.title }}</a>
+        <div class="muted small">{{ r.company }}{% if r.location %} · {{ r.location }}{% endif %}</div></td>
+      <td class="small">{{ group_label[j.group] }}{% if r.reason and j.group not in ("pushed", "digest", "low") %}<div class="muted">{{ r.reason }}</div>{% endif %}
+        {% if r.score is not none %}<div class="muted">score {{ r.score }}</div>{% endif %}
+        <div class="muted">seen {{ j.seen }}</div></td>
+      <td id="s-{{ loop.index }}">{% if j.can_score and scoring_on %}
+        <button type="button" class="secondary" hx-post="/filter/score/{{ r.key|urlencode }}" hx-target="#s-{{ loop.index }}"
+          hx-swap="innerHTML" hx-disabled-elt="this" aria-label="Score {{ r.title }} anyway">Score it</button>{% endif %}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <p class="muted">No jobs here in this period.</p>
+  {% endif %}
+  {% if scoring_on %}<p class="help">“Score it” gives one turned-down job the full AI score (one call). A high score goes to the digest, not your phone.</p>{% endif %}
+</section>
+
+<form method="post" action="/filter/save" class="stack" id="filter-form" novalidate>
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+
+  <section class="card stack" aria-labelledby="mode-h">
+    <h2 id="mode-h">Keywords or AI only</h2>
+    {{ field("criteria.mode") }}
+    {{ field("prescreen.enabled") }}
+    <div class="two">
+      {{ field("prescreen.model") }}
+      {{ field("scoring.model") }}
+    </div>
+    <div class="notice small" role="note">
+      <p><strong>AI only, in stages.</strong> Each stage only sees what the one before kept: titles 50 to a call,
+      then excerpts 8 to a call, then one full score per surviving job. From the last {{ days }} day{{ "s" if days > 1 }}
+      (about {{ est.jobs }} new jobs a day) that's roughly <strong>{{ est.total }} calls a day</strong>:
+      {{ est.titles }} title batches, {{ est.excerpts }} excerpt batches and {{ est.scores }} full scores.
+      Keywords first used about {{ est.used }} a day over the last week.</p>
+      <p>Your daily limit is {{ est.cap }} calls (Settings → Scoring and alerts). It's this app's own budget,
+      not an Anthropic limit. When it's used up, waiting jobs keep until the next day (00:00 UTC) and nothing is lost
+      unless they get too old.{% if est.total > est.cap %} <strong>At this volume AI-only would pass your limit:</strong> raise it,
+      use the keyword lists, or cut boards.{% endif %}</p>
+    </div>
+    {{ field("prescreen.guidance", 3) }}
+  </section>
+
+  <section class="card stack" aria-labelledby="words-h">
+    <h2 id="words-h">Word lists</h2>
+    <p class="help">Whole words, any case, plurals included (“beam” matches “Beams”). A * at either end runs into a
+    longer word: “*physicist” matches “Biophysicist”. In AI-only mode only the exclude and seniority lists, the
+    age limit and the description list apply.</p>
+    <div class="two">
+      {{ field("criteria.title_field", 8) }}
+      {{ field("criteria.title_include", 8) }}
+    </div>
+    <div class="two">
+      {{ field("criteria.title_exclude", 6) }}
+      {{ field("criteria.title_exclude_soft", 6) }}
+    </div>
+    <div class="two">
+      {{ field("criteria.seniority_exclude", 4) }}
+      {{ field("criteria.locations", 4) }}
+    </div>
+    {{ field("criteria.allow_remote") }}
+    {{ field("criteria.max_age_days") }}
+    {{ field("criteria.description_exclude", 3) }}
+  </section>
+
+  <section class="card stack" aria-labelledby="try-h">
+    <h2 id="try-h">Check your changes before saving</h2>
+    <div class="row start">
+      <button type="button" class="secondary" hx-post="/filter/preview" hx-include="#filter-form" hx-target="#preview"
+        hx-swap="innerHTML">Preview against the last 30 days</button>
+    </div>
+    <div id="preview" aria-live="polite"></div>
+    <div class="inline">
+      <input name="try_title" placeholder="A job title, e.g. Senior Optical Engineer" aria-label="Job title to try">
+      <input name="try_location" placeholder="Location (optional)" aria-label="Location to try">
+      <label class="check"><input type="checkbox" name="try_remote" value="1"> remote</label>
+      <button type="button" class="secondary" hx-post="/filter/try" hx-include="#filter-form" hx-target="#try-result"
+        hx-swap="innerHTML">Try a title</button>
+    </div>
+    <div id="try-result" aria-live="polite"></div>
+    <p class="help">Both use the lists as edited above, saved or not.</p>
+  </section>
+
+  <div class="row start"><button type="submit">Save</button></div>
+</form>
+<form method="post" action="/filter/reset">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <button type="submit" class="link">Reset this page to the defaults from the config files</button>
+</form>
+{% endblock %}

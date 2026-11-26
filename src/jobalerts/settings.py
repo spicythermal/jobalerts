@@ -34,16 +34,19 @@ CREATE TABLE IF NOT EXISTS settings (
 class Field:
     key: str
     label: str
-    kind: str                 # money | int | number | percent | text | bool | choice | lines | time | timezone | email
+    kind: str                 # money | int | number | percent | text | longtext | bool | choice | lines | time | timezone | email
     section: str
     help: str = ""
     sensitive: bool = False   # stored encrypted; never published (MQTT, logs)
     choices: tuple[tuple[str, str], ...] = ()
 
 
+MODELS = (("claude-haiku-5-5", "Claude Haiku 5.5 (cheapest)"), ("claude-sonnet-5-5", "Claude Sonnet 5.5"),
+          ("claude-opus-5-5", "Claude Opus 5.5 (most careful, most expensive)"))
+
 SECTIONS = {
     "situation": "Your situation",
-    "search": "What to look for",
+    "search": "Filter",
     "alerts": "Scoring and alerts",
     "connections": "Notifications and Home Assistant",
     "updates": "Updates",
@@ -79,7 +82,22 @@ FIELDS: list[Field] = [
           "With \"open\": a job in another metro needs at least this pay index (renting or buying), e.g. 1.15."),
     Field("contact_email", "Contact email", "email", "situation",
           "Sent in the User-Agent so job-board operators can reach you about your traffic.", True),
-    # -- what to look for
+    # -- the Filter page: how jobs reach the AI score
+    Field("criteria.mode", "How jobs reach the AI score", "choice", "search",
+          "Keywords first: the word lists decide, and the AI takes a cheap second look at what they turn down. "
+          "AI only: the word lists are off (except exclude and seniority words); every new job gets the AI's "
+          "first look in batches, then the survivors get the full score.",
+          choices=(("keywords", "Keywords first, AI second look"), ("ai", "AI only (in stages)"))),
+    Field("prescreen.enabled", "AI first look (pre-screen)", "bool", "search",
+          "Keywords mode: a second look at what the words turn down. AI-only mode needs it on."),
+    Field("prescreen.model", "Model for the first look", "model", "search",
+          "Sorts titles 50 at a time, then excerpts 8 at a time: a cheap, fast model is enough.",
+          choices=(("", "Same as the full score"), *MODELS)),
+    Field("scoring.model", "Model for the full score", "model", "search",
+          "Reads each surviving posting against your profile and stories.", choices=MODELS),
+    Field("prescreen.guidance", "What the first look should turn down or keep", "longtext", "search",
+          "In your own words, e.g. \"Turn down sales, HR and facilities roles. Keep instrument and hardware roles "
+          "even with generic titles.\" Your field words and profile are already included."),
     Field("criteria.title_field", "Field words", "lines", "search",
           "The work itself (plasma, optics, machine learning). One per line; * at either end runs into longer "
           "words. A title with one passes, even over the soft excludes."),
@@ -93,6 +111,8 @@ FIELDS: list[Field] = [
           "Leave empty for anywhere (the pay index and AI rank by place). Otherwise a job's location must contain one."),
     Field("criteria.allow_remote", "Remote jobs pass the place check", "bool", "search"),
     Field("criteria.max_age_days", "Ignore jobs posted more than this many days ago", "int", "search"),
+    Field("criteria.description_exclude", "Exclude when the description says", "lines", "search",
+          "Checked after the title passes, e.g. \"active secret clearance\"."),
     # -- scoring and alerts
     Field("scoring.enabled", "AI scoring", "bool", "alerts",
           "Needs an Anthropic API key (Settings → API keys). Without it, alerts use the keywords only."),
@@ -101,7 +121,6 @@ FIELDS: list[Field] = [
     Field("scoring.step_up_threshold", "Push a step-up role at", "int", "alerts",
           "A credible promotion is pushed at this step-up score even when the fit is lower; 0 = off."),
     Field("scoring.daily_max_calls", "Most AI calls a day", "int", "alerts", "Scoring and pre-screen together."),
-    Field("prescreen.enabled", "AI second look at jobs the keywords turn down", "bool", "alerts"),
     Field("pay.min_index", "Skip jobs whose pay index is under", "number", "alerts",
           "Checked against the top of the stated range, renting and buying (either passes); 0 = off."),
     Field("notify.timezone", "Time zone", "timezone", "alerts", "For the digest time, e.g. America/Chicago."),
@@ -125,6 +144,7 @@ FIELDS: list[Field] = [
 ]
 BY_KEY = {f.key: f for f in FIELDS}
 _TIME = re.compile(r"^([01]?\d|2[0-3]):[0-5]\d$")
+_MODEL = re.compile(r"^claude-[a-z0-9.-]{3,60}$")
 _EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
@@ -170,6 +190,12 @@ def parse(field: Field, raw: str | None):
             if text and not _EMAIL.match(text):
                 raise ValueError
             return text
+        if field.kind == "model":   # one of the listed models, or another model id set in a config file
+            if text not in dict(field.choices) and not _MODEL.match(text):
+                raise ValueError
+            return text
+        if field.kind == "longtext":
+            return "\n".join(line.rstrip() for line in (raw or "").strip().splitlines())
         if field.kind == "choice":
             if text not in dict(field.choices):
                 raise ValueError
@@ -180,7 +206,8 @@ def parse(field: Field, raw: str | None):
                                      "number": "Enter a number.", "percent": "Enter a percentage, e.g. 6.",
                                      "time": "Enter a time as HH:MM.",
                                      "timezone": "Not a known time zone (e.g. America/Denver).",
-                                     "email": "Not an email address.", "choice": "Pick one of the options."}
+                                     "email": "Not an email address.", "choice": "Pick one of the options.",
+                                     "model": "Pick one of the models."}
                          .get(field.kind, "Not a valid value.")) from None
 
 

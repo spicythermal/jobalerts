@@ -74,3 +74,60 @@ class JobFilter:
     def is_stale(self, job: Job) -> bool:
         age = job.age_days()
         return age is not None and age > self.c.max_age_days
+
+
+# What happened to each job, in the order of the pipeline (the Filter page's funnel). Each group:
+# (id, label, stage) where stage is "out" (turned down), "wait", "in" (fully scored) or "other".
+GROUPS = [
+    ("too_old", "Posted too long ago", "out"),
+    ("hard_exclude", "Title has an exclude or seniority word", "out"),
+    ("no_word", "Title has no field or role word", "out"),
+    ("location", "Location not on your list", "out"),
+    ("ai_title", "AI first look: title clearly not a fit", "out"),
+    ("ai_posting", "AI first look: posting clearly not a fit", "out"),
+    ("description", "Description has an excluded phrase", "out"),
+    ("move", "Needs a move (you chose to stay)", "out"),
+    ("low_pay", "Pay under your floor", "out"),
+    ("waiting", "Waiting for the AI", "wait"),
+    ("pushed", "Scored: pushed to your phone", "in"),
+    ("digest", "Scored: in the digest", "in"),
+    ("low", "Scored: low fit, stored only", "in"),
+    ("other", "Other (closed, errors, duplicates)", "other"),
+]
+GROUP_LABEL = {g: label for g, label, _ in GROUPS}
+GROUP_STAGE = {g: stage for g, _, stage in GROUPS}
+
+
+def group_of(status: str, reason: str | None) -> str | None:
+    """The funnel group of a stored job; None for jobs never judged (open at a board's first poll)."""
+    reason = reason or ""
+    if status == "baseline":
+        return None
+    if status == "stale":
+        return "too_old"
+    if status == "prescreen":
+        return "waiting"
+    if status == "low_pay":
+        return "low_pay"
+    if status in ("alert", "alerted"):
+        return "pushed"
+    if status in ("digest", "digested", "notify_failed"):
+        return "digest"
+    if status == "low":
+        return "low"
+    if status == "filtered":
+        if reason.startswith("title excludes"):
+            return "hard_exclude"
+        if reason.startswith("title not in include"):
+            return "no_word"
+        if reason.startswith("location"):
+            return "location"
+        if reason.startswith("description excludes"):
+            return "description"
+        if reason.startswith("needs a move"):
+            return "move"
+        if reason == "pre-screen: title":
+            return "ai_title"
+        if reason.startswith("pre-screen:") and "board no longer watched" not in reason:
+            return "ai_posting"
+    return "other"

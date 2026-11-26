@@ -25,6 +25,7 @@ from fastapi.templating import Jinja2Templates
 from ..vault import secret_key
 from . import auth
 from .boards_pages import add_board_routes
+from .filter_pages import add_filter_routes
 from .jobs_pages import add_job_routes
 from .settings_pages import SUBNAV, add_settings_routes
 from .stories_pages import add_story_routes
@@ -33,7 +34,7 @@ log = logging.getLogger(__name__)
 
 HERE = Path(__file__).parent
 OPEN_PATHS = ("/login", "/setup", "/healthz", "/static/", "/map/embed", "/favicon.ico")
-NAV = [("/", "Jobs"), ("/boards", "Boards"), ("/map", "Map"), ("/stories", "Stories"), ("/settings", "Settings")]
+NAV = [("/", "Jobs"), ("/boards", "Boards"), ("/filter", "Filter"), ("/map", "Map"), ("/stories", "Stories"), ("/settings", "Settings")]
 META_HASH, META_VER, META_SHARE = "web.password_hash", "web.password_ver", "web.share_token"
 CSP_APP = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; "
            "connect-src 'self'; form-action 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; "
@@ -296,6 +297,7 @@ def create_app(runner, key: bytes) -> FastAPI:
 
     add_job_routes(app, state, page, require_csrf)
     add_board_routes(app, state, page, require_csrf)
+    add_filter_routes(app, state, page, require_csrf)
     add_story_routes(app, state, page, require_csrf)
     add_settings_routes(app, state, page, require_csrf)
 

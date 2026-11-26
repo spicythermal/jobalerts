@@ -28,6 +28,10 @@ _ULTIPRO = re.compile(r"https?://(recruiting\d*\.ultipro\.com)/([A-Za-z0-9]+)/Jo
 
 
 class Criteria(BaseModel):
+    # keywords: the lists below decide, and the AI pre-screen gets a second look at what they turn down;
+    # ai: only title_exclude, seniority_exclude and max_age_days apply, and every other new job goes to
+    # the AI in stages (titles in batches, then excerpts, then the full score): see prescreen.py
+    mode: Literal["keywords", "ai"] = "keywords"
     title_field: list[str] = []          # field words: pass the title and override title_exclude_soft
     title_include: list[str] = []        # role words: pass the title (field + include empty = everything)
     title_exclude: list[str] = []        # any phrase rejects the job
@@ -73,6 +77,9 @@ class Prescreen(BaseModel):
     title_batch: int = 50               # titles per pass-1 call
     posting_batch: int = 8              # postings per pass-2 call
     excerpt_chars: int = 3000           # description characters shown per posting in pass 2
+    model: str = ""                     # model for both passes; "" = scoring.model (the full score)
+    guidance: str = ""                  # your own words for what to turn down and what to keep
+    ai_delay: int = 120                 # AI-only mode: seconds after new jobs arrive before a run (batches them)
 
 
 class BuyConfig(BaseModel):
