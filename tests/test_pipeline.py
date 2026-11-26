@@ -299,6 +299,7 @@ def test_service_start_skips_aggregators_without_keys(env, monkeypatch):
     monkeypatch.setattr(runner, "_board_loop", fake_loop)
     monkeypatch.setattr(runner, "_daily_loop", no_digest)
     monkeypatch.setattr(runner, "_heartbeat_loop", no_digest)
+    monkeypatch.setattr(runner, "_update_loop", no_digest)
     run(runner.run_forever())
     assert started == ["greenhouse:acme"]
     (msg,) = notifier.sent

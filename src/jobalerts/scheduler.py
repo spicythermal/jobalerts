@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from . import col, colmap, discover, runstate
+from . import col, colmap, discover, runstate, updater
 from .dashboard import MqttPublisher, ai_cost, job_link, top_matches
 from .config import Board, Config
 from .filters import JobFilter
@@ -82,6 +82,9 @@ class Runner:
         self.base_cfg = cfg                 # config.yaml + config.local.yaml, before the UI's settings
         self.rebuild = None                 # (cfg, store) -> (scorer, prescreener, homeassistant); cli.open_runner
         self.running = False                # True inside run_forever (board loops are live)
+        self.config_path = str(cfg.config_dir / "config.yaml")   # cli.open_runner sets the real -c path
+        self.restart_requested = False      # set after an update installed itself: cli.cmd_run restarts
+        self._main_task: asyncio.Task | None = None
         self.board_tasks: dict[str, tuple[Board, asyncio.Task]] = {}
         self.next_poll: dict[str, float] = {}  # board key -> unix time of its next poll
         self._map_built = 0.0
@@ -648,9 +651,11 @@ class Runner:
         last = runstate.last_heartbeat(self.store)
         runstate.beat(self.store)
         self.running = True
+        self._main_task = asyncio.current_task()
         tasks = [asyncio.create_task(self._start_boards(last), name="boards"),
                  asyncio.create_task(self._daily_loop(), name="digest"),
-                 asyncio.create_task(self._heartbeat_loop(), name="heartbeat")]
+                 asyncio.create_task(self._heartbeat_loop(), name="heartbeat"),
+                 asyncio.create_task(self._update_loop(), name="updates")]
         if self.prescreener:
             tasks.append(asyncio.create_task(self._prescreen_loop(), name="prescreen"))
         tasks.append(asyncio.create_task(self.refresh_pay_data(), name="col-refresh"))
@@ -720,6 +725,57 @@ class Runner:
         self.watched = {normalize_company(name) for name in self.cfg.watched_companies()}
         self.sync_boards()
         self._dashboard_stale.set()
+
+    # ------------------------------------------------------------------ updates from the repository
+    def update_status(self) -> updater.UpdateStatus | None:
+        return updater.UpdateStatus.from_json(self.store.get_meta(updater.STATUS_META))
+
+    async def _update_loop(self) -> None:
+        await asyncio.sleep(600)   # not in the way of a start-up catch-up
+        while True:
+            if self.cfg.update.mode != "off":
+                try:
+                    await self.check_updates()
+                except Exception:
+                    log.exception("Update check failed")
+            await asyncio.sleep(max(1, self.cfg.update.interval_hours) * 3600)
+
+    async def check_updates(self, act: bool = True) -> updater.UpdateStatus:
+        """Look for a new version; with update.mode "notify", push once per new version; with "install",
+        install it and restart (when nothing of yours is in the way; otherwise just notify)."""
+        status = await asyncio.to_thread(updater.check)
+        self.store.set_meta(updater.STATUS_META, status.to_json())
+        if not act or not status.available or self.cfg.update.mode == "off":
+            return status
+        if self.cfg.update.mode == "install" and status.can_install:
+            await self.install_update()
+        elif self.store.get_meta("update.notified") != status.latest:
+            changes = "\n".join(f"• {c.split(' ', 1)[-1]}" for c in status.commits[:5])
+            more = f"\n…and {status.behind - 5} more" if status.behind > 5 else ""
+            how = (f"Can't install it on its own: {status.problem}" if status.problem
+                   else "Install it on Settings → Updates (or `jobalerts update`).")
+            home = self.cfg.web.public_url.rstrip("/")
+            await self.notifier.send(f"Job alerts update: {status.behind} change{'s' if status.behind != 1 else ''}",
+                                     f"{changes}{more}\n{how}", priority=2, tags=["arrow_up"],
+                                     click=f"{home}/settings/updates" if home else None)
+            self.store.set_meta("update.notified", status.latest)
+        return status
+
+    async def install_update(self) -> tuple[bool, str]:
+        """Install the newest version (see updater.install) and, in the service, restart into it."""
+        ok, message = await asyncio.to_thread(updater.install, None, config=self.config_path, store=self.store)
+        self.store.set_meta(updater.STATUS_META, (await asyncio.to_thread(updater.check, None, False)).to_json())
+        await self.notifier.send("Job alerts updated" if ok else "Job alerts update failed", message,
+                                 priority=2 if ok else 3, tags=["arrow_up"] if ok else ["warning"])
+        if ok and self.running:
+            asyncio.get_running_loop().call_later(1.0, self.request_restart)   # after the web page answered
+        return ok, message
+
+    def request_restart(self) -> None:
+        """Stop the service so cli.cmd_run starts the updated version."""
+        self.restart_requested = True
+        if self._main_task:
+            self._main_task.cancel()
 
     # ------------------------------------------------------------------ catching up after a gap
     def catchup_report(self) -> dict | None:
@@ -984,6 +1040,9 @@ class Runner:
             lines.append(f"Pay index: {self.pay_problem}")
         if self.pay and self.pay.taxes and (problem := self.pay.taxes.problem()):
             lines.append(f"Pay index: {problem}")
+        if (update := self.update_status()) and update.available and self.cfg.update.mode != "off":
+            lines.append(f"Update available: {update.behind} change(s) (Settings → Updates)"
+                         + (f"; can't install on its own: {update.problem}" if update.problem else ""))
         failing = [b for b in self.store.boards() if b["failures"]]
         if failing:
             lines.append("Failing boards: " + "; ".join(

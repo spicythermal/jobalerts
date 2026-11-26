@@ -1,4 +1,4 @@
-"""Command line: jobalerts run | web | set-password | poll | discover | test-notify | digest | top | stats | backfill | map | pay"""
+"""Command line: jobalerts run | web | set-password | update | check | backup | poll | discover | test-notify | digest | top | stats | backfill | map | pay"""
 from __future__ import annotations
 
 import argparse
@@ -162,15 +162,31 @@ async def cmd_run(cfg: Config, args) -> int:
               "One `run` per database; `jobalerts web` can run alongside it.")
         return 1
     stop_on_signals()
+    restart = False
     try:
         async with open_runner(cfg) as runner:
+            runner.config_path = args.config
             try:
                 await runner.run_forever()
             except asyncio.CancelledError:
                 log.info("Stopped")
+            restart = runner.restart_requested
     finally:
         lock.release()
+    if restart:
+        restart_into_new_version()
     return 0
+
+
+def restart_into_new_version() -> None:
+    """After an update: start the new code in this process's place (same arguments). On Windows,
+    exit with 75 instead; the logon task (contrib/jobalerts-startup.ps1) starts it again."""
+    log.info("Restarting into the updated version")
+    for handler in logging.getLogger().handlers:
+        handler.flush()
+    if os.name == "nt":
+        raise SystemExit(75)
+    os.execv(sys.executable, [sys.executable, "-m", "jobalerts", *sys.argv[1:]])
 
 
 def stop_on_signals() -> None:
@@ -216,6 +232,52 @@ async def cmd_set_password(cfg: Config, args) -> int:
         store.close()
     print("Password set. Every logged-in browser has to log in again.")
     return 0
+
+
+async def cmd_check(cfg: Config, args) -> int:
+    """Does this version start with these settings and this database? (The updater runs it on new code.)"""
+    from .web.app import create_app
+    async with open_runner(cfg, memory_store=False) as runner:
+        create_app(runner, secret_key(cfg))
+        problems = runner.cfg.config_problems
+        print(f"ok: {len(runner.active_boards())} boards, pay index {'on' if runner.pay else 'off'}, "
+              f"database schema {runner.store.db.execute('PRAGMA user_version').fetchone()[0]}"
+              + (f"; {len(problems)} setting(s) set aside" if problems else ""))
+    return 0
+
+
+async def cmd_backup(cfg: Config, args) -> int:
+    """A consistent copy of the database in data/backups/ (safe while jobalerts runs)."""
+    store = Store(cfg.database)
+    try:
+        print(store.backup("manual"))
+    finally:
+        store.close()
+    return 0
+
+
+async def cmd_update(cfg: Config, args) -> int:
+    """Check for a new version in the git repository, or install it (then restart `jobalerts run`)."""
+    from . import updater
+    status = await asyncio.to_thread(updater.check)
+    if status.available:
+        print(f"{status.behind} new change(s) on {status.upstream} ({status.current} → {status.latest}):")
+        for line in status.commits[:15]:
+            print(f"  {line}")
+    else:
+        print(f"Up to date ({status.current or 'unknown version'}{', ' + status.current_date if status.current_date else ''}).")
+    if status.problem:
+        print(f"Can't update automatically: {status.problem}")
+        return 1 if args.check is False and status.available else 0
+    if args.check or not status.available:
+        return 0
+    store = Store(cfg.database)
+    try:
+        ok, message = await asyncio.to_thread(updater.install, Path(status.repo), config=args.config, store=store)
+    finally:
+        store.close()
+    print(message + (". Restart `jobalerts run` (it restarts itself when it updates on its own)." if ok else ""))
+    return 0 if ok else 1
 
 
 async def cmd_poll(cfg: Config, args) -> int:
@@ -648,7 +710,8 @@ async def cmd_pay(cfg: Config, args) -> int:
 
 COMMANDS = {"run": cmd_run, "poll": cmd_poll, "discover": cmd_discover, "test-notify": cmd_test_notify,
             "digest": cmd_digest, "top": cmd_top, "stats": cmd_stats, "backfill": cmd_backfill, "pay": cmd_pay,
-            "map": cmd_map, "web": cmd_web, "set-password": cmd_set_password}
+            "map": cmd_map, "web": cmd_web, "set-password": cmd_set_password, "check": cmd_check,
+            "backup": cmd_backup, "update": cmd_update}
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -660,6 +723,11 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("run", help="run the service: poll every board on its tier interval, forever, with the web UI")
     sub.add_parser("web", help="serve the web UI only (no polling or pushes), over the same database")
     sub.add_parser("set-password", help="set or reset the web UI password")
+    u = sub.add_parser("update", help="install the newest version from the git repository (fast-forward only; "
+                                      "backs up the database; rolls back if the new version fails its check)")
+    u.add_argument("--check", action="store_true", help="only show what's new")
+    sub.add_parser("check", help="check that this version starts with your settings and database")
+    sub.add_parser("backup", help="copy the database to data/backups/")
     p = sub.add_parser("poll", help="poll every board once")
     p.add_argument("--once", action="store_true", help="single pass (the default; accepted for clarity)")
     p.add_argument("--dry-run", action="store_true", help="fetch and filter only: store nothing, send nothing")

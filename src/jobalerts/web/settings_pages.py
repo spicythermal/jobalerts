@@ -25,7 +25,7 @@ log = logging.getLogger(__name__)
 
 SUBNAV = [("situation", "Your situation"), ("search", "What to look for"), ("alerts", "Scoring and alerts"),
           ("connections", "Connections"), ("keys", "API keys"), ("profile", "Profile and resumes"),
-          ("account", "Account")]
+          ("updates", "Updates"), ("account", "Account")]
 RESUME_TYPES = {".pdf", ".md", ".txt"}
 MAX_RESUME = 5 * 1024 * 1024
 NO_TEST = ("No test button: each call uses paid credits or a small trial allowance. The Boards page shows "
@@ -110,6 +110,25 @@ def add_settings_routes(app: FastAPI, state, page, require_csrf) -> None:
         message = _redactor.redact(message)
         return page(request, "key_test.html", ok=ok, message=message)
 
+    # ------------------------------------------------------------------ updates
+    def updates_page(request: Request, saved: str, message: str = ""):
+        return page(request, "settings_updates.html", **context(
+            "updates", status=runner.update_status(), rows=field_rows("updates", runner.cfg), errors={}, saved=saved,
+            message=message, running=runner.running))
+
+    @app.post("/settings/updates/check", dependencies=[Depends(require_csrf)])
+    async def check_now(request: Request):
+        await runner.check_updates(act=False)
+        return RedirectResponse("/settings/updates?saved=checked", 303)
+
+    @app.post("/settings/updates/install", dependencies=[Depends(require_csrf)])
+    async def update_now(request: Request):
+        ok, message = await runner.install_update()
+        if ok:
+            message += (". Restarting into it now; reload this page in a minute." if runner.running
+                        else ". Restart jobalerts to use it.")
+        return updates_page(request, "", message)
+
     # ------------------------------------------------------------------ profile and resumes
     def profile_path() -> Path:
         return runner.cfg.resolve(runner.cfg.scoring.profile_path)
@@ -168,6 +187,8 @@ def add_settings_routes(app: FastAPI, state, page, require_csrf) -> None:
             return keys_page(request, saved)
         if section == "profile":
             return profile_page(request, saved)
+        if section == "updates":
+            return updates_page(request, saved)
         if section not in st.SECTIONS:
             raise HTTPException(404)
         cfg = runner.cfg

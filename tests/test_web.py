@@ -237,7 +237,8 @@ def test_the_service_starts_the_web_ui(runner, monkeypatch):
     async def nothing(*a, **k):
         return None
     monkeypatch.setattr("jobalerts.web.app.serve", fake_serve)
-    for name in ("_board_loop", "_daily_loop", "_dashboard_loop", "_heartbeat_loop", "refresh_pay_data"):
+    for name in ("_board_loop", "_daily_loop", "_dashboard_loop", "_heartbeat_loop", "_update_loop",
+                 "refresh_pay_data"):
         monkeypatch.setattr(runner, name, nothing)
     monkeypatch.setattr(runner.cfg, "companies", runner.cfg.companies[:1])
     run(runner.run_forever())

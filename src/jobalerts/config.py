@@ -165,6 +165,13 @@ class RunConfig(BaseModel):
     report_hours: int = 24               # the jobs page shows the last catch-up report this long
 
 
+class UpdateConfig(BaseModel):
+    """Updates from the git repository (updater.py). notify: a push once per new version and a line in
+    the digest; install: also install it and restart (when nothing of yours is in the way)."""
+    mode: Literal["off", "notify", "install"] = "notify"
+    interval_hours: int = 24             # once a day
+
+
 class WebConfig(BaseModel):
     """The web UI (web/app.py), served by `jobalerts run` and `jobalerts web`."""
     enabled: bool = True
@@ -268,6 +275,7 @@ class Config(BaseModel):
     map: MapConfig = MapConfig()
     web: WebConfig = WebConfig()
     run: RunConfig = RunConfig()
+    update: UpdateConfig = UpdateConfig()
     aggregators: Aggregators = Aggregators()
     companies: list[Company] = []
     config_dir: Path = Path(".")

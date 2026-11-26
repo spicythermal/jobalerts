@@ -25,7 +25,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "ruff>=0.6"]
+dev = ["pytest>=8", "pytest-timeout>=2.3", "ruff>=0.6"]
 taxes = ["policyengine-us==2.88.9"]   # only to rebuild config/tax_data/ (tools/build_tax_data.py; Python <= 3.14)
 
 [project.scripts]
@@ -39,6 +39,7 @@ jobalerts = ["map_template.html", "examples/*", "examples/stories/*", "web/templ
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+timeout = 60          # a test that hangs (a service loop left running) fails instead of stalling the run
 pythonpath = ["src"]
 
 [tool.ruff]
@@ -50,4 +51,4 @@ select = ["F", "B"]          # pyflakes (undefined names, unused imports) and li
 ignore = ["B905", "B008"]    # zip(strict=) and FastAPI's Form()/Depends() defaults are intended
 
 [tool.ruff.lint.per-file-ignores]
-"tests/test_catchup.py" = ["F811"]   # reuses test_pipeline's `env` fixture by importing it
+"tests/*" = ["F811"]   # tests reuse test_pipeline's `env` fixture by importing it

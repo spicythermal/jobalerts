@@ -46,6 +46,7 @@ SECTIONS = {
     "search": "What to look for",
     "alerts": "Scoring and alerts",
     "connections": "Notifications and Home Assistant",
+    "updates": "Updates",
 }
 
 FIELDS: list[Field] = [
@@ -115,6 +116,12 @@ FIELDS: list[Field] = [
           "The Home Assistant box's address (Mosquitto add-on). The password is under API keys."),
     Field("homeassistant.mqtt_port", "MQTT port", "int", "connections"),
     Field("homeassistant.mqtt_username", "MQTT user", "text", "connections"),
+    # -- updates
+    Field("update.mode", "When a new version is out", "choice", "updates",
+          "Checked once a day against the git repository this copy came from. Installing never overwrites "
+          "anything of yours, backs up the database first, and goes back if the new version fails its check.",
+          choices=(("notify", "Tell me (push and digest)"), ("install", "Install it and restart"), ("off", "Don't check"))),
+    Field("update.interval_hours", "Check every (hours)", "int", "updates"),
 ]
 BY_KEY = {f.key: f for f in FIELDS}
 _TIME = re.compile(r"^([01]?\d|2[0-3]):[0-5]\d$")

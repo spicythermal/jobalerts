@@ -1,0 +1,48 @@
+{% extends "settings_base.html" %}
+{% block settings %}
+<h2>Updates</h2>
+{% if message %}<p class="{{ 'error' if 'failed' in message or 'rolled back' in message else 'ok' }}" role="status">{{ message }}</p>{% endif %}
+{% if saved == "checked" %}<p class="ok" role="status">Checked.</p>{% elif saved == "1" %}<p class="ok" role="status">Saved.</p>{% endif %}
+<section class="card stack">
+  {% if status %}
+  <p>This copy: <span class="mono">{{ status.current or "unknown" }}</span>{% if status.current_date %} ({{ status.current_date }}){% endif %}
+    {% if status.upstream %}· updates from <span class="mono">{{ status.upstream }}</span>{% endif %}
+    <span class="muted small">· checked {{ status.checked_at[:16]|replace("T", " ") }} UTC</span></p>
+  {% if status.available %}
+  <h3>{{ status.behind }} new change{{ "s" if status.behind != 1 }} (to <span class="mono">{{ status.latest }}</span>)</h3>
+  <ul class="plain small">{% for c in status.commits %}<li><span class="mono">{{ c[:7] }}</span> {{ c[8:] }}</li>{% endfor %}</ul>
+  {% else %}
+  <p class="ok">Up to date.</p>
+  {% endif %}
+  {% if status.problem %}<p class="error">Can't update on its own: {{ status.problem }}</p>{% endif %}
+  {% else %}
+  <p class="muted">Not checked yet.</p>
+  {% endif %}
+  <div class="row start">
+    <form method="post" action="/settings/updates/check"><input type="hidden" name="csrf" value="{{ csrf }}">
+      <button type="submit" class="secondary">Check now</button></form>
+    {% if status and status.can_install %}
+    <form method="post" action="/settings/updates/install" hx-confirm="Install {{ status.behind }} change(s) and restart?">
+      <input type="hidden" name="csrf" value="{{ csrf }}"><button type="submit">Update now</button></form>
+    {% endif %}
+  </div>
+  <p class="help">An update fast-forwards to the newest version, backs up the database first (data/backups/), and goes
+  back by itself if the new version fails its start-up check. Everything of yours is in data/ and isn't touched.
+  A Docker install is updated from the host: <code>tools/update-docker.sh</code>.</p>
+</section>
+<form method="post" action="/settings/updates" class="card stack">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  {% for row in rows %}{% set f = row.f %}
+  <div class="field">
+    <label for="u-{{ loop.index }}">{{ f.label }}</label>
+    {% if f.kind == "choice" %}
+    <select id="u-{{ loop.index }}" name="{{ f.key }}">{% for value, text in f.choices %}<option value="{{ value }}"{% if row.value == value %} selected{% endif %}>{{ text }}</option>{% endfor %}</select>
+    {% else %}
+    <input id="u-{{ loop.index }}" name="{{ f.key }}" value="{{ row.value }}" inputmode="numeric">
+    {% endif %}
+    {% if f.help %}<p class="help">{{ f.help }}</p>{% endif %}
+  </div>
+  {% endfor %}
+  <button type="submit">Save</button>
+</form>
+{% endblock %}
