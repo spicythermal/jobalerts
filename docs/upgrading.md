@@ -35,6 +35,28 @@ written by a newer version is opened without changes (with a warning in the log)
 
 ## How to update
 
+**Automatically (a git checkout run with Python: a desktop, or a server without Docker).** The
+service checks the repository once a day. Settings → Updates (or `update.mode`) decides what then
+happens: *Tell me* (the default) pushes once per new version and lists it in the digest; *Install it*
+installs it and restarts; *Don't check*. "Update now" on that page, or `jobalerts update`, installs
+right away; `jobalerts update --check` only shows what's new. Installing:
+
+1. refuses (and says why) if shipped files were changed here or there are commits of your own;
+2. moves an older install's files into `data/` if the new version stops tracking them;
+3. backs up the database to `data/backups/`;
+4. fast-forwards to the branch's upstream and reinstalls the package;
+5. runs `jobalerts check` with the new code (settings load, database opens, web UI builds), and if
+   that fails, goes back to the previous version and reinstalls it;
+6. restarts `jobalerts run` into the new version (on Windows the logon task restarts it).
+
+**Docker.** Updates run on the host: `tools/update-docker.sh` (`--check` to only look) does the same
+steps with `docker compose`, backs up through the running container, and after rebuilding waits for
+the new version to answer `/healthz` and pass `jobalerts check`, or rebuilds the previous one. To run
+it once a day, install `contrib/jobalerts-update.service` and `contrib/jobalerts-update.timer`
+(instructions inside). `COMPOSE="podman compose"` and `HEALTH_URL=…` adapt it to your setup.
+
+**By hand:**
+
 ```sh
 git pull
 docker compose up -d --build        # Docker

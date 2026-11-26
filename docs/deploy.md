@@ -101,3 +101,10 @@ day, so it resets at 4–5 PM Pacific) and stop when only `scoring.backfill_rese
 so new postings can still be scored that day. Run them again after the reset to continue: `--rescore`
 skips jobs already scored against the current stories and profile. If the budget does run out, new
 matches go to the digest unscored instead of being pushed, and one phone notice says so.
+
+### Automatic updates
+
+`tools/update-docker.sh` updates this install from its git repository: it backs up the database,
+fast-forwards, rebuilds, checks that the new version comes up, and goes back if it doesn't. Run it by
+hand, or once a day with `contrib/jobalerts-update.service` + `.timer` (instructions inside them).
+See [upgrading.md](upgrading.md).

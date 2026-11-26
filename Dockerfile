@@ -6,6 +6,9 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
 WORKDIR /app
+# The commit this image was built from (tools/update-docker.sh passes it; shown on Settings > Updates).
+ARG JOBALERTS_VERSION=unknown
+ENV JOBALERTS_VERSION=$JOBALERTS_VERSION
 COPY pyproject.toml ./
 COPY src ./src
 RUN pip install . \

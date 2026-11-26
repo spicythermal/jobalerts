@@ -115,7 +115,7 @@ protected and how), [docs/architecture.md](docs/architecture.md) (how it's built
 ## Commands
 
 ```
-jobalerts [-c CONFIG] [-v] {run,web,set-password,poll,discover,test-notify,digest,top,stats,backfill,map,pay}
+jobalerts [-c CONFIG] [-v] {run,web,set-password,update,check,backup,poll,discover,test-notify,digest,top,stats,backfill,map,pay}
 
   run                  the service: polls every board on its interval, with the web UI on port 8765
   web                  the web UI only (no polling or pushes), over the same database
@@ -135,6 +135,9 @@ jobalerts [-c CONFIG] [-v] {run,web,set-password,poll,discover,test-notify,diges
   pay [SALARY LOCATION] [--remote] [--update]
                        explain the pay index for a salary and place; --update refreshes price data
   map [--out FILE]     write the cost-of-living map to a file (default data/map.html)
+  update [--check]     install the newest version from the git repository (or just show it)
+  check                check that this version starts with your settings and database
+  backup               copy the database to data/backups/
 ```
 
 `-c` defaults to `config/config.yaml` (or `$JOBALERTS_CONFIG`); `$JOBALERTS_DB` overrides the
@@ -142,7 +145,10 @@ database path.
 
 ## Updating
 
-`git pull`, then `docker compose up -d --build` (or `pip install -e .` and restart). Your settings,
+jobalerts checks its git repository once a day and tells you about a new version, or installs it
+itself (Settings → Updates; `jobalerts update`). A Docker install updates from the host with
+`tools/update-docker.sh`, daily with the timer in `contrib/`. By hand: `git pull`, then
+`docker compose up -d --build` (or `pip install -e .` and restart). Your settings,
 keys, watch list, stories, resumes and database are all in `data/`, which updates never touch; the
 database is backed up before an upgrade changes it, and a setting a new version can't use is set
 aside on its own (the Settings page lists it) instead of stopping anything. Details and the few ways

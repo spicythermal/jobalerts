@@ -1,0 +1,11 @@
+# Once a day, at a random time within the hour after 04:00 (and at boot if a run was missed).
+[Unit]
+Description=Update jobalerts (Docker) once a day
+
+[Timer]
+OnCalendar=*-*-* 04:00:00
+RandomizedDelaySec=1h
+Persistent=true
+
+[Install]
+WantedBy=timers.target

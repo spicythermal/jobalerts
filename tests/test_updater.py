@@ -195,3 +195,23 @@ def test_updates_page(env, monkeypatch):
     assert "Restart jobalerts" in client.post("/settings/updates/install", data={"csrf": token}).text and installs
     r = client.post("/settings/updates", data={"csrf": token, "update.mode": "install", "update.interval_hours": "24"})
     assert r.status_code == 303 and runner.cfg.update.mode == "install"
+
+
+def test_restart_runs_the_same_command_with_the_new_code(monkeypatch):
+    from jobalerts import cli
+    calls = []
+    monkeypatch.setattr(cli.os, "name", "posix")
+    monkeypatch.setattr(cli.os, "execv", lambda exe, args: calls.append((exe, args)))
+    monkeypatch.setattr(cli.sys, "argv", ["/venv/bin/jobalerts", "-c", "config/config.yaml", "run"])
+    cli.restart_into_new_version()
+    assert calls == [(cli.sys.executable, [cli.sys.executable, "-m", "jobalerts", "-c", "config/config.yaml", "run"])]
+    monkeypatch.setattr(cli.os, "name", "nt")
+    with pytest.raises(SystemExit) as stop:
+        cli.restart_into_new_version()
+    assert stop.value.code == 75                       # the Windows logon task starts it again
+
+
+def test_a_docker_image_shows_its_version(monkeypatch):
+    monkeypatch.setattr(updater, "find_repo", lambda start=None: None)
+    monkeypatch.setenv("JOBALERTS_VERSION", "abc1234")
+    assert updater.check().current == "abc1234"

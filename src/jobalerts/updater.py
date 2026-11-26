@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import subprocess
 import sys
 from dataclasses import asdict, dataclass, field
@@ -80,7 +81,8 @@ def git(repo: Path, *args: str, timeout: int = 120) -> str:
 
 def check(repo: Path | None = None, fetch: bool = True) -> UpdateStatus:
     """What's new on the upstream, and whether it can be installed automatically."""
-    status = UpdateStatus(checked_at=datetime.now(timezone.utc).isoformat(timespec="seconds"))
+    status = UpdateStatus(checked_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                          current=os.environ.get("JOBALERTS_VERSION", ""))   # set in the Docker image
     repo = repo or find_repo()
     if repo is None:
         status.problem = ("not a git checkout: a Docker install is updated from the host with "
@@ -132,7 +134,8 @@ def smoke_test(repo: Path, config: str) -> None:
     result = subprocess.run([sys.executable, "-m", "jobalerts", "-c", config, "check"], cwd=repo,
                             capture_output=True, text=True, timeout=300)
     if result.returncode:
-        raise RuntimeError(f"the new version's check failed: {(result.stdout + result.stderr).strip()[-800:]}")
+        lines = [line.strip() for line in (result.stdout + result.stderr).splitlines() if line.strip()]
+        raise RuntimeError("the new version's check failed: " + " / ".join(lines[-2:])[-400:])
 
 
 def install(repo: Path | None = None, *, config: str = "config/config.yaml", store=None,

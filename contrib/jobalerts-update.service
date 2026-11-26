@@ -1,0 +1,14 @@
+# Runs tools/update-docker.sh (a Docker install's daily update). Installed with the timer:
+#   sudo cp contrib/jobalerts-update.service contrib/jobalerts-update.timer /etc/systemd/system/
+#   # edit WorkingDirectory below to your jobalerts folder
+#   sudo systemctl daemon-reload && sudo systemctl enable --now jobalerts-update.timer
+#   journalctl -u jobalerts-update        # what each run did
+[Unit]
+Description=Update jobalerts (Docker) from its git repository
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/jobalerts
+ExecStart=/bin/sh tools/update-docker.sh
