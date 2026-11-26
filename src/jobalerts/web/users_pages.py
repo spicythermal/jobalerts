@@ -13,7 +13,7 @@ import socket
 from fastapi import Depends, FastAPI, Form, HTTPException, Request
 from fastapi.responses import RedirectResponse
 
-from .. import settings as st
+from .. import settings as st, updater
 from ..users import OWNER, ROLES, UserError, check_username, one_time_password
 
 log = logging.getLogger(__name__)
@@ -47,8 +47,9 @@ def add_user_routes(app: FastAPI, state, page, require_csrf) -> None:
                          "checked": (f.key in submitted) if submitted is not None else bool(value),
                          "source": me.cfg.value_sources.get(f.key, "default")})
         cfg = runner.cfg
-        address = ""
-        if cfg.web.bind not in ("127.0.0.1", "localhost") and (ip := lan_address()):
+        address = cfg.web.public_url.rstrip("/")
+        if not address and updater.is_packaged() and cfg.web.bind not in ("127.0.0.1", "localhost") \
+                and (ip := lan_address()):     # the desktop app with web.lan on
             address = f"http://{ip}:{cfg.web.port}"
         return page(request, "users.html", users=users.all(), rows=rows, errors=errors or {}, saved=saved,
                     error=error, made=made, roles=ROLES, owner=OWNER, me_id=request.state.user.id, address=address,

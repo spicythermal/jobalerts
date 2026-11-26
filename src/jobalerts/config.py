@@ -367,6 +367,9 @@ def _read_yaml(path: Path) -> dict:
 # A user's own sections: someone other than user 1 starts from the shipped config.yaml's values for
 # these, never from config.local.yaml (the first user's file).
 PERSONAL_SECTIONS = ("criteria", "scoring", "prescreen", "pay", "intent", "household", "notify")
+# ...of `pay`, only these (the price and tax tables are the install's)
+PERSONAL_PAY = ("reference_salary", "reference_location", "min_index", "move_min_index", "locations", "buy",
+                "current_home")
 
 
 def shipped_personal(path: str | Path) -> dict:

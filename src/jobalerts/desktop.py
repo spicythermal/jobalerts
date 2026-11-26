@@ -304,6 +304,23 @@ def self_test() -> int:
     return 0 if ok else 1
 
 
+def lan_enabled(home: Path) -> bool:
+    """Settings → Connections, "other computers on this network can open it" (web.lan, the install's)."""
+    path = Path(os.environ.get("JOBALERTS_DB") or home / "data" / "jobalerts.db")
+    if not path.is_file():
+        return False
+    import sqlite3
+    try:
+        db = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        try:
+            row = db.execute("SELECT value FROM settings_by_user WHERE user_id=0 AND key='web.lan'").fetchone()
+        finally:
+            db.close()
+        return bool(row) and json.loads(row[0]) is True
+    except (sqlite3.Error, ValueError):
+        return False
+
+
 def main(argv: list[str] | None = None) -> int:
     for name in ("stdout", "stderr"):     # a windowed app has no console
         if getattr(sys, name) is None:
@@ -325,7 +342,8 @@ def main(argv: list[str] | None = None) -> int:
     setup_logging(home)
     os.chdir(home)
     code = f"{secrets.token_hex(2).upper()}-{secrets.token_hex(2).upper()}"
-    os.environ.update(JOBALERTS_WEB_BIND="127.0.0.1", JOBALERTS_WEB_PORT=str(port), JOBALERTS_SETUP_CODE=code)
+    bind = "0.0.0.0" if lan_enabled(home) else "127.0.0.1"   # this computer only, unless set otherwise
+    os.environ.update(JOBALERTS_WEB_BIND=bind, JOBALERTS_WEB_PORT=str(port), JOBALERTS_SETUP_CODE=code)
 
     from .runstate import InstanceLock
     probe = InstanceLock(home / "data" / "jobalerts.lock")

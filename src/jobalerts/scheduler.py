@@ -888,7 +888,7 @@ class Runner:
         the shipped defaults (not user 1's config.local.yaml or .env), and their own folder."""
         if uid == OWNER:
             return self.base_cfg
-        from .config import PERSONAL_SECTIONS, shipped_personal
+        from .config import PERSONAL_PAY, PERSONAL_SECTIONS, shipped_personal
         from .users import user_folder
         if self._shipped is None:
             path = self.base_cfg.config_dir / "config.yaml"
@@ -896,14 +896,18 @@ class Runner:
                 k: v for k, v in Config().model_dump().items() if k in PERSONAL_SECTIONS}
         base = self.base_cfg
         data = base.model_dump(exclude={"companies", "config_dir", "value_sources", "config_problems"})
-        data.update(json.loads(json.dumps(self._shipped)))
+        shipped = json.loads(json.dumps(self._shipped))
+        pay = shipped.pop("pay", {})
+        data["pay"].update({k: pay[k] for k in PERSONAL_PAY if k in pay})
+        data.update(shipped)
         folder = user_folder(self.data_dir, uid)
         data["scoring"].update(profile_path=str(folder / "profile.md"), resume_dir=str(folder / "resumes"),
                                stories_dir=str(folder / "stories"))
         data["notify"].update(topic="", token="")
         cfg = Config.model_validate(data)
         cfg.config_dir, cfg.companies = base.config_dir, base.companies
-        cfg.value_sources = {k: v for k, v in base.value_sources.items() if k.split(".")[0] not in PERSONAL_SECTIONS}
+        cfg.value_sources = {k: v for k, v in base.value_sources.items() if k.split(".")[0] not in PERSONAL_SECTIONS
+                             or (k.startswith("pay.") and k.split(".")[1] not in PERSONAL_PAY)}
         return cfg
 
     def config_for(self, uid: int) -> Config:
