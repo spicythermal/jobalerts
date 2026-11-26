@@ -8,7 +8,7 @@
 #   journalctl --user -u jobalerts -f        # the log (the first-run setup code is printed here)
 #
 # To keep it running while you're logged out too: loginctl enable-linger $USER
-# When the computer sleeps, the service notices the gap on waking and catches up by itself.
+# After sleep or shutdown it catches up on start (docs/desktop-mode.md).
 
 [Unit]
 Description=jobalerts: job board watcher and web UI

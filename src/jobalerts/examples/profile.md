@@ -1,9 +1,8 @@
 # Candidate profile (used for AI fit scoring)
 
-Replace every section below with your own details; edit it on the Settings page or in
-`data/profile.md`. The more specific you are about what "impactful" means to you, the better
-the scores. Salary, home and stay-or-move preferences live on the Settings page; the AI is
-told your stay-or-move preference automatically.
+Replace each section with your own details (Settings → Profile and resumes, or `data/profile.md`).
+Salary, home and stay-or-move are set on Settings → Your situation; the AI receives the stay-or-move
+choice automatically.
 
 ## Summary
 - Current/last role and years of experience:

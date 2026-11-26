@@ -5,7 +5,7 @@
 # It registers a task "jobalerts" that runs `jobalerts run` hidden when you log in and restarts it if it
 # stops. The log goes to data\jobalerts.log (the first-run setup code for the web UI is printed there).
 # Remove it with:  Unregister-ScheduledTask -TaskName jobalerts -Confirm:$false
-# When the computer sleeps, the service notices the gap on waking and catches up by itself.
+# After sleep or shutdown it catches up on start (docs/desktop-mode.md).
 
 $folder = (Resolve-Path "$PSScriptRoot\..").Path
 $exe = Join-Path $folder ".venv\Scripts\jobalerts.exe"

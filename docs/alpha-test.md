@@ -1,109 +1,95 @@
-# Alpha test: the web UI
+# Web UI test checklist
 
-Write down anything that fails or reads wrong, with the URL, the device and browser, and a
-screenshot if you can.
+For each failure, note the URL, device, browser, and a screenshot if possible.
 
 ## 0. First start
 
 ```sh
 git pull && docker compose up -d --build
-docker compose logs jobalerts | grep "setup code"     # the one-time code
+docker compose logs jobalerts | grep "setup code"
 curl -s http://<jobalerts-host>:8765/healthz          # expect: ok
 ```
 
-- [ ] `http://<jobalerts-host>:8765/` sends you to `/setup`; the code from the log and a password log you in
-- [ ] A wrong password a few times makes you wait; `jobalerts set-password` resets it
-- [ ] Log out, log in from your phone: the pages fit the screen, the nav scrolls sideways
+- [ ] `/` redirects to `/setup`; the setup code and a new password log you in
+- [ ] Several wrong passwords cause a delay; `jobalerts set-password` resets the password
+- [ ] On a phone, pages fit the screen and the nav scrolls sideways
 
 ## A. Jobs
 
-- [ ] Recommended lists matches with fit, step-up and pay index; the filters narrow it
-- [ ] Save / Dismiss / Applied work in the list and on a job's page; dismissed jobs leave
+- [ ] Recommended shows fit, step-up and pay index; filters narrow the list
+- [ ] Save, Dismiss and Applied work in the list and on a job's page; dismissed jobs leave
       Recommended and the Home Assistant sensor
-- [ ] A job's page shows the summary, red flags, stories, resume and the pay breakdown
-- [ ] With Settings → Connections → address set, tapping a phone alert opens that job's page
-      (Open posting still goes to the employer)
+- [ ] A job's page shows summary, red flags, stories, resume and pay calculation
+- [ ] With Settings → Connections → address set, a push opens the job's page
 
 ## B. Boards
 
-- [ ] Every watched company appears with its status; a failing one is at the top with its error
-- [ ] "Find its job board" for a company you know finds its board; Add puts it on the list and
-      it starts polling (Next fills in)
-- [ ] Turn off / Turn on, tier and Remove change `data/companies.yaml` and keep its comments
+- [ ] Each watched company is listed with its status; failing boards are first, with the error
+- [ ] "Find its job board" finds a known company's board; Add lists it and Next fills in
+- [ ] Turn off, Turn on, tier and Remove change `data/companies.yaml` and keep its comments
 
-## C. Stories
+## C. Filter
 
-- [ ] Editing a story updates "What the AI sees" as you type; TODOs and talk tracks stay out
-- [ ] Save keeps the file's comments when you didn't change the fields
-- [ ] After a change, "Re-score" redoes the recent scores (progress shows; nothing is pushed)
+- [ ] The counts add up to "new jobs"; each group link lists its jobs with a reason
+- [ ] "Score it" on a turned-down job shows a score; nothing is pushed
+- [ ] Preview lists jobs that would change; "Try a title" gives a result; neither saves
+- [ ] Save, then a new poll uses the new lists; Reset restores the defaults
+- [ ] AI only: new jobs show "Waiting for the AI", then a decision within a few minutes
 
-## D. Settings
+## D. Stories
 
-- [ ] Your situation: salary, home, housing cost, household and stay-or-move save and change the
-      pay indexes at once (`jobalerts pay` agrees)
-- [ ] API keys: a saved key shows only "set"; Test answers for Anthropic and ntfy; Clear works
-- [ ] Profile and resumes: edits save; an uploaded resume is listed; Remove moves it to .trash
-- [ ] Account: the Home Assistant link opens the map without logging in, and nothing else
+- [ ] "What the AI sees" updates while typing; TODOs and talk notes are excluded
+- [ ] Saving without changing the fields keeps the file's comments
+- [ ] "Re-score" shows progress and pushes nothing
 
-## E. Off and on again (desktop mode)
+## E. Settings
 
-- [ ] Stop it for an hour or more (or sleep the PC), start it: one "Catch-up" push, the best few
-      as their own pushes, a "Since you were away" box on the jobs page
-- [ ] A second `jobalerts run` on the same data stops with "already running"
+- [ ] Your situation: changes update the pay indexes (`jobalerts pay` agrees)
+- [ ] API keys: a saved key shows only "set"; Test works for Anthropic and ntfy; Clear works
+- [ ] Profile and resumes: edits save; uploads are listed; Remove moves a file to `.trash`
+- [ ] Account: the map link opens the map without a login, and nothing else
 
-## F. The map
+## F. Gaps (desktop mode)
 
-Check a few against the command line (`docker compose exec jobalerts jobalerts pay 250000 "<city>"`).
-Open a dot's popup with the slider at $250K.
+- [ ] Stop it for over an hour (or sleep the PC), then start it: one "Catch-up" push, up to 3 job
+      pushes, and a "Since you were away" box on the Jobs page
+- [ ] A second `jobalerts run` on the same data exits with "already running"
 
-Check a few against the command line (`docker compose exec jobalerts jobalerts pay 250000 "<city>"`).
-Open a dot's popup with the slider at $250K.
+## G. Map
 
-- [ ] Your home dot (the ringed one) has a break-even equal to your reference salary for renting and buying
-- [ ] Albuquerque, Austin and Boston: rent and buy index in the popup match `jobalerts pay` to 0.01
-- [ ] San Jose metro: compare with `jobalerts pay 250000 "Santa Clara, CA"` (rent ≈ 1.28, buy ≈ 0.70)
-- [ ] A city with its own blend (e.g. Tacoma): the job/`pay` number differs a little from the Seattle
-      dot. That's expected; the dot is metro-wide (see *Table & details → About*)
-- [ ] Break-even view: moving a metro's salary to its break-even gives an index of 1.00 there
-      (pick one metro, read its break-even, set the slider to it in index view)
+Compare with `docker compose exec jobalerts jobalerts pay 250000 "<city>"`, slider at $250K:
 
-### The page
+- [ ] The home dot (ringed) has a break-even equal to your salary, renting and buying
+- [ ] Albuquerque, Austin, Boston: popup rent and buy indexes match `jobalerts pay` to 0.01
+- [ ] Tacoma: a job's index differs slightly from the Seattle dot (dots are metro-wide)
+- [ ] Setting the slider to a metro's break-even salary gives an index of 1.00 there
+- [ ] Pay index / Break-even and Rent / Buy switch colors, legend and caption
+- [ ] The slider recolors from $100K to $400K; it's hidden in break-even view
+- [ ] Hover shows name and number; click shows the breakdown
+- [ ] Job diamonds and step-up rings are at the right metro, don't hide each other, and link to postings
+- [ ] The Jobs checkbox hides and shows job markers
+- [ ] *Table & details*: jobs abroad are listed; columns sort; the filter box works; *About* lists sources
+- [ ] Reload keeps view, housing, salary and jobs settings
+- [ ] Legend: open on desktop, collapsed on a phone
+- [ ] State outlines load behind the dots
 
-- [ ] Pay index ↔ Break-even salary switches the colors, legend title and the line under the bar
-- [ ] Rent ↔ Buy switches; the buy view is redder in coastal California and the Northeast
-- [ ] The salary slider recolors smoothly from $100K to $400K; hidden in break-even view
-- [ ] Hovering a dot shows its name and number; clicking shows the full breakdown
-- [ ] Job diamonds (top matches) and rings (step ups) sit at the right metro; several jobs in one
-      metro don't hide each other; their popups link to the posting
-- [ ] Jobs checkbox hides and shows the job markers
-- [ ] *Table & details*: jobs abroad are listed (with why they aren't on the map); the metro table
-      sorts by each column and the filter box narrows it; *About* names the sources and dates
-- [ ] Reload: the page remembers the last view, housing, salary and jobs setting
-- [ ] Legend: open on desktop; collapsed on a phone, opens with a tap on its title
-- [ ] State outlines appear behind the dots (they load a moment after the dots)
+### Home Assistant
 
-###  Home Assistant
+Webpage card from [configuration.md](configuration.md#map).
 
-Webpage card from the README (*Cost-of-living map*).
+- [ ] The card shows the map on desktop and in the phone app (home Wi-Fi)
+- [ ] `?theme=dark` matches a dark dashboard; without it the page follows the device
+- [ ] Two cards with different presets show different views
+- [ ] Over https (Nabu Casa or a proxy): note the result; plain http is blocked
 
-- [ ] The card shows the map on the desktop dashboard
-- [ ] The card works in the phone app (on the home Wi-Fi)
-- [ ] `?theme=dark` matches a dark dashboard; without it the page follows the device setting
-- [ ] Two cards with different presets (e.g. `?view=breakeven&housing=buy` and
-      `?view=index&salary=250000`) each open in their own view
-- [ ] If you open HA over https (Nabu Casa or a proxy): note what you see. The browser will block
-      the plain-http page (see the README for the TLS proxy fix)
+### After changes
 
-###  Keeps working
+- [ ] A new top match appears on the map after the next refresh
+- [ ] After `docker compose restart` the map returns within a minute
+- [ ] `jobalerts map --out data/map.html` writes a file that opens offline
 
-- [ ] A new top match shows up on the map after the next dashboard refresh
-- [ ] `docker compose restart`: the map is back within a minute
-- [ ] `jobalerts map --out data/map.html` writes a file that opens offline (no jobs? check the DB path)
+## Known limits
 
-## Known limits in this alpha
-
-- US metros only; jobs abroad are listed, not mapped. Non-metro areas (state-level prices) have no dot.
-- Dots are metro-wide: no city blend, no city taxes.
-- Needs internet in the viewing browser for Leaflet and the state outlines (cdnjs, jsDelivr).
-- No login: anyone on the LAN who can reach port 8765 can see the page (your top jobs and pay
-  numbers). Don't forward the port to the internet.
+- Only US metros are mapped; jobs abroad are listed. Areas outside metros have no dot.
+- Dots use metro-wide figures, without city adjustments or city taxes.
+- The viewing browser needs internet access for Leaflet and state outlines.

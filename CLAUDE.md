@@ -18,3 +18,6 @@ The architecture is in `docs/architecture.md`. Work is tracked in `PLAN.md`.
 - Secrets go only in `.env` (gitignored) or the encrypted vault behind the Settings page. Never commit them, never send them to the browser. Keep `.env.example` up to date.
 - This is an open-source project (GPL-3.0). Personal data (profile, stories, resumes, watch list, salary, home, household) lives only in the gitignored data folder; never write it into tracked files, tests or docs. Use neutral examples.
 - Never scrape LinkedIn or Indeed. Respect the per-host rate limits in the design.
+- Documentation: only the README's opening paragraph and feature list may promote. Everywhere else
+  (README sections, docs/, examples, comments in shipped files), state behavior and steps plainly, in
+  as few words as possible: no reassurance ("no restart needed", "nothing to switch"), no selling.

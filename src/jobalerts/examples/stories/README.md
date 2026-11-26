@@ -1,8 +1,8 @@
 # Work stories
 
-One file per story: a piece of work you'd tell in an interview. When you have stories, the AI
-judges each job against them (and names the three that fit best); resumes then only pick which
-version to apply with. Write them on the Stories page or as files in `data/stories/`.
+One file per project you'd describe in an interview. The AI scores jobs against the stories and
+names the three that fit best; resumes are then used only to pick which version to apply with.
+Edit them on the Stories page or in `data/stories/`.
 
 ## Format
 
@@ -12,7 +12,7 @@ id: short-kebab-id              # the file name without .md
 title: one line, as you'd say it out loud
 employer: Example Corp
 dates: 2022–2024
-role: lead | contributor | advisor   # what YOU did; keeps generated text honest
+role: lead | contributor | advisor   # your role
 skills: [...]                   # what it proves (systems integration, root cause, budget...)
 domains: [...]                  # the technology
 metrics: [...]                  # numbers exactly as you can defend them
@@ -30,7 +30,6 @@ sources: [...]                  # papers, reports, figures you may reuse
 **Questions it answers** – the interview questions this story is the answer to
 ```
 
-What the AI sees: the title, employer, dates, role, skills, domains, metrics and the
-Situation/Task/Action/Result and resume bullets. Talk tracks, slide ideas and questions are for
-you; `TODO` notes and empty fields are left out. Mind `public`: don't put your employer's
-confidential details in a story you might share.
+The AI reads the title, employer, dates, role, skills, domains, metrics, Situation/Task/Action/Result
+and resume bullets. It doesn't read talk tracks, slide ideas, questions, `TODO` notes or empty fields.
+Don't put confidential employer details in a story marked `public`.

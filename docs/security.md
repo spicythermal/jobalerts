@@ -1,78 +1,67 @@
 # Security
 
-jobalerts runs on your own machine and holds two kinds of private things: **API keys** (Anthropic,
-ntfy, MQTT, the aggregators) and **personal numbers** (salary, home, housing cost, household,
-email, profile, stories, resumes). This page says what protects them and where the limits are.
+jobalerts stores API keys (Anthropic, ntfy, MQTT, aggregators) and personal data (salary, home,
+housing cost, household, email, profile, stories, resumes).
 
-## Who can open the web UI
+## Web UI access
 
-- One admin password. On first start jobalerts prints a one-time **setup code** to its log;
-  `/setup` asks for it, so the first device to find the page on your network can't claim it.
-- Passwords are stored as scrypt hashes. Wrong passwords back off per address (5 free tries, then
-  30 s doubling up to 15 min). `jobalerts set-password` resets it from the machine itself.
-- Sessions are HMAC-signed, HttpOnly, SameSite=Lax cookies (30 days). Changing the password logs
-  out every other session. Set `web.secure_cookies: true` when you serve it over HTTPS.
-- Every form and htmx request carries a CSRF token.
-- The **Home Assistant map link** (`/map/embed?token=…`) is **off until you turn it on** on Settings
-  → Account. It's the one page reachable without a login, by a 256-bit random key in the link,
-  read-only, and opens nothing else. It shows which metro is your home, every metro's pay index,
-  the salary each needs to break even with staying home (at your home metro, your current salary),
-  and your top jobs. It leaves out your housing costs, mortgage, household and everything else.
-  "Make a new link" retires the old one; "Turn the link off" removes it. `web.frame_origins` limits
-  which sites may embed it.
-- Pages are sent with a strict Content-Security-Policy (scripts only from the app itself; the map
-  page also loads Leaflet and the state outlines from public CDNs), `nosniff` and `no-store`. Text
-  from job boards is escaped, and a posting link is only rendered if it's http(s).
+- One admin password. The first start prints a one-time setup code to the log; `/setup` requires it.
+- Passwords are stored as scrypt hashes. After 5 wrong passwords from one address, logins are delayed
+  30 seconds, doubling up to 15 minutes. `jobalerts set-password` resets the password.
+- Sessions: HMAC-signed, HttpOnly, SameSite=Lax cookies, valid 30 days. Changing the password ends
+  other sessions. Set `web.secure_cookies: true` when serving over HTTPS.
+- Every form and htmx request requires a CSRF token.
+- Headers: Content-Security-Policy (scripts from the app only; the map page also loads Leaflet and
+  state outlines from public CDNs), `nosniff`, `no-store`. Job board text is escaped; only http(s)
+  links are rendered.
+- Pages that work without a login: `/login`, `/setup`, `/healthz`, static files and the map link.
+  Others redirect to the login or return 401/404. `tests/test_upgrades.py` checks every page as a
+  logged-out visitor for planted personal values.
 
-It's meant for your home network. To reach it from outside, put it behind a VPN (WireGuard,
-Tailscale) or a reverse proxy with HTTPS; don't open the port to the internet. Behind a reverse
-proxy every request comes from the proxy's address, so the login backoff applies to everyone at once.
+**Map link** (`/map/embed?token=…`): off until turned on in Settings → Account. It uses a 256-bit
+random token and opens only the map. It shows your home metro, each metro's pay index and break-even
+salary (your current salary at your home metro), and your top jobs. It doesn't show housing costs,
+mortgage or household. "Make a new link" replaces the token; "Turn the link off" removes it.
+`web.frame_origins` limits which sites can embed it.
 
-## API keys: one way only
+The web UI is for your home network. For outside access, use a VPN or a reverse proxy with HTTPS;
+don't expose the port to the internet. Behind a reverse proxy all requests share the proxy's
+address, so the login delay applies to everyone.
 
-- Keys saved on Settings → API keys are encrypted (Fernet) in the database under a key derived
-  from `data/secret.key` (created 0600 on first use), or from `JOBALERTS_SECRET_KEY` if set.
-- The browser never gets a key back. The page shows only whether each key is set, where from
-  (`.env` or saved here) and when. Key fields are always empty; a failed save doesn't echo what
-  was typed.
-- Only the running service reads keys. In the web code, only the **Test** buttons for Anthropic
-  and USAJobs read one, to send it to that provider; the answer shown is redacted.
-- A key in the real environment or `.env` wins over a saved one, and can only be changed there.
-- Logs are filtered: known key values and key-like URL parameters (`app_key=…`, `token=…`) are
-  replaced with `[redacted]`, including in error tracebacks.
-- The tests check all of this: every page, error page and failed form, the MQTT payload, the map,
-  the logs and the raw database file are searched for planted test keys
-  (`tests/test_security.py`).
+## API keys
 
-## Personal numbers
+- Keys saved in Settings → API keys are encrypted (Fernet) in the database with a key derived from
+  `data/secret.key` (mode 0600, created on first use) or `JOBALERTS_SECRET_KEY`.
+- The browser never receives a key. The page shows only whether each key is set, its source (`.env`
+  or Settings) and when it was saved. Key fields are always empty, including after a failed save.
+- The service reads keys to use them. In the web code, only the Test buttons (Anthropic, USAJobs)
+  read a key, to call that provider; the result shown is redacted.
+- A key in the environment or `.env` overrides a saved key and can only be changed there.
+- Logs replace known key values and key-like URL parameters (`app_key=`, `token=`) with `[redacted]`,
+  including in tracebacks.
+- `tests/test_security.py` searches every page, error page, failed form, MQTT payload, the map, the
+  logs and the raw database file for planted test keys.
 
-- Values from Settings → Your situation (salary, home, housing cost, household, contact email) are
-  encrypted in the database with the same key. Thresholds and word lists are stored plain.
-- `data/config.local.yaml` is plain text. If it holds personal values (an install upgraded from
-  before the web UI), Settings → Your situation offers to move them into encrypted storage.
-- Your profile, stories and resumes are plain files in `data/` (the AI needs to read them, and you
-  may edit them elsewhere). They're never committed: `data/` is gitignored.
-- Phone pushes (ntfy), the digest and the Home Assistant sensor carry job titles, fit scores and pay
-  notes. Pay notes never include your salary or housing figures: a job in your home metro says
-  "staying in your home". The full breakdown is only on a job's page (logged in) and in
-  `jobalerts pay` on the machine itself. (Notes stored before this rule are cleaned on upgrade.)
-- The AI scorer sends your profile, stories, resume openings, your stay-or-move preference and the
-  place you live to Anthropic's API with each scoring call. Nothing else leaves the machine except
-  what you configure above.
-- Every page except `/login`, `/setup`, `/healthz`, the static files and the map link needs the
-  login; without it they redirect to the login page (or answer 401/404) and show nothing.
-  `tests/test_upgrades.py` saves personal values, then fetches every page as a stranger and
-  checks none of them appears.
+## Personal data
 
-## What the encryption does and doesn't do
+- Settings → Your situation values (salary, home, housing cost, household, contact email) are
+  encrypted in the database with the same key. Other settings are stored plain.
+- `data/config.local.yaml` is plain text. If it holds personal values, Settings → Your situation
+  offers to move them into encrypted storage.
+- Profile, stories and resumes are plain files in `data/`, which git ignores.
+- Pushes, the digest and the Home Assistant sensor include job titles, scores and pay notes. Pay notes
+  don't include your salary or housing costs. The full calculation is shown only on a job's page
+  (logged in) and by `jobalerts pay`.
+- Each AI call sends Anthropic your profile, stories, resume openings, stay-or-move preference and
+  home location.
 
-The key sits next to the database, because the service has to read your keys to use them. So the
-encryption protects a copy or backup of the database on its own; it does **not** protect against
-someone who can read the whole `data/` folder or log in to the machine. Keep `data/` private, and
-back up `data/secret.key` with the database: without it, saved keys and encrypted settings can't
-be read (set them again).
+## Limits of the encryption
 
-## Reporting a problem
+The key is stored next to the database, because the service needs to read the keys. The encryption
+protects a copy of the database alone. It does not protect against someone who can read `data/` or
+log in to the machine. Keep `data/` private and back up `secret.key` with the database; without it,
+saved keys and encrypted settings are lost.
 
-Tell the maintainer directly, not in a public issue, if you find a way to read a key or another
-user's data.
+## Reporting a vulnerability
+
+Report it privately to the maintainer, not in a public issue.
