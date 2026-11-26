@@ -81,8 +81,10 @@ def test_shipped_profile_template_loads(monkeypatch):
     from jobalerts.config import load_config
     from conftest import REPO
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")  # client construction only; no request is made
+    from jobalerts.userdata import EXAMPLES
     cfg = load_config(REPO / "config" / "config.yaml")
     cfg.scoring.enabled = True
+    cfg.scoring.profile_path = str(EXAMPLES / "profile.md")   # the shipped template, not anyone's data/
     s = make_scorer(cfg, Store(":memory:"))
     assert s is not None and "<candidate_profile>" in s.system and "Deal-breakers" in s.system
 

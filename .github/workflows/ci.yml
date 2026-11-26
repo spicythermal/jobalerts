@@ -1,0 +1,32 @@
+name: CI
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev]"
+      - run: ruff check src tests tools
+      - run: pytest -q
+      - name: No personal files or credentials in the tree
+        run: python tools/privacy_guard.py --tree
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the image and start it on an empty data folder
+        run: |
+          docker build -t jobalerts:ci --build-arg JOBALERTS_VERSION=${GITHUB_SHA::7} .
+          mkdir -p data && chmod 777 data
+          docker run -d --name ja -p 8765:8765 -v "$PWD/config:/app/config:ro" -v "$PWD/data:/app/data" jobalerts:ci
+          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:8765/healthz && break; sleep 2; done
+          curl -fsS -o /dev/null -w "%{http_code}\n" http://127.0.0.1:8765/ | grep -q 303
+          docker logs ja 2>&1 | grep -q "setup code"
+          start=$(date +%s); docker stop -t 10 ja; test $(( $(date +%s) - start )) -lt 8

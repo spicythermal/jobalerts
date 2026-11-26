@@ -1,0 +1,3 @@
+#!/bin/sh
+# Refuse personal data, credentials and private author emails in what you push (see tools/privacy_guard.py).
+exec python3 "$(git rev-parse --show-toplevel)/tools/privacy_guard.py" --push

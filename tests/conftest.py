@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+import tempfile
 from pathlib import Path
 
 import httpx
@@ -9,8 +10,10 @@ from jobalerts.http import HttpClient
 
 FIXTURES = Path(__file__).parent / "fixtures"
 REPO = Path(__file__).parent.parent
-# Tests see the shipped defaults only, never a developer's own data/config.local.yaml.
+# Tests see the shipped defaults only, never a developer's own data/ folder: no config.local.yaml, and a
+# throwaway database folder (a refreshed price table there would otherwise change the numbers).
 os.environ["JOBALERTS_LOCAL_CONFIG"] = str(Path(__file__).parent / "no-local-config.yaml")
+os.environ["JOBALERTS_DB"] = str(Path(tempfile.mkdtemp(prefix="jobalerts-tests-")) / "jobs.db")
 
 
 def load(name: str):

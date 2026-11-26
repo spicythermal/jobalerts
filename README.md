@@ -35,7 +35,7 @@ GPL-3.0. Personal data (your settings, profile, stories, resumes, watch list) st
 **Docker** (a home server or a desktop with Docker):
 
 ```sh
-git clone <repository URL> jobalerts && cd jobalerts
+git clone https://github.com/spicythermal/jobalerts.git jobalerts && cd jobalerts
 mkdir -p data && docker compose up -d --build
 docker compose logs jobalerts | grep "setup code"
 ```
@@ -43,7 +43,7 @@ docker compose logs jobalerts | grep "setup code"
 **Python 3.11+** (Windows, macOS or Linux):
 
 ```sh
-git clone <repository URL> jobalerts && cd jobalerts
+git clone https://github.com/spicythermal/jobalerts.git jobalerts && cd jobalerts
 python -m venv .venv && .venv/bin/pip install -e .     # Windows: .venv\Scripts\pip install -e .
 .venv/bin/jobalerts run                                 # prints the setup code, then keeps running
 ```
@@ -184,7 +184,12 @@ The Map card in Home Assistant needs the new share link from Settings → Accoun
 
 ```sh
 pip install -e .[dev] && pytest && ruff check src tests tools
+git config core.hooksPath .githooks      # the privacy guard: refuses personal data and credentials in commits
 ```
+
+Contributions: keep personal data out (it belongs in `data/`, which git ignores). The guard checks
+staged changes against a list of your own private terms in `~/.config/jobalerts/private-terms.txt`
+(never committed); CI runs the same check for files and credentials.
 
 Adapters live in `src/jobalerts/sources/`, one module per ATS or aggregator, each with a fixture
 test in `tests/test_sources.py`. The web UI is FastAPI + Jinja + htmx (no JavaScript build), in

@@ -44,7 +44,7 @@ For a non-root user, `usermod -aG docker <user>` lets them run `docker` without 
 Clone the repository on the server (your own fork or the shared one).
 
 ```sh
-git clone <repository URL> jobalerts && cd jobalerts
+git clone https://github.com/spicythermal/jobalerts.git jobalerts && cd jobalerts
 cp .env.example .env && nano .env        # optional: keys can also go on the Settings page
 mkdir -p data && chown 1000:1000 data   # the container runs as uid 1000 and writes only data/
 docker compose up -d --build
