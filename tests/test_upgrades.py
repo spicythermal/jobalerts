@@ -57,7 +57,7 @@ def test_renamed_settings_carry_over(tmp_path, monkeypatch):
     store = Store(tmp_path / "data" / "jobs.db")
     v = vault.Vault(store, b"u" * 32)
     store.db.executescript(st.SCHEMA)
-    store.db.execute("INSERT INTO settings VALUES ('pay.old_floor', '1.3', 0, 'x')")
+    store.db.execute("INSERT INTO settings_by_user VALUES (1, 'pay.old_floor', '1.3', 0, 'x')")
     ui = st.UiSettings(store, v)
     assert ui.values()["pay.min_index"] == 1.3
 
@@ -67,8 +67,8 @@ def test_saved_ui_settings_survive_one_bad_value(tmp_path):
     v = vault.Vault(store, b"u" * 32)
     ui = st.UiSettings(store, v)
     ui.save({"scoring.push_threshold": 82, "pay.reference_salary": 123_456})
-    store.db.execute("UPDATE settings SET value='\"lots\"' WHERE key='scoring.push_threshold'")   # a bad value
-    store.db.execute("INSERT INTO settings VALUES ('scoring.gone_in_this_version', '1', 0, 'x')")
+    store.db.execute("UPDATE settings_by_user SET value='\"lots\"' WHERE key='scoring.push_threshold'")   # a bad value
+    store.db.execute("INSERT INTO settings_by_user VALUES (1, 'scoring.gone_in_this_version', '1', 0, 'x')")
     base = with_reference_home(load_config(REPO / "config" / "config.yaml"))
     cfg = st.apply(base, ui.overlay())
     assert cfg.pay.reference_salary == 123_456 and cfg.scoring.push_threshold == 75   # the good one stays
@@ -83,7 +83,8 @@ def old_database(path):
     store = Store(path)
     job = make_job(1)
     store.insert_job(job, "alerted")
-    store.db.execute("UPDATE jobs SET pay_note=? WHERE key=?", (
+    store.db.execute("DELETE FROM user_jobs")       # before accounts, all of it was in the jobs row
+    store.db.execute("UPDATE jobs SET status='alerted', pay_note=? WHERE key=?", (
         "pay index 1.00 rent · 1.00 buy: $155K/yr in Portland-Vancouver-Hillsboro, OR-WA metro (RPP 105.4; staying "
         "in your home at 4.5%: $3,400 payment - $750 principal + $450 upkeep + $374 utilities = $3.5K/mo); staying "
         "in your home at 4.5%: $3,400 payment - $750 principal + $450 upkeep + $374 utilities = $3.5K/mo", job.key))

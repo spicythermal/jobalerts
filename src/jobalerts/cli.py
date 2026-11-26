@@ -28,6 +28,7 @@ from .sources import without_missing_keys
 from .store import Store, job_from_row
 from .runstate import InstanceLock
 from .userdata import seed_user_files
+from .users import Users
 from .settings import UiSettings, apply as apply_settings
 from .vault import Vault, install as install_vault, install_log_redaction, secret_key
 
@@ -73,7 +74,9 @@ def make_prescreener(cfg: Config, store: Store, scorer: Scorer | None) -> Prescr
                        criteria=cfg.criteria)
 
 
-def make_scorer(cfg: Config, store: Store) -> Scorer | None:
+def make_scorer(cfg: Config, store: Store, api_key: str | None = None) -> Scorer | None:
+    """`api_key`: None for the install's key (environment / Settings), "" for no key (a user without
+    one when the install doesn't share its key)."""
     if not cfg.scoring.enabled:
         log.info("AI scoring off (scoring.enabled: false); alerts use keywords only")
         return None
@@ -88,8 +91,15 @@ def make_scorer(cfg: Config, store: Store) -> Scorer | None:
                  len(stories), ", ".join(r.name for r in resumes) or "none")
     else:
         log.info("AI scoring against %d resume(s): %s", len(resumes), ", ".join(r.name for r in resumes) or "none")
+    if api_key == "":   # never let the SDK fall back to ANTHROPIC_API_KEY from the environment (the install's)
+        log.info("AI scoring off for this user: no Anthropic key of their own")
+        return None
     try:
-        return Scorer(cfg.scoring, store, profile, resumes=resumes, stories=stories)
+        client = None
+        if api_key:
+            import anthropic
+            client = anthropic.AsyncAnthropic(api_key=api_key, max_retries=3, timeout=90.0)
+        return Scorer(cfg.scoring, store, profile, client=client, resumes=resumes, stories=stories)
     except Exception as e:  # e.g. no Anthropic credentials configured
         log.warning("AI scoring unavailable (%s); alerts will use keywords only", e)
         return None
@@ -105,10 +115,10 @@ def make_homeassistant(cfg: Config) -> MqttPublisher | None:
     return publisher
 
 
-def rebuild_services(cfg: Config, store: Store):
+def rebuild_services(cfg: Config, store: Store, api_key: str | None = None, homeassistant: bool = True):
     """The parts that depend on settings, profile, stories, resumes and keys (after a Settings change)."""
-    scorer = make_scorer(cfg, store)
-    return scorer, make_prescreener(cfg, store, scorer), make_homeassistant(cfg)
+    scorer = make_scorer(cfg, store, api_key)
+    return scorer, make_prescreener(cfg, store, scorer), make_homeassistant(cfg) if homeassistant else None
 
 
 @asynccontextmanager
@@ -134,8 +144,10 @@ async def open_runner(cfg: Config, *, dry_run: bool = False, memory_store: bool 
         scorer = None if dry_run else make_scorer(cfg, store)
         runner = Runner(cfg, store, http, notifier, scorer, homeassistant, make_prescreener(cfg, store, scorer))
         runner.vault, runner.ui_settings, runner.base_cfg = vault, ui, base_cfg
+        runner.users = Users(key_store) if key_store else None
         if not dry_run:
             runner.rebuild = rebuild_services
+        runner.sync_people()        # everyone else's pipeline (user 1's is above)
         yield runner
     finally:
         install_vault(None)

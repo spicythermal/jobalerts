@@ -190,6 +190,13 @@ class WebConfig(BaseModel):
     session_days: int = 30               # stay logged in this long
     secure_cookies: bool = False         # true when you reach it over HTTPS (e.g. behind a reverse proxy)
     setup_code: str = ""                 # set by the desktop app (JOBALERTS_SETUP_CODE), which fills it in for you
+    lan: bool = False                    # desktop app: listen on the network, not only this computer
+
+
+class UsersConfig(BaseModel):
+    """Accounts (Settings → Users). Each user has their own profile, stories, filter and scores."""
+    share_keys: bool = False             # users without their own Anthropic key use the install's
+    shared_daily_max_calls: int = 300    # most calls a day on the install's key, other users together
 
 
 class AggregatorConfig(BaseModel):
@@ -284,6 +291,7 @@ class Config(BaseModel):
     web: WebConfig = WebConfig()
     run: RunConfig = RunConfig()
     update: UpdateConfig = UpdateConfig()
+    users: UsersConfig = UsersConfig()
     aggregators: Aggregators = Aggregators()
     companies: list[Company] = []
     config_dir: Path = Path(".")
@@ -354,6 +362,18 @@ def load_dotenv(path: Path) -> None:
 def _read_yaml(path: Path) -> dict:
     text = _ENV_REF.sub(lambda m: os.environ.get(m.group(1), ""), path.read_text(encoding="utf-8"))
     return yaml.safe_load(text) or {}
+
+
+# A user's own sections: someone other than user 1 starts from the shipped config.yaml's values for
+# these, never from config.local.yaml (the first user's file).
+PERSONAL_SECTIONS = ("criteria", "scoring", "prescreen", "pay", "intent", "household", "notify")
+
+
+def shipped_personal(path: str | Path) -> dict:
+    """The shipped defaults of the personal sections, without environment values (.env is the owner's)."""
+    raw = yaml.safe_load(_ENV_REF.sub("", Path(path).read_text(encoding="utf-8"))) or {}
+    data = Config.model_validate({k: raw[k] for k in PERSONAL_SECTIONS if k in raw}).model_dump()
+    return {k: data[k] for k in PERSONAL_SECTIONS}
 
 
 def load_config(path: str | Path) -> Config:

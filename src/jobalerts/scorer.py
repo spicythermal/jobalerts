@@ -190,8 +190,9 @@ class Scorer:
         self._cap_logged = ""
 
     def calls_left(self) -> int:
-        """Claude calls left today (UTC) under scoring.daily_max_calls."""
-        return max(0, self.cfg.daily_max_calls - self.store.ai_calls_today())
+        """Claude calls left today (UTC) under scoring.daily_max_calls (and, for a user on the install's
+        key, under users.shared_daily_max_calls)."""
+        return self.store.ai_calls_left(self.cfg.daily_max_calls)
 
     def capped(self) -> bool:
         return self.calls_left() <= 0

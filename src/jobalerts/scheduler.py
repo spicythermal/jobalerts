@@ -23,6 +23,7 @@ from .scorer import FitScore, Scorer
 from .sources import SOURCES, Source, SourceConfigError, without_missing_keys
 from .store import Store, job_from_row, stories_from_row
 from .taxes import Taxes
+from .users import OWNER
 
 log = logging.getLogger(__name__)
 
@@ -36,7 +37,8 @@ class PollResult:
     new: int = 0
     baseline: bool = False
     alerted: int = 0
-    matched: list[Job] = field(default_factory=list)
+    matched: list[Job] = field(default_factory=list)      # matched for at least one user
+    matched_by: dict[int, int] = field(default_factory=dict)  # user id -> matches
 
 
 def _pay_cols(pay: col.PayResult | None, score: FitScore | None = None) -> dict:
@@ -63,279 +65,92 @@ def _score_cols(score: FitScore | None) -> dict:
 AI_ONLY_WAITING = "AI only: waiting for the AI's first look"
 
 
-class Runner:
-    def __init__(self, cfg: Config, store: Store, http: HttpClient, notifier: Notifier,
-                 scorer: Scorer | None = None, homeassistant: MqttPublisher | None = None,
-                 prescreener: Prescreener | None = None):
+# Runner attributes that are user 1's (Person) – the single user before accounts, and the CLI's.
+FIRST_USERS = {"backfill", "reprice", "rescore", "rescore_todo", "run_prescreen", "route", "pay_index", "needs_move",
+               "pay_floor", "load_pay", "_pay_paths", "_cap_notice", "_notify", "preview_board", "catchup_report",
+               "score_anyway", "digest_missed", "digest_due", "top_matches", "map_enabled", "refresh_map", "current_map",
+               "map_data", "map_page", "send_digest", "_resolve_suggestions", "_finish", "process",
+               "_backfill_budget_spent", "_pay_too_low", "key_source"}
+
+
+def _first_users(name: str) -> property:
+    return property(lambda self: getattr(self.me, name), lambda self, value: setattr(self.me, name, value))
+
+
+class Person:
+    """One user's pipeline: their settings, keyword filter, pay index, AI scorer and pre-screen,
+    notifications, digest and map. Every board is polled once (Runner); each new job then goes
+    through each user's Person, which writes that user's row (store.user(uid))."""
+
+    SHARED = {"http", "_dashboard_stale", "_prescreen_wake", "watched", "active_boards", "update_status", "running"}
+
+    def __init__(self, runner: Runner, uid: int, cfg: Config, notifier: Notifier, scorer: Scorer | None = None,
+                 prescreener: Prescreener | None = None, admin: bool = True):
+        self.runner = runner
+        self.uid = uid
+        self.admin = admin
         self.cfg = cfg
-        self.store = store
-        self.http = http
+        self.store = runner.store.user(uid)
         self.notifier = notifier
         self.scorer = scorer
         self.prescreener = prescreener if scorer else None  # its "yes" jobs need the full score
         self.filter = JobFilter(cfg.criteria)
-        self.watched = {normalize_company(name) for name in cfg.watched_companies()}
-        self._failure_alerted: set[str] = set(json.loads(store.get_meta(runstate.FAILURE_ALERTED) or "[]"))
-        self.homeassistant = homeassistant
-        self._dashboard_stale = asyncio.Event()  # set after new matches so Home Assistant updates right away
         self.map_html: str | None = None    # the latest cost-of-living map page (web UI /map)
         self.map_html_shared: str | None = None  # the same for the read-only Home Assistant link
-        self.vault = None                   # API keys set on the Settings page (vault.Vault), set by cli.open_runner
-        self.ui_settings = None             # settings.UiSettings, set by cli.open_runner / the web app
-        self.base_cfg = cfg                 # config.yaml + config.local.yaml, before the UI's settings
-        self.rebuild = None                 # (cfg, store) -> (scorer, prescreener, homeassistant); cli.open_runner
-        self.running = False                # True inside run_forever (board loops are live)
-        self.config_path = str(cfg.config_dir / "config.yaml")   # cli.open_runner sets the real -c path
-        self.restart_requested = False      # set after an update installed itself: cli.cmd_run restarts
-        self._main_task: asyncio.Task | None = None
-        self.board_tasks: dict[str, tuple[Board, asyncio.Task]] = {}
-        self.next_poll: dict[str, float] = {}  # board key -> unix time of its next poll
         self._map_built = 0.0
-        self._cap_noticed = store.get_meta(runstate.CAP_NOTICED) or ""  # UTC day of the last "AI daily cap reached" push
+        self._cap_noticed = self.store.get_meta(runstate.CAP_NOTICED) or ""  # UTC day of the last "AI daily cap reached" push
         self._collecting: list | None = None       # during a catch-up pass: (job, score) instead of pushes
-        self._catching_up = False
-        self._board_locks: dict[str, asyncio.Lock] = {}
-        self._prescreen_wake = asyncio.Event()     # AI-only mode: new jobs are waiting for the pre-screen
-        self._prescreen_task: asyncio.Task | None = None
         self.pay: col.PayIndex | None = None
         self.pay_problem = ""  # shown in the digest until fixed
         self.load_pay()
 
+    def __getattr__(self, name: str):
+        if name in Person.SHARED:     # the service's, not this user's
+            return getattr(self.runner, name)
+        raise AttributeError(name)
+
     def reconfigure(self, cfg: Config) -> None:
-        """Use new settings without a restart (Settings page): filter, notifications, pay index, AI
-        scoring and Home Assistant. Board intervals and the watch list reload with the boards."""
+        """New settings for this user: filter, notifications, pay index, AI scoring."""
         self.cfg = cfg
         self.filter = JobFilter(cfg.criteria)
         self.notifier.cfg = cfg.notify
-        self.watched = {normalize_company(name) for name in cfg.watched_companies()}
         self.pay, self.pay_problem = None, ""
         self.load_pay()
-        if self.rebuild:
-            self.scorer, prescreener, self.homeassistant = self.rebuild(cfg, self.store)
-            self.prescreener = prescreener if self.scorer else None
-        if self.running and self.prescreener and (self._prescreen_task is None or self._prescreen_task.done()):
-            self._prescreen_task = asyncio.create_task(self._prescreen_loop(), name="prescreen")
+        self.rebuild_services()
         if self.prescreener and cfg.criteria.mode == "ai":
             self._prescreen_wake.set()
         self.map_html = None
-        self._dashboard_stale.set()
-        self.sync_boards()   # a key saved in Settings starts its aggregator searches
+
+    def rebuild_services(self) -> None:
+        """The AI scorer and pre-screen from this user's profile, stories, resumes and key."""
+        rebuild = self.runner.rebuild
+        if not rebuild:
+            return
+        if self.uid == OWNER:
+            self.scorer, prescreener, self.runner.homeassistant = rebuild(self.cfg, self.store)
+        else:
+            key, shared = self.runner.anthropic_key(self.uid, self.admin, self.cfg.users.share_keys)
+            self.store.shared_key, self.store.shared_cap = shared, self.cfg.users.shared_daily_max_calls
+            self.scorer, prescreener, _ = rebuild(self.cfg, self.store, api_key=key, homeassistant=False)
+        self.prescreener = prescreener if self.scorer else None
+
+    @property
+    def key_source(self) -> str:
+        """Whose Anthropic key this user's AI calls use: "own", "shared" (the install's), "install" (an
+        admin's use of the install's) or "" (none)."""
+        if not self.runner.vault:
+            return "install" if self.scorer else ""
+        if self.uid != OWNER and self.runner.vault.get("ANTHROPIC_API_KEY", self.uid):
+            return "own"
+        key, shared = self.runner.anthropic_key(self.uid, self.admin, self.cfg.users.share_keys)
+        return ("shared" if shared else "install") if key else ""
 
     # ------------------------------------------------------------------ pipeline
-    async def poll_board(self, board: Board) -> PollResult:
-        # One poll per board at a time: a catch-up after a wake runs while the board loops do.
-        async with self._board_locks.setdefault(board.key, asyncio.Lock()):
-            return await self._poll_board(board)
-
-    async def _poll_board(self, board: Board) -> PollResult:
-        source = SOURCES[board.source]
-        jobs = {j.key: j for j in await source.fetch(board, self.http)}
-        known = self.store.known_keys(list(jobs))
-        new = [j for k, j in jobs.items() if k not in known]
-        result = PollResult(board.key, fetched=len(jobs), new=len(new), baseline=self.store.is_baseline(board.key))
-
-        if result.baseline:
-            # First time we see this board: remember what's already open, alert on nothing.
-            self.store.insert_jobs(new, "baseline")
-            self.store.mark_board_ok(board.key, len(jobs))
-            log.info("%s: baseline of %d existing jobs recorded silently", board.key, len(new))
-            return result
-
-        alerts_left = self.cfg.polling.max_alerts_per_poll
-        overflow = 0
-        for job in new:
-            try:
-                status, score = await self._process(job, board, source)
-            except Exception as e:  # one bad posting must not stop the rest of the board
-                log.exception("%s: failed processing %s", board.key, job.key)
-                self.store.insert_job(job, "error", str(e)[:200])
-                self.store.update_job(job.key, status="error", reason=str(e)[:200])
-                continue
-            if status in ("alert", "digest", "low"):
-                result.matched.append(job)
-            if status != "alert":
-                continue
-            if self._collecting is not None:   # catching up: no per-board cap, one summary at the end
-                result.alerted += await self._notify(job, score)
-            elif alerts_left > 0:
-                alerts_left -= 1
-                result.alerted += await self._notify(job, score)
-            else:
-                overflow += 1
-                self.store.update_job(job.key, status="digest", reason="per-poll alert cap reached")
-        if overflow:
-            await self.notifier.send(
-                f"{board.name}: {overflow} more matches",
-                f"{overflow} more new matching jobs at {board.name} were held back to avoid a flood. "
-                "They'll be in the next digest.", priority=3, tags=["inbox_tray"])
-        self.store.mark_board_ok(board.key, len(jobs))
-        if result.matched:
-            self._dashboard_stale.set()
-        if new:
-            log.info("%s: %d new, %d matched, %d alerted", board.key, len(new), len(result.matched), result.alerted)
-        return result
-
-    async def backfill(self, boards: list[Board], push: bool = False,
-                       days: int | None = None) -> list[tuple[Job, str, FitScore | None]]:
-        """Run the jobs that were already open when their board was first polled (the silent baseline)
-        through the same filter -> score -> route steps as a job found live. Only jobs posted within
-        max_age_days (or `days`) are considered, and each is done once. Without `push`, strong fits go
-        to the digest instead of the phone."""
-        by_slug = {(b.source, b.slug): b for b in boards}
-        days = days or self.cfg.criteria.max_age_days
-        since = utcnow() - timedelta(days=days)
-        alerts_left = self.cfg.polling.max_alerts_per_poll
-        results = []
-        for row in self.store.recent_candidates(since):
-            if row["status"] != "baseline":
-                continue
-            job = job_from_row(row)
-            board = by_slug.get((job.source, job.board))
-            if board is None or (job.age_days() or 0) > days or not self.filter.check_basic(job)[0]:
-                continue
-            if self._backfill_budget_spent():
-                log.warning("backfill: stopping with %d of today's AI calls kept for new jobs; run it again after "
-                            "00:00 UTC to score the rest", self.cfg.scoring.backfill_reserve)
-                break
-            try:
-                status, score = await self._process(job, board, SOURCES[job.source])
-            except Exception as e:
-                log.exception("backfill: failed processing %s", job.key)
-                self.store.update_job(job.key, status="error", reason=str(e)[:200])
-                continue
-            if status == "alert" and score is None:
-                # Couldn't score (bad key, API down, daily cap): leave it for the next backfill to retry.
-                self.store.update_job(job.key, status="baseline", reason="backfill: not scored")
-                status = "unscored"
-            elif status == "alert":
-                if push and alerts_left > 0:
-                    alerts_left -= 1
-                    status = "alerted" if await self._notify(job, score) else "notify_failed"
-                else:
-                    status = "digest"
-                    self.store.update_job(job.key, status=status, reason="baseline backfill, not pushed")
-            results.append((job, status, score))
-        if results:
-            self._dashboard_stale.set()
-        return results
-
-    async def reprice(self, boards: list[Board], store: Store | None = None, write: bool = True,
-                      days: int | None = None) -> list[tuple[Job, str, str, col.PayResult | None, bool]]:
-        """Re-check the pay index of matches that already went through the pipeline, posted within
-        max_age_days (or `days`). Pay comes from the salary field or the re-fetched description; when neither
-        states it, the job is AI-scored again (once: afterwards its pay_note is col.NO_PAY) so the AI
-        can read it, and the new score replaces the old. Only with `write`: a dry run makes no AI calls.
-        Under pay.min_index -> low_pay. A low_pay job that now passes goes back to where its AI score
-        puts it (digest or low, never pushed), or to baseline for `backfill` to score if it had none.
-        Returns (job, old status, new status, pay index, re-scored)."""
-        if not self.pay:
-            return []
-        store = store or self.store
-        by_slug = {(b.source, b.slug): b for b in boards}
-        since = utcnow() - timedelta(days=days or self.cfg.criteria.max_age_days)
-        out = []
-        for row in store.processed_since(since):
-            job = job_from_row(row)
-            board = by_slug.get((job.source, job.board))
-            if board is not None:
-                try:
-                    await SOURCES[job.source].enrich(job, board, self.http)
-                except Exception as e:
-                    if posting_gone(e):  # filled or withdrawn: off the dashboard and out of the digest
-                        log.info("reprice: %s was taken down (HTTP %s)", job.key, e.response.status_code)
-                        if write:
-                            store.update_job(job.key, status="closed",
-                                             reason=f"posting taken down (HTTP {e.response.status_code})")
-                        out.append((job, row["status"], "closed", None, False))
-                        continue
-                    log.warning("reprice: couldn't fetch %s: %s", job.key, e)
-            pay = self.pay_index(job)
-            fit = None
-            asked = row["pay_index"] is not None or row["pay_note"] == col.NO_PAY  # the AI already read the pay
-            if pay is None and not asked and write and self.scorer:
-                try:
-                    fit = await self.scorer.score(job)
-                except Exception as e:  # e.g. no API key: leave this one for the next run
-                    log.warning("reprice: couldn't AI-score %s: %s", job.key, e)
-                pay = self.pay_index(job, fit) if fit else None
-            old = status = row["status"]
-            score = fit.score if fit else row["score"]
-            if pay:
-                high = pay.best_high
-            else:  # the pay the AI read earlier, if that's all there is
-                high = max((v for v in (row["pay_high"], row["buy_high"]) if v is not None), default=None)
-            step_up = fit.step_up if fit else row["step_up"]
-            floor = self.pay_floor(job)
-            if high is not None and high < floor:
-                status = "low_pay"
-            elif old == "low_pay":  # back where its AI score puts it, never pushed
-                status = "baseline" if score is None else self.route(score, step_up).replace("alert", "digest")
-            if write:
-                reason = (f"top of range {high:.2f} < {floor:g}" if status == "low_pay"
-                          else "repriced" if status != old else None)
-                store.update_job(job.key, status=status, reason=reason, **_pay_cols(pay, fit), **_score_cols(fit))
-            out.append((job, old, status, pay, fit is not None))
-        if out and write:
-            self._dashboard_stale.set()
-        return out
-
-    def _backfill_budget_spent(self) -> bool:
-        """True when backfill / rescore should stop: only scoring.backfill_reserve calls are left today."""
-        return bool(self.scorer) and self.scorer.calls_left() <= self.cfg.scoring.backfill_reserve
-
-    async def rescore(self, boards: list[Board], days: int | None = None,
-                      progress=None) -> tuple[list[tuple[Job, str, str, FitScore | None]], int]:
-        """AI-score again the matches already scored and posted within max_age_days (or `days`), e.g. after
-        the work stories or profile changed. The new score, summary and top stories replace the old ones and
-        the job moves between digest and low to match; it is never pushed, and a job already delivered
-        (pushed or in a digest) keeps its status. Pay is left alone: reprice handles it.
-        Jobs already scored on the scorer's current basis are skipped, and it stops (before fetching the next
-        posting) when only scoring.backfill_reserve calls are left today, so running it again continues.
-        Returns ([(job, old status, new status, new score or None if it couldn't be scored)], jobs left)."""
-        if not self.scorer:
-            return [], 0
-        by_slug = {(b.source, b.slug): b for b in boards}
-        since = utcnow() - timedelta(days=days or self.cfg.criteria.max_age_days)
-        todo = [r for r in self.store.scored_since(since) if r["score_basis"] != self.scorer.basis]
-        out = []
-        for n, row in enumerate(todo):
-            if progress:
-                progress(n, len(todo))   # the Stories page shows how far it got
-            if self._backfill_budget_spent():
-                log.warning("rescore: stopping with %d of today's AI calls kept for new jobs; %d jobs left, "
-                            "run it again after 00:00 UTC", self.cfg.scoring.backfill_reserve, len(todo) - n)
-                if out:
-                    self._dashboard_stale.set()
-                return out, len(todo) - n
-            job, old = job_from_row(row), row["status"]
-            board = by_slug.get((job.source, job.board))
-            if board is not None:
-                try:
-                    await SOURCES[job.source].enrich(job, board, self.http)
-                except Exception as e:
-                    if posting_gone(e):
-                        self.store.update_job(job.key, status="closed",
-                                              reason=f"posting taken down (HTTP {e.response.status_code})")
-                        out.append((job, old, "closed", None))
-                        continue
-                    log.warning("rescore: couldn't fetch %s: %s", job.key, e)
-            fit = await self.scorer.score(job)
-            if fit is None:  # API down, daily cap: keep the old score
-                out.append((job, old, old, None))
-                continue
-            status = old
-            if old in ("alert", "digest", "low"):
-                status = self.route(fit.score, fit.step_up).replace("alert", "digest")
-            self.store.update_job(job.key, status=status, reason="rescored" if status != old else None,
-                                  **_score_cols(fit))
-            out.append((job, old, status, fit))
-        if out:
-            self._dashboard_stale.set()
-        return out, 0
-
-    async def _process(self, job: Job, board: Board, source: Source) -> tuple[str, FitScore | None]:
-        if self.store.seen_elsewhere(job):
-            self.store.insert_job(job, "duplicate", "already seen from another source")
+    async def process(self, job: Job, board: Board, source: Source,
+                      check_duplicate: bool = False) -> tuple[str, FitScore | None]:
+        """This user's decision on a new job (the posting is stored already)."""
+        if check_duplicate and self.store.seen_elsewhere(job):
+            self.store.update_job(job.key, status="duplicate", reason="already seen from another source")
             return "duplicate", None
         if self.filter.is_stale(job):
             self.store.insert_job(job, "stale", f"published {job.age_days():.0f} days ago")
@@ -545,6 +360,227 @@ class Runner:
                               **_pay_cols(pay, score), **_score_cols(score))
         return True
 
+    async def backfill(self, boards: list[Board], push: bool = False,
+                       days: int | None = None) -> list[tuple[Job, str, FitScore | None]]:
+        """Run the jobs that were already open when their board was first polled (the silent baseline)
+        through the same filter -> score -> route steps as a job found live. Only jobs posted within
+        max_age_days (or `days`) are considered, and each is done once. Without `push`, strong fits go
+        to the digest instead of the phone."""
+        by_slug = {(b.source, b.slug): b for b in boards}
+        days = days or self.cfg.criteria.max_age_days
+        since = utcnow() - timedelta(days=days)
+        alerts_left = self.cfg.polling.max_alerts_per_poll
+        results = []
+        for row in self.store.recent_candidates(since):
+            if row["status"] != "baseline":
+                continue
+            job = job_from_row(row)
+            board = by_slug.get((job.source, job.board))
+            if board is None or (job.age_days() or 0) > days or not self.filter.check_basic(job)[0]:
+                continue
+            if self._backfill_budget_spent():
+                log.warning("backfill: stopping with %d of today's AI calls kept for new jobs; run it again after "
+                            "00:00 UTC to score the rest", self.cfg.scoring.backfill_reserve)
+                break
+            try:
+                status, score = await self.process(job, board, SOURCES[job.source], check_duplicate=True)
+            except Exception as e:
+                log.exception("backfill: failed processing %s", job.key)
+                self.store.update_job(job.key, status="error", reason=str(e)[:200])
+                continue
+            if status == "alert" and score is None:
+                # Couldn't score (bad key, API down, daily cap): leave it for the next backfill to retry.
+                self.store.update_job(job.key, status="baseline", reason="backfill: not scored")
+                status = "unscored"
+            elif status == "alert":
+                if push and alerts_left > 0:
+                    alerts_left -= 1
+                    status = "alerted" if await self._notify(job, score) else "notify_failed"
+                else:
+                    status = "digest"
+                    self.store.update_job(job.key, status=status, reason="baseline backfill, not pushed")
+            results.append((job, status, score))
+        if results:
+            self._dashboard_stale.set()
+        return results
+
+    async def reprice(self, boards: list[Board], store: Store | None = None, write: bool = True,
+                      days: int | None = None) -> list[tuple[Job, str, str, col.PayResult | None, bool]]:
+        """Re-check the pay index of matches that already went through the pipeline, posted within
+        max_age_days (or `days`). Pay comes from the salary field or the re-fetched description; when neither
+        states it, the job is AI-scored again (once: afterwards its pay_note is col.NO_PAY) so the AI
+        can read it, and the new score replaces the old. Only with `write`: a dry run makes no AI calls.
+        Under pay.min_index -> low_pay. A low_pay job that now passes goes back to where its AI score
+        puts it (digest or low, never pushed), or to baseline for `backfill` to score if it had none.
+        Returns (job, old status, new status, pay index, re-scored)."""
+        if not self.pay:
+            return []
+        store = store or self.store
+        by_slug = {(b.source, b.slug): b for b in boards}
+        since = utcnow() - timedelta(days=days or self.cfg.criteria.max_age_days)
+        out = []
+        for row in store.processed_since(since):
+            job = job_from_row(row)
+            board = by_slug.get((job.source, job.board))
+            if board is not None:
+                try:
+                    await SOURCES[job.source].enrich(job, board, self.http)
+                except Exception as e:
+                    if posting_gone(e):  # filled or withdrawn: off the dashboard and out of the digest
+                        log.info("reprice: %s was taken down (HTTP %s)", job.key, e.response.status_code)
+                        if write:
+                            store.update_job(job.key, status="closed",
+                                             reason=f"posting taken down (HTTP {e.response.status_code})")
+                        out.append((job, row["status"], "closed", None, False))
+                        continue
+                    log.warning("reprice: couldn't fetch %s: %s", job.key, e)
+            pay = self.pay_index(job)
+            fit = None
+            asked = row["pay_index"] is not None or row["pay_note"] == col.NO_PAY  # the AI already read the pay
+            if pay is None and not asked and write and self.scorer:
+                try:
+                    fit = await self.scorer.score(job)
+                except Exception as e:  # e.g. no API key: leave this one for the next run
+                    log.warning("reprice: couldn't AI-score %s: %s", job.key, e)
+                pay = self.pay_index(job, fit) if fit else None
+            old = status = row["status"]
+            score = fit.score if fit else row["score"]
+            if pay:
+                high = pay.best_high
+            else:  # the pay the AI read earlier, if that's all there is
+                high = max((v for v in (row["pay_high"], row["buy_high"]) if v is not None), default=None)
+            step_up = fit.step_up if fit else row["step_up"]
+            floor = self.pay_floor(job)
+            if high is not None and high < floor:
+                status = "low_pay"
+            elif old == "low_pay":  # back where its AI score puts it, never pushed
+                status = "baseline" if score is None else self.route(score, step_up).replace("alert", "digest")
+            if write:
+                reason = (f"top of range {high:.2f} < {floor:g}" if status == "low_pay"
+                          else "repriced" if status != old else None)
+                store.update_job(job.key, status=status, reason=reason, **_pay_cols(pay, fit), **_score_cols(fit))
+            out.append((job, old, status, pay, fit is not None))
+        if out and write:
+            self._dashboard_stale.set()
+        return out
+
+    def _backfill_budget_spent(self) -> bool:
+        """True when backfill / rescore should stop: only scoring.backfill_reserve calls are left today."""
+        return bool(self.scorer) and self.scorer.calls_left() <= self.cfg.scoring.backfill_reserve
+
+    async def rescore(self, boards: list[Board], days: int | None = None,
+                      progress=None) -> tuple[list[tuple[Job, str, str, FitScore | None]], int]:
+        """AI-score again the matches already scored and posted within max_age_days (or `days`), e.g. after
+        the work stories or profile changed. The new score, summary and top stories replace the old ones and
+        the job moves between digest and low to match; it is never pushed, and a job already delivered
+        (pushed or in a digest) keeps its status. Pay is left alone: reprice handles it.
+        Jobs already scored on the scorer's current basis are skipped, and it stops (before fetching the next
+        posting) when only scoring.backfill_reserve calls are left today, so running it again continues.
+        Returns ([(job, old status, new status, new score or None if it couldn't be scored)], jobs left)."""
+        if not self.scorer:
+            return [], 0
+        by_slug = {(b.source, b.slug): b for b in boards}
+        since = utcnow() - timedelta(days=days or self.cfg.criteria.max_age_days)
+        todo = [r for r in self.store.scored_since(since) if r["score_basis"] != self.scorer.basis]
+        out = []
+        for n, row in enumerate(todo):
+            if progress:
+                progress(n, len(todo))   # the Stories page shows how far it got
+            if self._backfill_budget_spent():
+                log.warning("rescore: stopping with %d of today's AI calls kept for new jobs; %d jobs left, "
+                            "run it again after 00:00 UTC", self.cfg.scoring.backfill_reserve, len(todo) - n)
+                if out:
+                    self._dashboard_stale.set()
+                return out, len(todo) - n
+            job, old = job_from_row(row), row["status"]
+            board = by_slug.get((job.source, job.board))
+            if board is not None:
+                try:
+                    await SOURCES[job.source].enrich(job, board, self.http)
+                except Exception as e:
+                    if posting_gone(e):
+                        self.store.update_job(job.key, status="closed",
+                                              reason=f"posting taken down (HTTP {e.response.status_code})")
+                        out.append((job, old, "closed", None))
+                        continue
+                    log.warning("rescore: couldn't fetch %s: %s", job.key, e)
+            fit = await self.scorer.score(job)
+            if fit is None:  # API down, daily cap: keep the old score
+                out.append((job, old, old, None))
+                continue
+            status = old
+            if old in ("alert", "digest", "low"):
+                status = self.route(fit.score, fit.step_up).replace("alert", "digest")
+            self.store.update_job(job.key, status=status, reason="rescored" if status != old else None,
+                                  **_score_cols(fit))
+            out.append((job, old, status, fit))
+        if out:
+            self._dashboard_stale.set()
+        return out, 0
+
+    async def score_anyway(self, key: str) -> str:
+        """Full AI score for a job the filter turned down (the Filter page's button). It's never pushed:
+        a high score lands in the digest. Returns the new status, or why it couldn't be scored."""
+        row = self.store.get_job(key)
+        if row is None:
+            return "not found"
+        if not self.scorer:
+            return "AI scoring is off"
+        if self.scorer.capped():
+            return "today's AI calls are used up"
+        job = job_from_row(row)
+        board = next((b for b in self.active_boards() if (b.source, b.slug) == (job.source, job.board)), None)
+        if board is None:
+            return "its board isn't watched any more"
+        self.store.update_job(key, status="processing", reason="scored on request (Filter page)")
+        try:
+            status, _ = await self._finish(job, board, SOURCES[job.source])
+        except Exception as e:
+            log.exception("score anyway: %s failed", key)
+            self.store.update_job(key, status="error", reason=str(e)[:200])
+            return "error"
+        if status == "alert":
+            status = "digest"
+            self.store.update_job(key, status="digest")
+        self._dashboard_stale.set()
+        return status
+
+    async def _notify(self, job: Job, score: FitScore | None) -> int:
+        if self._collecting is not None:   # catching up: one summary instead of a push per job
+            self._collecting.append((job, score))
+            return 1
+        pay = self.pay_index(job, score)
+        try:
+            await self.notifier.job_alert(job, score, pay.text() if pay else "", STEP_UP_SHOWN,
+                                          link=job_link(self.cfg.web.public_url, job.key))
+        except Exception as e:
+            log.error("Notification failed for %s: %s (will go in the digest)", job.key, e)
+            self.store.update_job(job.key, status="notify_failed")
+            return 0
+        self.store.mark_notified(job.key)
+        return 1
+
+    async def _cap_notice(self) -> None:
+        today = utcnow().date().isoformat()
+        if self._cap_noticed == today:
+            return
+        self._cap_noticed = today
+        self.store.set_meta(runstate.CAP_NOTICED, today)
+        try:
+            await self.notifier.send(
+                "AI daily cap reached",
+                f"All {self.cfg.scoring.daily_max_calls} of today's Claude calls are used (scoring.daily_max_calls). "
+                "New matches go to the digest unscored until 00:00 UTC instead of being pushed.",
+                priority=3, tags=["warning"])
+        except Exception as e:
+            log.warning("Couldn't send the AI cap notice: %s", e)
+
+    async def preview_board(self, board: Board) -> tuple[int, list[Job]]:
+        """Dry run: fetch and filter only. Nothing is stored or sent."""
+        jobs = await SOURCES[board.source].fetch(board, self.http)
+        matches = [j for j in jobs if not self.filter.is_stale(j) and self.filter.check_basic(j)[0]]
+        return len(jobs), matches
+
     # ------------------------------------------------------------------ cost-of-living data
     def _pay_paths(self) -> tuple[Path, Path]:
         """(committed seed in the config dir, refreshed copy next to the database)"""
@@ -583,6 +619,425 @@ class Runner:
         if taxes and (problem := taxes.problem()):
             log.warning("Pay index: %s", problem)
 
+    # ------------------------------------------------------------------ digest, catch-up report, map
+    def catchup_report(self) -> dict | None:
+        return runstate.load_report(self.store, self.cfg.run.report_hours)
+
+    def digest_missed(self, now: datetime | None = None) -> bool:
+        """A digest was due while the service was off: the last one sent is older than the latest
+        scheduled time. (Never true before the first digest.)"""
+        last = self.store.get_meta(runstate.LAST_DIGEST)
+        if not last:
+            return False
+        tz = ZoneInfo(self.cfg.notify.timezone)
+        hour, minute = (int(x) for x in self.cfg.notify.digest_time.split(":"))
+        now = (now or datetime.now(tz)).astimezone(tz)
+        due = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        if due > now:
+            due -= timedelta(days=1)
+        return last < due.date().isoformat()
+
+    def digest_due(self, now: datetime | None = None) -> bool:
+        """The scheduled digest time passed since the last one. The first time, the latest scheduled time
+        counts as done: the first digest comes at the next one."""
+        if self.store.get_meta(runstate.LAST_DIGEST):
+            return self.digest_missed(now)
+        tz = ZoneInfo(self.cfg.notify.timezone)
+        hour, minute = (int(x) for x in self.cfg.notify.digest_time.split(":"))
+        now = (now or datetime.now(tz)).astimezone(tz)
+        due = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        if due > now:
+            due -= timedelta(days=1)
+        self.store.set_meta(runstate.LAST_DIGEST, due.date().isoformat())
+        return False
+
+    async def send_digest(self, mark: bool = True) -> str:
+        """Daily summary: held-back matches, unwatched companies hiring for your search, and health.
+        Always sent, so silence from this tool never means 'broken'."""
+        rows = self.store.digest_jobs(self.cfg.notify.digest_max_items)
+        lines: list[str] = []
+        if rows:
+            lines.append(f"{len(rows)} jobs worth a look:")
+            for r in rows:
+                score = f"[{r['score']}] " if r["score"] is not None else ""
+                lines.append(f"• {score}{r['company']}: {r['title']} ({r['location'] or 'n/a'})\n  {r['url']}")
+                if r["pay_note"] and r["pay_note"] != col.NO_PAY:
+                    lines.append(f"  {r['pay_note']}")
+                if r["step_up"] is not None and r["step_up"] >= STEP_UP_SHOWN:
+                    lines.append(f"  step up {r['step_up']}: {r['step_up_note'] or ''}".rstrip(": "))
+                if stories := stories_from_row(r):
+                    lines.append("  stories: " + "; ".join(title for _, title in stories))
+                if r["best_resume"]:
+                    lines.append(f"  apply with: {r['best_resume']}")
+        else:
+            lines.append("No held-back matches today.")
+
+        suggestions = await self._resolve_suggestions() if self.admin else []  # the watch list is the admins'
+        if suggestions:
+            lines.append("\nHiring for your search, not on your watch list:")
+            for s, resolved in suggestions:
+                hint = f" → {resolved}" if resolved else ""
+                lines.append(f"• {s['company']} ({s['matches']} matches){hint}")
+            lines.append("Add one with: jobalerts discover \"<company>\" --add")
+
+        activity = self.store.activity_since(utcnow() - timedelta(days=1))
+        seen = sum(n for status, n in activity.items() if status != "baseline")
+        hosts = self.store.host_stats(days=1)
+        requests = sum(c["requests"] for c in hosts.values())
+        limited = sum(c["rate_limited"] for c in hosts.values())
+        errors = sum(c["errors"] for c in hosts.values())
+        lines.append(f"\nLast 24h: {seen} new postings seen, {activity['alerted']} pushed, "
+                     f"{activity['digest'] + activity['digested']} for digest, {activity['low']} low-fit, "
+                     f"{activity['low_pay']} low pay. "
+                     f"{requests} requests, {limited} rate-limited, {errors} errors.")
+        skipped = self.store.low_pay_since(utcnow() - timedelta(days=1))
+        if skipped:
+            lines.append(f"\nSkipped for pay (top of range under {self.cfg.pay.min_index:g}), check for misreads:")
+            lines += [f"• {r['company']}: {r['title']}: {r['pay_note']}\n  {r['url']}" for r in skipped[:10]]
+            if len(skipped) > 10:
+                lines.append(f"  …and {len(skipped) - 10} more")
+        if self.pay_problem:
+            lines.append(f"Pay index: {self.pay_problem}")
+        if self.pay and self.pay.taxes and (problem := self.pay.taxes.problem()):
+            lines.append(f"Pay index: {problem}")
+        if self.admin and (update := self.update_status()) and update.available and self.cfg.update.mode != "off":
+            lines.append(f"Update available: {update.behind} change(s) (Settings → Updates)"
+                         + (f"; can't install on its own: {update.problem}" if update.problem else ""))
+        failing = [b for b in self.store.boards() if b["failures"]] if self.admin else []
+        if failing:
+            lines.append("Failing boards: " + "; ".join(
+                f"{b['key']} ({b['failures']}x: {(b['last_error'] or '')[:80]})" for b in failing[:5]))
+
+        message = "\n".join(lines)
+        home = self.cfg.web.public_url.rstrip("/")
+        await self.notifier.send(f"Job digest: {len(rows)} to review", message, priority=3, tags=["clipboard"],
+                                 click=f"{home}/" if home else None)
+        if mark:
+            self.store.mark_digested([r["key"] for r in rows])
+            today = datetime.now(ZoneInfo(self.cfg.notify.timezone)).date().isoformat()
+            self.store.set_meta(runstate.LAST_DIGEST, today)
+            self.store.mark_suggestions_reported([s["company_key"] for s, _ in suggestions])
+        return message
+
+    async def _resolve_suggestions(self, limit: int = 5) -> list[tuple]:
+        out = []
+        for s in self.store.pending_suggestions(limit):
+            resolved = s["resolved"]
+            if resolved is None:
+                try:
+                    found = await discover.find_by_name(s["company"], self.http)
+                except Exception as e:
+                    log.warning("Couldn't resolve ATS for %s: %s", s["company"], e)
+                    found = []
+                resolved = ", ".join(f"{f.ats}:{f.slug}" for f in found)
+                self.store.set_suggestion_resolved(s["company_key"], resolved)
+            out.append((s, resolved))
+        return out
+    def top_matches(self, n: int | None = None, days: int | None = None, by: str = "score") -> tuple[int, list[dict]]:
+        """Best recent matches by AI fit score, or with by="step_up" the biggest credible promotions."""
+        cfg = self.cfg.homeassistant
+        return top_matches(self.store, self.filter, days or cfg.days, n or cfg.top_n, self.pay, by,
+                           self.cfg.web.public_url)
+
+    @property
+    def map_enabled(self) -> bool:
+        return bool(self.cfg.map.enabled and self.pay)
+
+    async def refresh_map(self) -> str:
+        data = await self.map_data()
+        self.map_html = colmap.render(data)
+        self.map_html_shared = colmap.render(colmap.for_sharing(data))
+        self._map_built = time.monotonic()
+        return self.map_html
+
+    async def current_map(self, shared: bool = False) -> str:
+        """The map page for the web UI (`shared`: the version for the read-only Home Assistant link).
+        The dashboard loop keeps it fresh in `run`; `jobalerts web` (no loops) rebuilds it when it's
+        older than homeassistant.interval."""
+        if self.map_html is None or time.monotonic() - self._map_built > self.cfg.homeassistant.interval:
+            await self.refresh_map()
+        return self.map_html_shared if shared else self.map_html
+
+    async def map_data(self) -> dict:
+        """The cost-of-living map's data with the current top jobs (the price math runs off the event loop)."""
+        _, jobs = self.top_matches()
+        _, step_ups = self.top_matches(by="step_up")
+        pay = self.pay
+        return await asyncio.to_thread(colmap.build_map_data, pay, jobs, step_ups)
+
+    async def map_page(self) -> str:
+        return colmap.render(await self.map_data())
+
+    async def report_catch_up(self, since: datetime, gap: float, new: int, collected: list, failed: int) -> dict:
+        """After a catch-up pass: one summary push, then the best few jobs; the rest go to the digest."""
+        cfg = self.cfg.scoring
+
+        def strength(item):
+            job, score = item
+            return max(score.score if score else 0, score.step_up if score and cfg.step_up_threshold else 0)
+        ranked = sorted(collected, key=strength, reverse=True)
+        top = ranked[:self.cfg.run.catchup_top_pushes]
+        home = self.cfg.web.public_url.rstrip("/")
+        summary = (f"{new} new match{'es' if new != 1 else ''} since {since.astimezone(ZoneInfo(self.cfg.notify.timezone)):%a %H:%M}"
+                   f" ({len(collected)} strong)")
+        for job, _score in ranked[len(top):]:
+            self.store.update_job(job.key, status="digest", reason="catch-up: in the report")
+        report = {"at": runstate.now().isoformat(timespec="seconds"), "since": since.isoformat(timespec="seconds"),
+                  "gap": runstate.human(gap), "summary": summary + (f"; {failed} boards failed" if failed else ""),
+                  "new": new, "strong": len(collected), "note": runstate.HONEST_GAPS}
+        runstate.save_report(self.store, report)
+        if new or collected:
+            await self.notifier.send(f"Catch-up: {summary}",
+                                     f"You were away {runstate.human(gap)}. "
+                                     + (f"The best {len(top)} follow" if top else "None was strong enough to push")
+                                     + (", the rest are on the jobs page." if home else ", the rest are in the digest."),
+                                     priority=3, tags=["inbox_tray"], click=f"{home}/" if home else None)
+        for job, score in top:
+            await self._notify(job, score)
+        return report
+
+
+class Runner:
+    """The service: polls every board once, runs each new job through every user's pipeline (Person),
+    and the loops (boards, pre-screen, digests, heartbeat and catch-up, updates, Home Assistant).
+    The first user's Person (`me`, id 1) stands in for "the" user where there is one: `runner.cfg`,
+    `runner.scorer`, `runner.send_digest()` and the like are theirs."""
+
+    def __init__(self, cfg: Config, store: Store, http: HttpClient, notifier: Notifier,
+                 scorer: Scorer | None = None, homeassistant: MqttPublisher | None = None,
+                 prescreener: Prescreener | None = None):
+        self.store = store
+        self.http = http
+        self.watched = {normalize_company(name) for name in cfg.watched_companies()}
+        self._failure_alerted: set[str] = set(json.loads(store.get_meta(runstate.FAILURE_ALERTED) or "[]"))
+        self.homeassistant = homeassistant
+        self._dashboard_stale = asyncio.Event()  # set after new matches so Home Assistant updates right away
+        self.vault = None                   # API keys set on the Settings page (vault.Vault), set by cli.open_runner
+        self.ui_settings = None             # settings.UiSettings of user 1, set by cli.open_runner / the web app
+        self.users = None                   # users.Users (accounts), set by cli.open_runner / the web app
+        self.base_cfg = cfg                 # config.yaml + config.local.yaml, before the UI's settings
+        self.rebuild = None                 # (cfg, store, **kw) -> (scorer, prescreener, homeassistant); cli.open_runner
+        self.running = False                # True inside run_forever (board loops are live)
+        self.config_path = str(cfg.config_dir / "config.yaml")   # cli.open_runner sets the real -c path
+        self.restart_requested = False      # set after an update installed itself: cli.cmd_run restarts
+        self._main_task: asyncio.Task | None = None
+        self.board_tasks: dict[str, tuple[Board, asyncio.Task]] = {}
+        self.next_poll: dict[str, float] = {}  # board key -> unix time of its next poll
+        self._catching_up = False
+        self._board_locks: dict[str, asyncio.Lock] = {}
+        self._prescreen_wake = asyncio.Event()     # AI-only mode: new jobs are waiting for the pre-screen
+        self._prescreen_task: asyncio.Task | None = None
+        self._boards_started = asyncio.Event()     # set once a start-up catch-up and missed digest are done
+        self._shipped: dict | None = None
+        self._ui: dict[int, object] = {}
+        self.me = Person(self, OWNER, cfg, notifier, scorer, prescreener, admin=True)
+        self.people: dict[int, Person] = {OWNER: self.me}
+
+    # The first user's, for code (and the CLI) that has one user in mind.
+    cfg = _first_users("cfg")
+    scorer = _first_users("scorer")
+    prescreener = _first_users("prescreener")
+    notifier = _first_users("notifier")
+    filter = _first_users("filter")
+    pay = _first_users("pay")
+    pay_problem = _first_users("pay_problem")
+    map_html = _first_users("map_html")
+    map_html_shared = _first_users("map_html_shared")
+    _map_built = _first_users("_map_built")
+    _collecting = _first_users("_collecting")
+    _cap_noticed = _first_users("_cap_noticed")
+
+    def __getattr__(self, name: str):
+        if name in FIRST_USERS:
+            return getattr(self.me, name)
+        raise AttributeError(name)
+
+    # ------------------------------------------------------------------ users
+    def person(self, uid: int) -> Person | None:
+        return self.people.get(uid)
+
+    def everyone(self) -> list[Person]:
+        return list(self.people.values())
+
+    @property
+    def data_dir(self) -> Path:
+        """The data folder: user 1's profile is at its top."""
+        return self.base_cfg.resolve(self.base_cfg.scoring.profile_path).parent
+
+    def settings_for(self, uid: int):
+        """settings.UiSettings for one user (None before the web UI or the CLI set up the vault)."""
+        if uid == OWNER or self.ui_settings is None:
+            return self.ui_settings
+        if uid not in self._ui:
+            from .settings import UiSettings
+            self._ui[uid] = UiSettings(self.ui_settings.store, self.vault, uid)
+        return self._ui[uid]
+
+    def personal_base(self, uid: int) -> Config:
+        """What a user other than user 1 starts from: the install's config with the personal sections at
+        the shipped defaults (not user 1's config.local.yaml or .env), and their own folder."""
+        if uid == OWNER:
+            return self.base_cfg
+        from .config import PERSONAL_SECTIONS, shipped_personal
+        from .users import user_folder
+        if self._shipped is None:
+            path = self.base_cfg.config_dir / "config.yaml"
+            self._shipped = shipped_personal(path) if path.is_file() else {
+                k: v for k, v in Config().model_dump().items() if k in PERSONAL_SECTIONS}
+        base = self.base_cfg
+        data = base.model_dump(exclude={"companies", "config_dir", "value_sources", "config_problems"})
+        data.update(json.loads(json.dumps(self._shipped)))
+        folder = user_folder(self.data_dir, uid)
+        data["scoring"].update(profile_path=str(folder / "profile.md"), resume_dir=str(folder / "resumes"),
+                               stories_dir=str(folder / "stories"))
+        data["notify"].update(topic="", token="")
+        cfg = Config.model_validate(data)
+        cfg.config_dir, cfg.companies = base.config_dir, base.companies
+        cfg.value_sources = {k: v for k, v in base.value_sources.items() if k.split(".")[0] not in PERSONAL_SECTIONS}
+        return cfg
+
+    def config_for(self, uid: int) -> Config:
+        """A user's settings: their base with the install's and their own Settings-page values on top."""
+        from pydantic import ValidationError
+        from .settings import apply as apply_settings
+        base, ui = self.personal_base(uid), self.settings_for(uid)
+        if ui is None:
+            return base
+        try:
+            return apply_settings(base, ui.overlay())
+        except ValidationError as e:
+            log.warning("Settings of user %d don't fit this version's config; using the defaults: %s", uid, e)
+            return base
+
+    def anthropic_key(self, uid: int, admin: bool, share: bool) -> tuple[str, bool]:
+        return self.vault.anthropic_key(uid, admin, share) if self.vault else ("", False)
+
+    def add_person(self, uid: int, admin: bool) -> Person:
+        from .userdata import seed_user_files
+        cfg = self.config_for(uid)
+        seed_user_files(cfg, watch_list=False)
+        vault = self.vault
+        notifier = Notifier(cfg.notify, dry_run=self.me.notifier._dry_run,
+                            secrets=lambda name: vault.get(name, uid) if vault else "")
+        person = Person(self, uid, cfg, notifier, admin=admin)
+        person.rebuild_services()
+        self.people[uid] = person
+        return person
+
+    def sync_people(self) -> None:
+        """One Person per enabled account (after users are added, removed, enabled or their role changed)."""
+        if self.users is None:
+            return
+        wanted = {u.id: u for u in self.users.all() if not u.disabled}
+        for uid in list(self.people):
+            if uid != OWNER and uid not in wanted:
+                del self.people[uid]
+        for uid, user in wanted.items():
+            if uid == OWNER:
+                continue
+            if uid not in self.people:
+                self.add_person(uid, user.admin)
+            elif self.people[uid].admin != user.admin:
+                self.people[uid].admin = user.admin
+                self.people[uid].rebuild_services()
+        self._start_prescreen_loop()
+
+    def refresh(self, uid: int | None = None) -> None:
+        """Settings changed: one user's (their own sections, keys, files), or everyone's (`uid` None)."""
+        for person in ([self.people[uid]] if uid in self.people else self.everyone() if uid is None else []):
+            person.reconfigure(self.config_for(person.uid))
+        self._after_settings()
+
+    def reconfigure(self, cfg: Config) -> None:
+        """New settings for user 1 (and the install's parts: boards, Home Assistant) without a restart."""
+        self.me.reconfigure(cfg)
+        self._after_settings()
+
+    def _after_settings(self) -> None:
+        self.watched = {normalize_company(name) for name in self.cfg.watched_companies()}
+        self._start_prescreen_loop()
+        self._dashboard_stale.set()
+        self.sync_boards()   # a key saved in Settings starts its aggregator searches
+
+    def _start_prescreen_loop(self) -> None:
+        if self.running and any(p.prescreener for p in self.everyone()) and (
+                self._prescreen_task is None or self._prescreen_task.done()):
+            self._prescreen_task = asyncio.create_task(self._prescreen_loop(), name="prescreen")
+
+    async def notify_admins(self, title: str, message: str, **kwargs) -> None:
+        """Service news (boards failing, updates) to every admin with notifications set up."""
+        for person in self.everyone():
+            if person.admin:
+                try:
+                    await person.notifier.send(title, message, **kwargs)
+                except Exception as e:
+                    log.warning("Couldn't notify user %d: %s", person.uid, e)
+
+    # ------------------------------------------------------------------ pipeline
+    async def poll_board(self, board: Board) -> PollResult:
+        # One poll per board at a time: a catch-up after a wake runs while the board loops do.
+        async with self._board_locks.setdefault(board.key, asyncio.Lock()):
+            return await self._poll_board(board)
+
+    async def _poll_board(self, board: Board) -> PollResult:
+        source = SOURCES[board.source]
+        jobs = {j.key: j for j in await source.fetch(board, self.http)}
+        known = self.store.known_keys(list(jobs))
+        new = [j for k, j in jobs.items() if k not in known]
+        result = PollResult(board.key, fetched=len(jobs), new=len(new), baseline=self.store.is_baseline(board.key))
+
+        if result.baseline:
+            # First time we see this board: remember what's already open, alert on nothing.
+            self.store.insert_jobs(new, "baseline")
+            self.store.mark_board_ok(board.key, len(jobs))
+            log.info("%s: baseline of %d existing jobs recorded silently", board.key, len(new))
+            return result
+
+        people = self.everyone()
+        alerts_left = {p.uid: self.cfg.polling.max_alerts_per_poll for p in people}
+        overflow = {p.uid: 0 for p in people}
+        for job in new:
+            if self.store.seen_elsewhere(job):
+                self.store.insert_shared(job, "duplicate", "already seen from another source")
+                continue
+            self.store.insert_shared(job)
+            matched = False
+            for person in people:     # the description fetched for one is there for the next
+                try:
+                    status, score = await person.process(job, board, source)
+                except Exception as e:  # one bad posting must not stop the rest of the board
+                    log.exception("%s: failed processing %s", board.key, job.key)
+                    person.store.insert_job(job, "error", str(e)[:200])
+                    person.store.update_job(job.key, status="error", reason=str(e)[:200])
+                    continue
+                if status in ("alert", "digest", "low"):
+                    matched = True
+                    result.matched_by[person.uid] = result.matched_by.get(person.uid, 0) + 1
+                if status != "alert":
+                    continue
+                if person._collecting is not None:   # catching up: no per-board cap, one summary at the end
+                    result.alerted += await person._notify(job, score)
+                elif alerts_left[person.uid] > 0:
+                    alerts_left[person.uid] -= 1
+                    result.alerted += await person._notify(job, score)
+                else:
+                    overflow[person.uid] += 1
+                    person.store.update_job(job.key, status="digest", reason="per-poll alert cap reached")
+            if matched:
+                result.matched.append(job)
+        for person in people:
+            if n := overflow[person.uid]:
+                await person.notifier.send(
+                    f"{board.name}: {n} more matches",
+                    f"{n} more new matching jobs at {board.name} were held back to avoid a flood. "
+                    "They'll be in the next digest.", priority=3, tags=["inbox_tray"])
+        self.store.mark_board_ok(board.key, len(jobs))
+        if result.matched:
+            self._dashboard_stale.set()
+        if new:
+            log.info("%s: %d new, %d matched, %d alerted", board.key, len(new), len(result.matched), result.alerted)
+        return result
+
     async def refresh_pay_data(self, force: bool = False) -> str:
         """Rebuild the cost-of-living table when it's older than pay.refresh_days. A download that fails
         or doesn't pass col.check_data leaves the current table in place. Returns what happened."""
@@ -605,49 +1060,14 @@ class Runner:
             data["sources"]["places"] = self.pay.data["sources"].get("places", "")
         path = self._pay_paths()[1]
         col.write_data(data, path)
-        self.pay_problem = ""
-        self.load_pay()
+        for person in self.everyone():
+            person.pay, person.pay_problem = None, ""
+            person.load_pay()
         self._dashboard_stale.set()  # the map's numbers changed
         return f"Cost-of-living data rebuilt into {path}: {data['sources']['us']}; {len(data['countries'])} countries"
 
-    async def _cap_notice(self) -> None:
-        today = utcnow().date().isoformat()
-        if self._cap_noticed == today:
-            return
-        self._cap_noticed = today
-        self.store.set_meta(runstate.CAP_NOTICED, today)
-        try:
-            await self.notifier.send(
-                "AI daily cap reached",
-                f"All {self.cfg.scoring.daily_max_calls} of today's Claude calls are used (scoring.daily_max_calls). "
-                "New matches go to the digest unscored until 00:00 UTC instead of being pushed.",
-                priority=3, tags=["warning"])
-        except Exception as e:
-            log.warning("Couldn't send the AI cap notice: %s", e)
-
     def _save_failure_alerted(self) -> None:
         self.store.set_meta(runstate.FAILURE_ALERTED, json.dumps(sorted(self._failure_alerted)))
-
-    async def _notify(self, job: Job, score: FitScore | None) -> int:
-        if self._collecting is not None:   # catching up: one summary instead of a push per job
-            self._collecting.append((job, score))
-            return 1
-        pay = self.pay_index(job, score)
-        try:
-            await self.notifier.job_alert(job, score, pay.text() if pay else "", STEP_UP_SHOWN,
-                                          link=job_link(self.cfg.web.public_url, job.key))
-        except Exception as e:
-            log.error("Notification failed for %s: %s (will go in the digest)", job.key, e)
-            self.store.update_job(job.key, status="notify_failed")
-            return 0
-        self.store.mark_notified(job.key)
-        return 1
-
-    async def preview_board(self, board: Board) -> tuple[int, list[Job]]:
-        """Dry run: fetch and filter only. Nothing is stored or sent."""
-        jobs = await SOURCES[board.source].fetch(board, self.http)
-        matches = [j for j in jobs if not self.filter.is_stale(j) and self.filter.check_basic(j)[0]]
-        return len(jobs), matches
 
     # ------------------------------------------------------------------ service loops
     async def run_forever(self) -> None:
@@ -660,10 +1080,11 @@ class Runner:
             for source, keys in sorted(skipped.items()):
                 log.info("%s is enabled but skipped until %s %s set (.env or Settings > API keys)", source,
                          " and ".join(keys), "are" if len(keys) > 1 else "is")
-        if not self.prescreener and (n := self.store.drop_prescreen_queue()):
-            log.info("AI pre-screen off: %d waiting jobs marked filtered", n)
+        for person in self.everyone():
+            if not person.prescreener and (n := person.store.drop_prescreen_queue()):
+                log.info("AI pre-screen off for user %d: %d waiting jobs marked filtered", person.uid, n)
         log.info("Watching %d boards", len(boards))
-        await self.notifier.send("Job alerts running", f"Watching {len(boards)} boards.{note}",
+        await self.notify_admins("Job alerts running", f"Watching {len(boards)} boards.{note}",
                                  priority=2, tags=["eyes"])
         last = runstate.last_heartbeat(self.store)
         runstate.beat(self.store)
@@ -673,7 +1094,7 @@ class Runner:
                  asyncio.create_task(self._daily_loop(), name="digest"),
                  asyncio.create_task(self._heartbeat_loop(), name="heartbeat"),
                  asyncio.create_task(self._update_loop(), name="updates")]
-        if self.prescreener:
+        if any(p.prescreener for p in self.everyone()):
             self._prescreen_task = asyncio.create_task(self._prescreen_loop(), name="prescreen")
             tasks.append(self._prescreen_task)
         tasks.append(asyncio.create_task(self.refresh_pay_data(), name="col-refresh"))
@@ -718,11 +1139,8 @@ class Runner:
                 await self.catch_up(last_heartbeat)
             except Exception:
                 log.exception("Catch-up failed; polling normally")
-        if self.digest_missed():
-            try:
-                await self.send_digest()
-            except Exception:
-                log.exception("Missed digest failed")
+        await self._send_missed_digests()
+        self._boards_started.set()
         self.sync_boards()
         await self._supervise_boards()
 
@@ -743,7 +1161,8 @@ class Runner:
         from .watchlist import load
         companies = [Company.model_validate(c) for c in load(self.cfg.resolve(self.cfg.companies_file))]
         self.base_cfg.companies = companies
-        self.cfg.companies = companies
+        for person in self.everyone():
+            person.cfg.companies = companies
         self.watched = {normalize_company(name) for name in self.cfg.watched_companies()}
         self.sync_boards()
         self._dashboard_stale.set()
@@ -780,7 +1199,7 @@ class Runner:
             how = (f"Can't install it on its own: {status.problem}" if status.problem
                    else "Install it on Settings → Updates (or `jobalerts update`).")
             home = self.cfg.web.public_url.rstrip("/")
-            await self.notifier.send(f"Job alerts update: {status.behind} change{'s' if status.behind != 1 else ''}",
+            await self.notify_admins(f"Job alerts update: {status.behind} change{'s' if status.behind != 1 else ''}",
                                      f"{changes}{more}\n{how}", priority=2, tags=["arrow_up"],
                                      click=f"{home}/settings/updates" if home else None)
             self.store.set_meta("update.notified", status.latest)
@@ -790,7 +1209,7 @@ class Runner:
         """Install the newest version (see updater.install) and, in the service, restart into it."""
         ok, message = await asyncio.to_thread(updater.install, None, config=self.config_path, store=self.store)
         self.store.set_meta(updater.STATUS_META, (await asyncio.to_thread(updater.check, None, False)).to_json())
-        await self.notifier.send("Job alerts updated" if ok else "Job alerts update failed", message,
+        await self.notify_admins("Job alerts updated" if ok else "Job alerts update failed", message,
                                  priority=2 if ok else 3, tags=["arrow_up"] if ok else ["warning"])
         if ok and self.running:
             asyncio.get_running_loop().call_later(1.0, self.request_restart)   # after the web page answered
@@ -803,9 +1222,6 @@ class Runner:
             self._main_task.cancel()
 
     # ------------------------------------------------------------------ catching up after a gap
-    def catchup_report(self) -> dict | None:
-        return runstate.load_report(self.store, self.cfg.run.report_hours)
-
     async def _heartbeat_loop(self) -> None:
         """Beat every run.heartbeat seconds; a much longer wall-clock jump means the PC slept."""
         last = runstate.now()
@@ -818,14 +1234,13 @@ class Runner:
                     await self.catch_up(last)
                 except Exception:
                     log.exception("Catch-up failed")
-                if self.digest_missed():
-                    await self.send_digest()
+                await self._send_missed_digests()
             runstate.beat(self.store, now)
             last = now
 
     async def catch_up(self, since: datetime) -> dict:
-        """Poll every board now, look back over the gap, pre-screen, then one summary push plus the best
-        few; the rest wait on the jobs page and in the digest. Returns the report it saved."""
+        """Poll every board now, look back over the gap, pre-screen, then for each user one summary push
+        plus their best few; the rest wait on the jobs page and in the digest. Returns user 1's report."""
         if self._catching_up:
             return {}
         self._catching_up = True
@@ -835,46 +1250,29 @@ class Runner:
         last_ok = {r["key"]: parse_dt(r["last_ok_at"]) for r in self.store.boards()}
         for board in boards:
             SOURCES[board.source].resume(board, last_ok.get(board.key) or since)
-        self._collecting = collected = []
+        people = self.everyone()
+        collected: dict[int, list] = {}
+        for person in people:
+            person._collecting = collected[person.uid] = []
         try:
             results = await asyncio.gather(*(self.poll_board(b) for b in boards), return_exceptions=True)
-            if self.prescreener:
-                await self.run_prescreen(boards)
+            for person in people:
+                if person.prescreener:
+                    await person.run_prescreen(boards)
         finally:
-            self._collecting = None
+            for person in people:
+                person._collecting = None
             self._catching_up = False
         for board, r in zip(boards, results):
             if isinstance(r, Exception):
                 self.store.mark_board_failed(board.key, f"{type(r).__name__}: {r}")
         failed = sum(isinstance(r, Exception) for r in results)
-        new = sum(len(r.matched) for r in results if not isinstance(r, Exception))
-        cfg = self.cfg.scoring
-
-        def strength(item):
-            job, score = item
-            return max(score.score if score else 0, score.step_up if score and cfg.step_up_threshold else 0)
-        ranked = sorted(collected, key=strength, reverse=True)
-        top = ranked[:self.cfg.run.catchup_top_pushes]
-        home = self.cfg.web.public_url.rstrip("/")
-        summary = (f"{new} new match{'es' if new != 1 else ''} since {since.astimezone(ZoneInfo(self.cfg.notify.timezone)):%a %H:%M}"
-                   f" ({len(collected)} strong)")
-        for job, _score in ranked[len(top):]:
-            self.store.update_job(job.key, status="digest", reason="catch-up: in the report")
-        report = {"at": runstate.now().isoformat(timespec="seconds"), "since": since.isoformat(timespec="seconds"),
-                  "gap": runstate.human(gap), "summary": summary + (f"; {failed} boards failed" if failed else ""),
-                  "new": new, "strong": len(collected), "note": runstate.HONEST_GAPS}
-        runstate.save_report(self.store, report)
-        if new or collected:
-            await self.notifier.send(f"Catch-up: {summary}",
-                                     f"You were away {runstate.human(gap)}. "
-                                     + (f"The best {len(top)} follow" if top else "None was strong enough to push")
-                                     + (", the rest are on the jobs page." if home else ", the rest are in the digest."),
-                                     priority=3, tags=["inbox_tray"], click=f"{home}/" if home else None)
-        self._collecting = None
-        for job, score in top:
-            await self._notify(job, score)
+        reports = {}
+        for person in people:
+            new = sum(r.matched_by.get(person.uid, 0) for r in results if not isinstance(r, Exception))
+            reports[person.uid] = await person.report_catch_up(since, gap, new, collected[person.uid], failed)
         self._dashboard_stale.set()
-        return report
+        return reports.get(OWNER, {})
 
     async def _board_loop(self, board: Board) -> None:
         # Spread the first polls over the first couple of minutes instead of one burst.
@@ -889,12 +1287,12 @@ class Runner:
                 if board.key in self._failure_alerted:
                     self._failure_alerted.discard(board.key)
                     self._save_failure_alerted()
-                    await self.notifier.send(f"Job board recovered: {board.name}", f"{board.key} is polling again.",
+                    await self.notify_admins(f"Job board recovered: {board.name}", f"{board.key} is polling again.",
                                              priority=2, tags=["white_check_mark"])
             except SourceConfigError as e:
                 log.error("%s disabled: %s", board.key, e)
                 self.store.mark_board_failed(board.key, str(e))
-                await self.notifier.send(f"Job board disabled: {board.name}", str(e), priority=3, tags=["warning"])
+                await self.notify_admins(f"Job board disabled: {board.name}", str(e), priority=3, tags=["warning"])
                 return
             except Exception as e:
                 failures = self.store.mark_board_failed(board.key, f"{type(e).__name__}: {e}")
@@ -903,7 +1301,7 @@ class Runner:
                 if failures >= self.cfg.polling.failure_alert_threshold and board.key not in self._failure_alerted:
                     self._failure_alerted.add(board.key)
                     self._save_failure_alerted()
-                    await self.notifier.send(
+                    await self.notify_admins(
                         f"Job board failing: {board.name}",
                         f"{failures} failures in a row. Last error: {type(e).__name__}: {e}\n"
                         f"Retrying every {delay // 60} min. Check the slug/URL or whether the site changed.",
@@ -924,71 +1322,43 @@ class Runner:
             except asyncio.TimeoutError:
                 pass
             self._prescreen_wake.clear()
-            if not self.prescreener:
-                continue
-            try:
-                await self.run_prescreen(self.active_boards())
-            except Exception:
-                log.exception("Pre-screen run failed")
+            for person in self.everyone():
+                if not person.prescreener:
+                    continue
+                try:
+                    await person.run_prescreen(self.active_boards())
+                except Exception:
+                    log.exception("Pre-screen run for user %d failed", person.uid)
 
-    async def score_anyway(self, key: str) -> str:
-        """Full AI score for a job the filter turned down (the Filter page's button). It's never pushed:
-        a high score lands in the digest. Returns the new status, or why it couldn't be scored."""
-        row = self.store.get_job(key)
-        if row is None:
-            return "not found"
-        if not self.scorer:
-            return "AI scoring is off"
-        if self.scorer.capped():
-            return "today's AI calls are used up"
-        job = job_from_row(row)
-        board = next((b for b in self.active_boards() if (b.source, b.slug) == (job.source, job.board)), None)
-        if board is None:
-            return "its board isn't watched any more"
-        self.store.update_job(key, status="processing", reason="scored on request (Filter page)")
-        try:
-            status, _ = await self._finish(job, board, SOURCES[job.source])
-        except Exception as e:
-            log.exception("score anyway: %s failed", key)
-            self.store.update_job(key, status="error", reason=str(e)[:200])
-            return "error"
-        if status == "alert":
-            status = "digest"
-            self.store.update_job(key, status="digest")
-        self._dashboard_stale.set()
-        return status
-
-    def digest_missed(self, now: datetime | None = None) -> bool:
-        """A digest was due while the service was off: the last one sent is older than the latest
-        scheduled time. (Never true before the first digest.)"""
-        last = self.store.get_meta(runstate.LAST_DIGEST)
-        if not last:
-            return False
-        tz = ZoneInfo(self.cfg.notify.timezone)
-        hour, minute = (int(x) for x in self.cfg.notify.digest_time.split(":"))
-        now = (now or datetime.now(tz)).astimezone(tz)
-        due = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
-        if due > now:
-            due -= timedelta(days=1)
-        return last < due.date().isoformat()
+    async def _send_missed_digests(self) -> None:
+        """A digest that was due while the service was off (or the PC slept), once, for each user."""
+        for person in self.everyone():
+            missed, send = ((self.digest_missed, self.send_digest) if person is self.me   # (tests stand in for user 1's)
+                            else (person.digest_missed, person.send_digest))
+            if missed():
+                try:
+                    await send()
+                except Exception:
+                    log.exception("Missed digest for user %d failed", person.uid)
 
     async def _daily_loop(self) -> None:
-        tz = ZoneInfo(self.cfg.notify.timezone)
-        hour, minute = (int(x) for x in self.cfg.notify.digest_time.split(":"))
+        """Each user's digest at their own time; the cost-of-living data is refreshed when it's due."""
+        await self._boards_started.wait()
+        refreshed = 0.0
         while True:
-            now = datetime.now(tz)
-            target = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
-            if target <= now:
-                target += timedelta(days=1)
-            await asyncio.sleep((target - now).total_seconds())
-            try:
-                await self.refresh_pay_data()
-            except Exception:
-                log.exception("Cost-of-living refresh failed")
-            try:
-                await self.send_digest()
-            except Exception:
-                log.exception("Digest failed")
+            if time.monotonic() - refreshed > 3600:
+                refreshed = time.monotonic()
+                try:
+                    await self.refresh_pay_data()
+                except Exception:
+                    log.exception("Cost-of-living refresh failed")
+            for person in self.everyone():
+                try:
+                    if person.digest_due():
+                        await person.send_digest()
+                except Exception:
+                    log.exception("Digest for user %d failed", person.uid)
+            await asyncio.sleep(30)
 
     async def _dashboard_loop(self) -> None:
         """Home Assistant sensor and map page, every homeassistant.interval and right after new matches."""
@@ -1010,127 +1380,9 @@ class Runner:
             except asyncio.TimeoutError:
                 pass
 
-    def top_matches(self, n: int | None = None, days: int | None = None, by: str = "score") -> tuple[int, list[dict]]:
-        """Best recent matches by AI fit score, or with by="step_up" the biggest credible promotions."""
-        cfg = self.cfg.homeassistant
-        return top_matches(self.store, self.filter, days or cfg.days, n or cfg.top_n, self.pay, by,
-                           self.cfg.web.public_url)
-
-    @property
-    def map_enabled(self) -> bool:
-        return bool(self.cfg.map.enabled and self.pay)
-
-    async def refresh_map(self) -> str:
-        data = await self.map_data()
-        self.map_html = colmap.render(data)
-        self.map_html_shared = colmap.render(colmap.for_sharing(data))
-        self._map_built = time.monotonic()
-        return self.map_html
-
-    async def current_map(self, shared: bool = False) -> str:
-        """The map page for the web UI (`shared`: the version for the read-only Home Assistant link).
-        The dashboard loop keeps it fresh in `run`; `jobalerts web` (no loops) rebuilds it when it's
-        older than homeassistant.interval."""
-        if self.map_html is None or time.monotonic() - self._map_built > self.cfg.homeassistant.interval:
-            await self.refresh_map()
-        return self.map_html_shared if shared else self.map_html
-
-    async def map_data(self) -> dict:
-        """The cost-of-living map's data with the current top jobs (the price math runs off the event loop)."""
-        _, jobs = self.top_matches()
-        _, step_ups = self.top_matches(by="step_up")
-        pay = self.pay
-        return await asyncio.to_thread(colmap.build_map_data, pay, jobs, step_ups)
-
-    async def map_page(self) -> str:
-        return colmap.render(await self.map_data())
-
     async def publish_dashboard(self) -> int:
         total, jobs = self.top_matches()
         _, step_ups = self.top_matches(by="step_up")
         await self.homeassistant.publish(total, jobs, ai_cost(self.store, self.cfg.scoring), step_ups)
         return total
 
-    # ------------------------------------------------------------------ digest
-    async def send_digest(self, mark: bool = True) -> str:
-        """Daily summary: held-back matches, unwatched companies hiring for your search, and health.
-        Always sent, so silence from this tool never means 'broken'."""
-        rows = self.store.digest_jobs(self.cfg.notify.digest_max_items)
-        lines: list[str] = []
-        if rows:
-            lines.append(f"{len(rows)} jobs worth a look:")
-            for r in rows:
-                score = f"[{r['score']}] " if r["score"] is not None else ""
-                lines.append(f"• {score}{r['company']}: {r['title']} ({r['location'] or 'n/a'})\n  {r['url']}")
-                if r["pay_note"] and r["pay_note"] != col.NO_PAY:
-                    lines.append(f"  {r['pay_note']}")
-                if r["step_up"] is not None and r["step_up"] >= STEP_UP_SHOWN:
-                    lines.append(f"  step up {r['step_up']}: {r['step_up_note'] or ''}".rstrip(": "))
-                if stories := stories_from_row(r):
-                    lines.append("  stories: " + "; ".join(title for _, title in stories))
-                if r["best_resume"]:
-                    lines.append(f"  apply with: {r['best_resume']}")
-        else:
-            lines.append("No held-back matches today.")
-
-        suggestions = await self._resolve_suggestions()
-        if suggestions:
-            lines.append("\nHiring for your search, not on your watch list:")
-            for s, resolved in suggestions:
-                hint = f" → {resolved}" if resolved else ""
-                lines.append(f"• {s['company']} ({s['matches']} matches){hint}")
-            lines.append("Add one with: jobalerts discover \"<company>\" --add")
-
-        activity = self.store.activity_since(utcnow() - timedelta(days=1))
-        seen = sum(n for status, n in activity.items() if status != "baseline")
-        hosts = self.store.host_stats(days=1)
-        requests = sum(c["requests"] for c in hosts.values())
-        limited = sum(c["rate_limited"] for c in hosts.values())
-        errors = sum(c["errors"] for c in hosts.values())
-        lines.append(f"\nLast 24h: {seen} new postings seen, {activity['alerted']} pushed, "
-                     f"{activity['digest'] + activity['digested']} for digest, {activity['low']} low-fit, "
-                     f"{activity['low_pay']} low pay. "
-                     f"{requests} requests, {limited} rate-limited, {errors} errors.")
-        skipped = self.store.low_pay_since(utcnow() - timedelta(days=1))
-        if skipped:
-            lines.append(f"\nSkipped for pay (top of range under {self.cfg.pay.min_index:g}), check for misreads:")
-            lines += [f"• {r['company']}: {r['title']}: {r['pay_note']}\n  {r['url']}" for r in skipped[:10]]
-            if len(skipped) > 10:
-                lines.append(f"  …and {len(skipped) - 10} more")
-        if self.pay_problem:
-            lines.append(f"Pay index: {self.pay_problem}")
-        if self.pay and self.pay.taxes and (problem := self.pay.taxes.problem()):
-            lines.append(f"Pay index: {problem}")
-        if (update := self.update_status()) and update.available and self.cfg.update.mode != "off":
-            lines.append(f"Update available: {update.behind} change(s) (Settings → Updates)"
-                         + (f"; can't install on its own: {update.problem}" if update.problem else ""))
-        failing = [b for b in self.store.boards() if b["failures"]]
-        if failing:
-            lines.append("Failing boards: " + "; ".join(
-                f"{b['key']} ({b['failures']}x: {(b['last_error'] or '')[:80]})" for b in failing[:5]))
-
-        message = "\n".join(lines)
-        home = self.cfg.web.public_url.rstrip("/")
-        await self.notifier.send(f"Job digest: {len(rows)} to review", message, priority=3, tags=["clipboard"],
-                                 click=f"{home}/" if home else None)
-        if mark:
-            self.store.mark_digested([r["key"] for r in rows])
-            today = datetime.now(ZoneInfo(self.cfg.notify.timezone)).date().isoformat()
-            self.store.set_meta(runstate.LAST_DIGEST, today)
-            self.store.mark_suggestions_reported([s["company_key"] for s, _ in suggestions])
-        return message
-
-    async def _resolve_suggestions(self, limit: int = 5) -> list[tuple]:
-        out = []
-        for s in self.store.pending_suggestions(limit):
-            resolved = s["resolved"]
-            if resolved is None:
-                try:
-                    found = await discover.find_by_name(s["company"], self.http)
-                except Exception as e:
-                    log.warning("Couldn't resolve ATS for %s: %s", s["company"], e)
-                    found = []
-                resolved = ", ".join(f"{f.ats}:{f.slug}" for f in found)
-                self.store.set_suggestion_resolved(s["company_key"], resolved)
-            out.append((s, resolved))
-        return out

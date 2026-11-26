@@ -8,6 +8,10 @@ encrypted in the database.
 - One way only: the web UI can set, replace or clear a secret and see whether it is set and where it
   comes from (`status()`), never its value. Only the running service reads values, via `secret()`.
 - Precedence: a value in the real environment or .env wins over a stored one (the page says so).
+  The environment is the install's and its first user's: other users' values come only from the vault.
+- Whose: each value is stored under a user id. 0 is the install's (aggregator keys, MQTT, the install's
+  Anthropic key); the ntfy topic and token are each user's own, and a user may set their own
+  Anthropic key (USER_SECRETS).
 - Logs: `RedactingFilter` blanks every known secret value and key-like URL parameters.
 """
 from __future__ import annotations
@@ -39,11 +43,17 @@ SECRETS: dict[str, tuple[str, bool]] = {
     "RAPIDAPI_KEY": ("RapidAPI key (JSearch)", False),
     "THEIRSTACK_API_KEY": ("TheirStack API key", False),
 }
+USER_SECRETS = ("ANTHROPIC_API_KEY", "NTFY_TOPIC", "NTFY_TOKEN")   # a user's own
+INSTALL_SECRETS = tuple(n for n in SECRETS if n not in ("NTFY_TOPIC", "NTFY_TOKEN"))
+INSTALL, OWNER = 0, 1
+# `secrets` (one row per name) is the table of versions before accounts: copied once, left as it was.
 SCHEMA = """
-CREATE TABLE IF NOT EXISTS secrets (
-    name       TEXT PRIMARY KEY,
+CREATE TABLE IF NOT EXISTS secrets_by_user (
+    user_id    INTEGER NOT NULL,     -- 0: the install's
+    name       TEXT NOT NULL,
     ciphertext TEXT NOT NULL,
-    updated_at TEXT NOT NULL
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (user_id, name)
 );
 """
 MIN_REDACT = 6  # shorter values would blank ordinary words in log lines
@@ -103,18 +113,35 @@ class Vault:
         self.fernet = fernet_for(key)
         self.environ = environ
         store.db.executescript(SCHEMA)
+        self._copy_old_table()
+
+    def _copy_old_table(self) -> None:
+        """Once: the single-user `secrets` table's values become the install's and user 1's."""
+        db = self.store.db
+        if db.execute("SELECT 1 FROM secrets_by_user LIMIT 1").fetchone() or \
+                not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='secrets'").fetchone():
+            return
+        for r in db.execute("SELECT name, ciphertext, updated_at FROM secrets").fetchall():
+            uid = OWNER if r["name"] in ("NTFY_TOPIC", "NTFY_TOKEN") else INSTALL
+            db.execute("INSERT OR IGNORE INTO secrets_by_user (user_id, name, ciphertext, updated_at) VALUES (?, ?, ?, ?)",
+                       (uid, r["name"], r["ciphertext"], r["updated_at"]))
+
+    def _env(self, name: str, uid: int) -> str:
+        return self.environ.get(name, "") if uid in (INSTALL, OWNER) else ""
 
     # -- for the UI: no values out
-    def status(self) -> list[SecretStatus]:
-        stored = {r["name"]: r["updated_at"] for r in self.store.db.execute("SELECT name, updated_at FROM secrets")}
+    def status(self, uid: int = INSTALL, names: tuple[str, ...] | None = None) -> list[SecretStatus]:
+        stored = {r["name"]: r["updated_at"] for r in self.store.db.execute(
+            "SELECT name, updated_at FROM secrets_by_user WHERE user_id=?", (uid,))}
         out = []
-        for name, (label, shown) in SECRETS.items():
-            source = "env" if self.environ.get(name) else "ui" if name in stored else ""
-            value = self.get(name) if shown and source else ""
+        for name in names or tuple(SECRETS):
+            label, shown = SECRETS[name]
+            source = "env" if self._env(name, uid) else "ui" if name in stored else ""
+            value = self.get(name, uid) if shown and source else ""
             out.append(SecretStatus(name, label, bool(source), source, stored.get(name, ""), value))
         return out
 
-    def set(self, name: str, value: str) -> None:
+    def set(self, name: str, value: str, uid: int = INSTALL) -> None:
         if name not in SECRETS:
             raise KeyError(name)
         value = value.strip()
@@ -122,20 +149,21 @@ class Vault:
             raise ValueError("empty value")
         token = self.fernet.encrypt(value.encode()).decode()
         now = datetime.now(timezone.utc).isoformat(timespec="seconds")
-        self.store.db.execute("INSERT INTO secrets (name, ciphertext, updated_at) VALUES (?, ?, ?) ON CONFLICT(name) "
-                              "DO UPDATE SET ciphertext=excluded.ciphertext, updated_at=excluded.updated_at",
-                              (name, token, now))
-        log.info("Secret %s saved from the web UI", name)
+        self.store.db.execute("INSERT INTO secrets_by_user (user_id, name, ciphertext, updated_at) VALUES (?, ?, ?, ?) "
+                              "ON CONFLICT(user_id, name) DO UPDATE SET ciphertext=excluded.ciphertext, "
+                              "updated_at=excluded.updated_at", (uid, name, token, now))
+        log.info("Secret %s saved from the web UI%s", name, f" (user {uid})" if uid != INSTALL else "")
 
-    def clear(self, name: str) -> None:
-        self.store.db.execute("DELETE FROM secrets WHERE name=?", (name,))
-        log.info("Secret %s cleared from the web UI", name)
+    def clear(self, name: str, uid: int = INSTALL) -> None:
+        self.store.db.execute("DELETE FROM secrets_by_user WHERE user_id=? AND name=?", (uid, name))
+        log.info("Secret %s cleared from the web UI%s", name, f" (user {uid})" if uid != INSTALL else "")
 
     # -- for the running service only
-    def get(self, name: str) -> str:
-        if self.environ.get(name):
-            return self.environ[name]
-        row = self.store.db.execute("SELECT ciphertext FROM secrets WHERE name=?", (name,)).fetchone()
+    def get(self, name: str, uid: int = INSTALL) -> str:
+        if env := self._env(name, uid):
+            return env
+        row = self.store.db.execute("SELECT ciphertext FROM secrets_by_user WHERE user_id=? AND name=?",
+                                    (uid, name)).fetchone()
         if not row:
             return ""
         try:
@@ -144,8 +172,30 @@ class Vault:
             log.warning("Stored secret %s can't be decrypted (secret.key changed?); set it again", name)
             return ""
 
+    def install_value(self, name: str) -> str:
+        """The install's value; for the first user's own names (ntfy) the first user's."""
+        return self.get(name, INSTALL) or (self.get(name, OWNER) if name in USER_SECRETS else "")
+
+    def anthropic_key(self, uid: int, admin: bool, share: bool) -> tuple[str, bool]:
+        """(key, shared) for one user's AI calls: their own key; else, for an admin or when the
+        install shares its key, the install's (shared = a non-admin using it); else none."""
+        own = self.get("ANTHROPIC_API_KEY", uid) if uid != INSTALL else ""
+        if own:
+            return own, False
+        if admin or share:
+            return self.install_value("ANTHROPIC_API_KEY"), not admin
+        return "", False
+
     def values(self) -> list[str]:
-        return [v for v in (self.get(n) for n in SECRETS) if len(v) >= MIN_REDACT]
+        out = [v for v in (self.environ.get(n, "") for n in SECRETS) if len(v) >= MIN_REDACT]
+        for r in self.store.db.execute("SELECT ciphertext FROM secrets_by_user").fetchall():
+            try:
+                value = self.fernet.decrypt(r["ciphertext"].encode()).decode()
+            except InvalidToken:
+                continue
+            if len(value) >= MIN_REDACT:
+                out.append(value)
+        return out
 
     # -- encrypt other sensitive values (Settings page: salary, home, household)
     def encrypt(self, text: str) -> str:
@@ -166,10 +216,11 @@ def install(vault: Vault | None) -> None:
 
 
 def secret(name: str) -> str:
-    """A secret's value: environment / .env first, then the vault. "" when it isn't set."""
+    """The install's value of a secret (the ntfy topic and token: the first user's): environment /
+    .env first, then the vault. "" when it isn't set."""
     if os.environ.get(name):
         return os.environ[name]
-    return _active.get(name) if _active else ""
+    return _active.install_value(name) if _active else ""
 
 
 _KEY_PARAMS = re.compile(r"(?i)\b(app_key|app_id|api_key|apikey|key|token|access_token|password)=([^&\s'\"]+)")

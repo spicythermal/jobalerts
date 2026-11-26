@@ -108,7 +108,7 @@ def env(monkeypatch):
 
 
 def statuses(store):
-    return {r["title"]: (r["status"], r["reason"]) for r in store.db.execute("SELECT title, status, reason FROM jobs")}
+    return {r["title"]: (r["status"], r["reason"]) for r in store.db.execute("SELECT title, status, reason FROM owner_jobs")}
 
 
 def test_rejected_titles_wait_for_the_prescreen_but_hard_excludes_do_not(env):
@@ -122,7 +122,7 @@ def test_rejected_titles_wait_for_the_prescreen_but_hard_excludes_do_not(env):
     assert s["Manager, Generator Operations"][0] == "prescreen"
     assert s["Sales Director"] == ("filtered", "title excludes 'sales'")
     assert result.alerted == 1
-    stored = store.db.execute("SELECT description FROM jobs WHERE title='Manager, Generator Operations'").fetchone()
+    stored = store.db.execute("SELECT description FROM owner_jobs WHERE title='Manager, Generator Operations'").fetchone()
     assert stored[0] == "Run the fusion generator."       # kept while it waits
 
 
@@ -144,7 +144,7 @@ def test_prescreen_run_filters_misfits_and_scores_the_rest(env):
     # the stored description reached pass 2; the others were fetched from the board
     assert ("Manager, Generator Operations", "Run the fusion generator.") in pre.seen_postings
     assert ("Beam Lead", "full description") in pre.seen_postings
-    assert store.db.execute("SELECT COUNT(*) FROM jobs WHERE description IS NOT NULL").fetchone()[0] == 0
+    assert store.db.execute("SELECT COUNT(*) FROM owner_jobs WHERE description IS NOT NULL").fetchone()[0] == 0
     assert run(runner.run_prescreen([board])) == {}  # queue empty: nothing left to do
 
 
@@ -188,7 +188,7 @@ def test_turning_the_prescreen_off_releases_the_queue(tmp_path):
     store.hold_for_prescreen(make_job(1, title="Beam Lead"), "title not in include list")
     assert len(store.prescreen_queue()) == 1
     assert store.drop_prescreen_queue() == 1
-    row = store.db.execute("SELECT status, description FROM jobs").fetchone()
+    row = store.db.execute("SELECT status, description FROM owner_jobs").fetchone()
     assert (row["status"], row["description"]) == ("filtered", None)
 
 

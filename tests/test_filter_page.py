@@ -128,7 +128,7 @@ def test_score_anyway_scores_a_turned_down_job_without_a_push(ai_env):
     fake.jobs = [make_job(1, title="Plasma Lead", location="Denver")]
     poll(runner, board)
     assert statuses(store)["Plasma Lead"] == ("filtered", "title not in include list")
-    key = store.db.execute("SELECT key FROM jobs WHERE title='Plasma Lead'").fetchone()[0]
+    key = store.db.execute("SELECT key FROM owner_jobs WHERE title='Plasma Lead'").fetchone()[0]
     assert run(runner.score_anyway(key)) == "digest"          # 90 would push; on request it goes to the digest
     row = store.get_job(key)
     assert row["status"] == "digest" and row["score"] == 90 and notifier.sent == []
@@ -242,7 +242,7 @@ def test_score_anyway_button(page_env, monkeypatch):
         runner.store.update_job(key, status="digest", score=77)
         return "digest"
     monkeypatch.setattr(runner, "score_anyway", fake)
-    key = runner.store.db.execute("SELECT key FROM jobs WHERE title='Laser Physicist'").fetchone()[0]
+    key = runner.store.db.execute("SELECT key FROM owner_jobs WHERE title='Laser Physicist'").fetchone()[0]
     html = client.post(f"/filter/score/{key}", headers={"X-CSRF-Token": token}).text
     assert called == [key] and "score <strong>77</strong>" in html and "in the digest" in html
     assert client.post(f"/filter/score/{key}").status_code == 403           # no CSRF token

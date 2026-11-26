@@ -35,7 +35,7 @@ def test_catch_up_sends_one_summary_and_the_best_three(env):
     titles = [m["title"] for m in notifier.sent]
     assert titles[0].startswith("Catch-up: 6 new matches since") and "(4 strong)" in titles[0]
     assert titles[1:] == ["Acme: Network Engineer 95", "Acme: Network Engineer 90", "Acme: Network Engineer 85"]
-    status = {r["title"]: r["status"] for r in store.db.execute("SELECT title, status FROM jobs")}
+    status = {r["title"]: r["status"] for r in store.db.execute("SELECT title, status FROM owner_jobs")}
     assert status["Network Engineer 95"] == "alerted" and status["Network Engineer 80"] == "digest"
     assert status["Network Engineer 60"] == "digest" and status["Network Engineer 30"] == "low"
     assert report["gap"] == "3.0 days" and runner.catchup_report()["summary"] == report["summary"]

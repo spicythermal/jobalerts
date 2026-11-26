@@ -4,6 +4,9 @@ data/config.local.yaml (the UI wins).
 Personal values (salary, home, household, contact email) are stored encrypted with the vault's key;
 the rest (thresholds, word lists) in plain text. Each field is one dotted config name
 ("pay.current_home.payment"); FIELDS says how the Settings page shows and reads it.
+
+Each section is either a user's own (situation, filter, alerts: stored under their user id) or the
+install's (connections, updates, users: stored under user id 0, set by admins).
 """
 from __future__ import annotations
 
@@ -20,14 +23,19 @@ from pydantic import ValidationError
 from .config import Config
 from .userdata import LOCAL_HEADER, RENAMED, deep_merge, validate_layered
 
+# `settings` (one row per key) is the table of versions before accounts; it's copied once and left
+# as it was, so an older version still runs on this database.
 SCHEMA = """
-CREATE TABLE IF NOT EXISTS settings (
-    key        TEXT PRIMARY KEY,
+CREATE TABLE IF NOT EXISTS settings_by_user (
+    user_id    INTEGER NOT NULL,   -- 0: the install's
+    key        TEXT NOT NULL,
     value      TEXT NOT NULL,      -- JSON, or vault ciphertext of the JSON when encrypted = 1
     encrypted  INTEGER NOT NULL DEFAULT 0,
-    updated_at TEXT NOT NULL
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (user_id, key)
 );
 """
+INSTALL = 0
 
 
 @dataclass(frozen=True)
@@ -40,6 +48,11 @@ class Field:
     sensitive: bool = False   # stored encrypted; never published (MQTT, logs)
     choices: tuple[tuple[str, str], ...] = ()
 
+    @property
+    def scope(self) -> str:
+        """"user": each user's own; "install": one value for everyone, set by admins."""
+        return SCOPE[self.section]
+
 
 MODELS = (("claude-haiku-5-5", "Claude Haiku 5.5 (cheapest)"), ("claude-sonnet-5-5", "Claude Sonnet 5.5"),
           ("claude-opus-5-5", "Claude Opus 5.5 (most careful, most expensive)"))
@@ -48,9 +61,12 @@ SECTIONS = {
     "situation": "Your situation",
     "search": "Filter",
     "alerts": "Scoring and alerts",
-    "connections": "Notifications and Home Assistant",
+    "connections": "Connections and Home Assistant",
     "updates": "Updates",
+    "users": "Users",
 }
+SCOPE = {"situation": "user", "search": "user", "alerts": "user", "connections": "install", "updates": "install",
+         "users": "install"}
 
 FIELDS: list[Field] = [
     # -- where you are now: the pay index compares every job with this
@@ -80,8 +96,6 @@ FIELDS: list[Field] = [
                    ("any", "Happy to move anywhere"))),
     Field("pay.move_min_index", "Pay floor for a move", "number", "situation",
           "With \"open\": a job in another metro needs at least this pay index (renting or buying), e.g. 1.15."),
-    Field("contact_email", "Contact email", "email", "situation",
-          "Sent in the User-Agent so job-board operators can reach you about your traffic.", True),
     # -- the Filter page: how jobs reach the AI score
     Field("criteria.mode", "How jobs reach the AI score", "choice", "search",
           "Keywords first: the word lists decide, and the AI takes a cheap second look at what they turn down. "
@@ -125,9 +139,11 @@ FIELDS: list[Field] = [
           "Checked against the top of the stated range, renting and buying (either passes); 0 = off."),
     Field("notify.timezone", "Time zone", "timezone", "alerts", "For the digest time, e.g. America/Chicago."),
     Field("notify.digest_time", "Evening digest at", "time", "alerts", "HH:MM, your time zone."),
-    # -- connections
-    Field("notify.server", "ntfy server", "text", "connections",
+    Field("notify.server", "ntfy server", "text", "alerts",
           "https://ntfy.sh or your own. The topic and token are under API keys."),
+    # -- connections (the install's)
+    Field("contact_email", "Contact email", "email", "connections",
+          "Sent in the User-Agent so job-board operators can reach the person running this install.", True),
     Field("web.public_url", "Address of this web UI from your phone", "text", "connections",
           "e.g. http://192.168.1.20:8765. Alerts then open the job here; empty = the employer's posting."),
     Field("homeassistant.enabled", "Publish to Home Assistant (MQTT)", "bool", "connections"),
@@ -135,12 +151,22 @@ FIELDS: list[Field] = [
           "The Home Assistant box's address (Mosquitto add-on). The password is under API keys."),
     Field("homeassistant.mqtt_port", "MQTT port", "int", "connections"),
     Field("homeassistant.mqtt_username", "MQTT user", "text", "connections"),
+    Field("web.lan", "Desktop app: other computers on this network can open it", "bool", "connections",
+          "Off: only this computer. On: other computers on your network open it at this computer's address "
+          "(Settings → Users shows it), port 8765. Takes effect when the app starts again. Servers use web.bind."),
     # -- updates
     Field("update.mode", "When a new version is out", "choice", "updates",
           "Checked once a day against the git repository this copy came from. Installing never overwrites "
           "anything of yours, backs up the database first, and goes back if the new version fails its check.",
           choices=(("notify", "Tell me (push and digest)"), ("install", "Install it and restart"), ("off", "Don't check"))),
     Field("update.interval_hours", "Check every (hours)", "int", "updates"),
+    # -- users (the install's)
+    Field("users.share_keys", "Other users may use this install's Anthropic key", "bool", "users",
+          "On: users without their own key are AI-scored with the install's key, and may set their own instead. "
+          "Off: a user's AI scoring uses only their own key; without one, they get keyword filtering and the "
+          "pay index. Phone notifications are always each user's own."),
+    Field("users.shared_daily_max_calls", "Most AI calls a day on the install's key, all other users together",
+          "int", "users", "Admins' own scoring doesn't count. Each user's own daily limit applies too."),
 ]
 BY_KEY = {f.key: f for f in FIELDS}
 _TIME = re.compile(r"^([01]?\d|2[0-3]):[0-5]\d$")
@@ -242,12 +268,32 @@ def format_value(field: Field, value) -> str:
 
 
 class UiSettings:
-    def __init__(self, store, vault):
-        self.store, self.vault = store, vault
+    """The settings one user sees: the install's (user id 0) and their own. Saving puts each value
+    under the id its section belongs to."""
+
+    def __init__(self, store, vault, uid: int = 1):
+        self.store, self.vault, self.uid = store, vault, uid
         store.db.executescript(SCHEMA)
+        self._copy_old_table()
         for old, new in RENAMED.items():   # settings a later version renamed keep their saved value
-            if not store.db.execute("SELECT 1 FROM settings WHERE key=?", (new,)).fetchone():
-                store.db.execute("UPDATE settings SET key=? WHERE key=?", (new, old))
+            store.db.execute("UPDATE OR IGNORE settings_by_user SET key=? WHERE key=?", (new, old))
+
+    def _copy_old_table(self) -> None:
+        """Once: the single-user `settings` table's values become the install's and user 1's."""
+        db = self.store.db
+        if db.execute("SELECT 1 FROM settings_by_user LIMIT 1").fetchone() or \
+                not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='settings'").fetchone():
+            return
+        for r in db.execute("SELECT key, value, encrypted, updated_at FROM settings").fetchall():
+            key = RENAMED.get(r["key"], r["key"])
+            field = BY_KEY.get(key)
+            uid = INSTALL if field is not None and field.scope == "install" else 1
+            db.execute("INSERT OR IGNORE INTO settings_by_user (user_id, key, value, encrypted, updated_at) "
+                       "VALUES (?, ?, ?, ?, ?)", (uid, key, r["value"], r["encrypted"], r["updated_at"]))
+
+    def _owner(self, key: str) -> int:
+        field = BY_KEY.get(key)
+        return INSTALL if field is not None and field.scope == "install" else self.uid
 
     def values(self) -> dict[str, object]:
         """Saved values of settings this version knows (by their current names)."""
@@ -259,7 +305,10 @@ class UiSettings:
 
     def all_values(self) -> dict[str, object]:
         out = {}
-        for r in self.store.db.execute("SELECT key, value, encrypted FROM settings"):
+        for r in self.store.db.execute("SELECT user_id, key, value, encrypted FROM settings_by_user "
+                                       "WHERE user_id IN (?, ?)", (INSTALL, self.uid)):
+            if r["user_id"] != self._owner(r["key"]):   # a value saved in the other scope by an older layout
+                continue
             text = self.vault.decrypt(r["value"]) if r["encrypted"] else r["value"]
             out[r["key"]] = json.loads(text)
         return out
@@ -276,13 +325,14 @@ class UiSettings:
             field = BY_KEY[key]
             text = json.dumps(value)
             stored, encrypted = (self.vault.encrypt(text), 1) if field.sensitive else (text, 0)
-            self.store.db.execute("INSERT INTO settings (key, value, encrypted, updated_at) VALUES (?, ?, ?, ?) "
-                                  "ON CONFLICT(key) DO UPDATE SET value=excluded.value, encrypted=excluded.encrypted, "
-                                  "updated_at=excluded.updated_at", (key, stored, encrypted, now))
+            self.store.db.execute(
+                "INSERT INTO settings_by_user (user_id, key, value, encrypted, updated_at) VALUES (?, ?, ?, ?, ?) "
+                "ON CONFLICT(user_id, key) DO UPDATE SET value=excluded.value, encrypted=excluded.encrypted, "
+                "updated_at=excluded.updated_at", (self._owner(key), key, stored, encrypted, now))
 
     def reset(self, keys: list[str]) -> None:
         for key in keys:
-            self.store.db.execute("DELETE FROM settings WHERE key=?", (key,))
+            self.store.db.execute("DELETE FROM settings_by_user WHERE user_id=? AND key=?", (self._owner(key), key))
 
 
 def apply(base: Config, overlay: dict, strict: bool = False) -> Config:

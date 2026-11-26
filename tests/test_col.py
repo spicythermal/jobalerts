@@ -483,7 +483,7 @@ def test_pay_index_from_ai_reaches_alert_and_db(pay_env):
                                        pay_currency="USD", pay_period="year"))
     fake.jobs.append(make_job(1, location="San Jose, CA"))  # FakeSource.enrich: no pay in the description
     run(runner.poll_board(board))
-    row = store.db.execute("SELECT status, pay_index, pay_note FROM jobs WHERE job_id='1'").fetchone()
+    row = store.db.execute("SELECT status, pay_index, pay_note FROM owner_jobs WHERE job_id='1'").fetchone()
     assert row["status"] == "alerted" and row["pay_index"] == pytest.approx(1.008, abs=1e-3)
     assert "pay index 1.01 (0.89-1.13)" in row["pay_note"]
     assert "Pay index 1.01" in notifier.sent[-1]["message"]
@@ -496,7 +496,7 @@ def test_low_stated_pay_skips_the_ai_and_shows_in_the_digest(pay_env):
     job.salary = "$120K-160K/yr"  # top of range 160/155 = 1.03 < 1.05
     fake.jobs.append(job)
     run(runner.poll_board(board))
-    row = store.db.execute("SELECT status, reason, pay_index FROM jobs WHERE job_id='2'").fetchone()
+    row = store.db.execute("SELECT status, reason, pay_index FROM owner_jobs WHERE job_id='2'").fetchone()
     assert row["status"] == "low_pay" and "1.03 < 1.05" in row["reason"]
     assert scorer.calls == 0 and notifier.sent == []
     digest = run(runner.send_digest(mark=False))
@@ -510,7 +510,7 @@ def test_pay_in_the_description_is_checked_before_the_ai(pay_env):
     job.description = "The base salary range for this role is $110,000 - $140,000."
     fake.jobs.append(job)
     run(runner.poll_board(board))
-    assert store.db.execute("SELECT status FROM jobs WHERE job_id='3'").fetchone()["status"] == "low_pay"
+    assert store.db.execute("SELECT status FROM owner_jobs WHERE job_id='3'").fetchone()["status"] == "low_pay"
     assert scorer.calls == 0
 
 
@@ -522,7 +522,7 @@ def test_top_of_range_at_the_threshold_goes_to_the_ai(pay_env):
     fake.jobs.append(job)
     run(runner.poll_board(board))
     assert scorer.calls == 1
-    assert store.db.execute("SELECT status FROM jobs WHERE job_id='4'").fetchone()["status"] == "alerted"
+    assert store.db.execute("SELECT status FROM owner_jobs WHERE job_id='4'").fetchone()["status"] == "alerted"
 
 
 def test_no_stated_pay_still_goes_to_the_ai_which_may_find_it_low(pay_env):
@@ -531,12 +531,12 @@ def test_no_stated_pay_still_goes_to_the_ai_which_may_find_it_low(pay_env):
     fake.jobs.append(make_job(5, location="Portland, OR"))
     run(runner.poll_board(board))
     assert scorer.calls == 1
-    assert store.db.execute("SELECT status, pay_index FROM jobs WHERE job_id='5'").fetchone()["status"] == "alerted"
+    assert store.db.execute("SELECT status, pay_index FROM owner_jobs WHERE job_id='5'").fetchone()["status"] == "alerted"
 
     scorer.fit = FitScore(score=95, summary="fit", pay_min=100_000, pay_max=120_000, pay_currency="USD")
     fake.jobs.append(make_job(6, location="Portland, OR"))
     run(runner.poll_board(board))
-    row = store.db.execute("SELECT status, score FROM jobs WHERE job_id='6'").fetchone()
+    row = store.db.execute("SELECT status, score FROM owner_jobs WHERE job_id='6'").fetchone()
     assert row["status"] == "low_pay" and row["score"] == 95 and len(notifier.sent) == 1
 
 
@@ -582,7 +582,7 @@ def test_reprice_applies_the_index_to_jobs_processed_before_it(pay_env):
     assert out["7"][:2] == ("alerted", "low_pay") and out["7"][2].high < 1.05
     assert out["8"][:2] == ("digested", "digested") and out["8"][2].index > 1.4
     assert out["9"] == ("digest", "digest", None)
-    rows = {r["job_id"]: r for r in store.db.execute("SELECT * FROM jobs")}
+    rows = {r["job_id"]: r for r in store.db.execute("SELECT * FROM owner_jobs")}
     assert rows["7"]["status"] == "low_pay" and rows["8"]["pay_index"] > 1.4
     assert [j["title"] for j in runner.top_matches(10, 7)[1]].count("Network Engineer") == 3  # 8, 9 and baseline 0
 
@@ -606,7 +606,7 @@ def test_reprice_dry_run_writes_nothing(pay_env):
     store.insert_job(job, "processing")
     store.update_job(job.key, status="alerted", score=90)
     assert run(runner.reprice([board], write=False))[0][2] == "low_pay"
-    assert store.db.execute("SELECT status, pay_index FROM jobs WHERE job_id='12'").fetchone()[:] == ("alerted", None)
+    assert store.db.execute("SELECT status, pay_index FROM owner_jobs WHERE job_id='12'").fetchone()[:] == ("alerted", None)
 
 
 def test_reprice_asks_the_ai_once_when_no_pay_is_stated(pay_env):
@@ -619,20 +619,20 @@ def test_reprice_asks_the_ai_once_when_no_pay_is_stated(pay_env):
         store.update_job(job.key, status="alerted", score=70)
     out = {job.job_id: (new, pay, ai) for job, _, new, pay, ai in run(runner.reprice([board]))}
     assert scorer.calls == 2 and out["13"][2] and out["13"][1].low == pytest.approx(190 / 155)
-    row = store.db.execute("SELECT score, score_summary, pay_low, pay_high FROM jobs WHERE job_id='13'").fetchone()
+    row = store.db.execute("SELECT score, score_summary, pay_low, pay_high FROM owner_jobs WHERE job_id='13'").fetchone()
     assert row[:] == (88, "new", pytest.approx(1.226, abs=1e-3), pytest.approx(1.613, abs=1e-3))
     top = {j["url"]: j for j in runner.top_matches(10, 7)[1]}["https://x/13"]
     assert (top["score"], top["pay_low"], top["pay_high"]) == (88, 1.23, 1.61)
 
     # The AI found no pay for job 14 the second time round: it isn't asked again on the next run.
     scorer.fit = FitScore(score=60, summary="none")
-    store.db.execute("UPDATE jobs SET pay_index=NULL, pay_note=NULL WHERE job_id='14'")
+    store.db.execute("UPDATE user_jobs SET pay_index=NULL, pay_note=NULL WHERE job_key LIKE '%:14'")
     calls = scorer.calls
     run(runner.reprice([board]))
     assert scorer.calls == calls + 1  # only job 14; job 13 keeps the pay the AI read
     run(runner.reprice([board]))
     assert scorer.calls == calls + 1
-    row = store.db.execute("SELECT pay_note, pay_high FROM jobs WHERE job_id='13'").fetchone()
+    row = store.db.execute("SELECT pay_note, pay_high FROM owner_jobs WHERE job_id='13'").fetchone()
     assert row["pay_note"] != col.NO_PAY and row["pay_high"] == pytest.approx(1.613, abs=1e-3)
     assert runner.top_matches(10, 7)[1][0]["pay"] != col.NO_PAY
 
@@ -689,7 +689,7 @@ def test_a_job_passes_the_pay_gate_when_buying_clears_it(buy_env):
     job.salary = "$160K"
     fake.jobs.append(job)
     run(runner.poll_board(board))
-    row = store.db.execute("SELECT * FROM jobs WHERE job_id='1'").fetchone()
+    row = store.db.execute("SELECT * FROM owner_jobs WHERE job_id='1'").fetchone()
     assert row["status"] == "alerted"
     assert row["pay_high"] == pytest.approx(160 / 155, abs=1e-3)
     assert row["buy_high"] == pytest.approx(160 / 155 * 1.152 / 0.816, abs=1e-3)
@@ -703,7 +703,7 @@ def test_a_job_under_the_bar_renting_and_buying_is_low_pay(buy_env):
     job.salary = "$160K"  # renting 0.80, buying lower still
     fake.jobs.append(job)
     run(runner.poll_board(board))
-    row = store.db.execute("SELECT status, reason, buy_high FROM jobs WHERE job_id='2'").fetchone()
+    row = store.db.execute("SELECT status, reason, buy_high FROM owner_jobs WHERE job_id='2'").fetchone()
     assert row["status"] == "low_pay" and row["buy_high"] < 0.8
     assert "< 1.05" in row["reason"] and runner.scorer.calls == 0
 
@@ -798,10 +798,10 @@ def test_reprice_closes_postings_that_were_taken_down(pay_env):
         store.update_job(job.key, status="digest", score=80)
     _gone(fake, {"16"})
     assert run(runner.reprice([board], write=False))[0][2] == "closed"
-    assert store.db.execute("SELECT status FROM jobs WHERE job_id='16'").fetchone()[0] == "digest"  # dry run
+    assert store.db.execute("SELECT status FROM owner_jobs WHERE job_id='16'").fetchone()[0] == "digest"  # dry run
     out = {job.job_id: (old, new) for job, old, new, _, _ in run(runner.reprice([board]))}
     assert out == {"16": ("digest", "closed"), "17": ("digest", "digest")}
-    assert store.db.execute("SELECT reason FROM jobs WHERE job_id='16'").fetchone()[0] == "posting taken down (HTTP 404)"
+    assert store.db.execute("SELECT reason FROM owner_jobs WHERE job_id='16'").fetchone()[0] == "posting taken down (HTTP 404)"
     assert "https://x/16" not in {j["url"] for j in runner.top_matches(10, 7)[1]}
 
 
@@ -811,7 +811,7 @@ def test_backfill_closes_a_taken_down_baseline_job_without_scoring_it(pay_env):
     _gone(fake, {"0"})
     assert [(job.job_id, status) for job, status, _ in run(runner.backfill([board]))] == [("0", "closed")]
     assert scorer.calls == 0
-    assert store.db.execute("SELECT status FROM jobs WHERE job_id='0'").fetchone()[0] == "closed"
+    assert store.db.execute("SELECT status FROM owner_jobs WHERE job_id='0'").fetchone()[0] == "closed"
 
 
 def test_top_stories_reach_db_alert_and_dashboard(pay_env):
@@ -820,7 +820,7 @@ def test_top_stories_reach_db_alert_and_dashboard(pay_env):
                                        top_story_titles=["Designed an electron gun", "Halved beam loss"]))
     fake.jobs.append(make_job(20, location="Portland, OR"))
     run(runner.poll_board(board))
-    assert json.loads(store.db.execute("SELECT top_stories FROM jobs WHERE job_id='20'").fetchone()[0]) == [
+    assert json.loads(store.db.execute("SELECT top_stories FROM owner_jobs WHERE job_id='20'").fetchone()[0]) == [
         ["gun", "Designed an electron gun"], ["beam", "Halved beam loss"]]
     assert "Your best stories: Designed an electron gun; Halved beam loss" in notifier.sent[-1]["message"]
     top = {j["url"]: j for j in runner.top_matches(10, 7)[1]}["https://x/20"]
@@ -841,7 +841,7 @@ def test_rescore_updates_scores_and_never_pushes(pay_env):
     assert {k: v[:2] for k, v in out.items()} == {"21": ("digest", "digest"), "22": ("low", "digest"),
                                                   "23": ("alerted", "alerted"), "24": ("digest", "closed")}
     assert len(notifier.sent) == sent                                   # nothing pushed
-    rows = {r["job_id"]: r for r in store.db.execute("SELECT * FROM jobs WHERE job_id IN ('21','22','23')")}
+    rows = {r["job_id"]: r for r in store.db.execute("SELECT * FROM owner_jobs WHERE job_id IN ('21','22','23')")}
     assert all(r["score"] == 95 and r["score_summary"] == "new" for r in rows.values())
     assert stories_from_row(rows["22"]) == [("gun", "Designed an electron gun")]
 
@@ -873,7 +873,7 @@ def test_backfill_stops_at_the_reserve(pay_env):
     runner.cfg.scoring.backfill_reserve = 150
     runner.scorer = PayScorer(FitScore(score=90, summary="fit"), left=150)
     assert run(runner.backfill([board])) == []               # baseline job 0 left for another day
-    assert store.db.execute("SELECT status FROM jobs WHERE job_id='0'").fetchone()[0] == "baseline"
+    assert store.db.execute("SELECT status FROM owner_jobs WHERE job_id='0'").fetchone()[0] == "baseline"
 
 
 # ---------------------------------------------------------------------------- stay or move
@@ -902,7 +902,7 @@ def test_staying_drops_jobs_that_need_a_move_before_any_ai_call(pay_env):
     san_jose_at_1_13(fake)
     fake.jobs.append(make_job(12, location="Portland, OR"))
     run(runner.poll_board(board))
-    rows = {r["job_id"]: r for r in store.db.execute("SELECT job_id, status, reason FROM jobs WHERE job_id IN ('11','12')")}
+    rows = {r["job_id"]: r for r in store.db.execute("SELECT job_id, status, reason FROM owner_jobs WHERE job_id IN ('11','12')")}
     assert rows["11"]["status"] == "filtered" and "needs a move" in rows["11"]["reason"]
     assert rows["12"]["status"] == "alerted" and scorer.calls == 1
 
@@ -913,7 +913,7 @@ def test_open_to_moving_needs_the_higher_floor_and_any_does_not(pay_env):
     with_intent(runner, "open")
     san_jose_at_1_13(fake)
     run(runner.poll_board(board))
-    row = store.db.execute("SELECT status, reason FROM jobs WHERE job_id='11'").fetchone()
+    row = store.db.execute("SELECT status, reason FROM owner_jobs WHERE job_id='11'").fetchone()
     assert row["status"] == "low_pay" and "top of move 1.13 < 1.15" in row["reason"]
     with_intent(runner, "any")
     assert runner.pay_floor(make_job(11, location="San Jose, CA")) == runner.cfg.pay.min_index

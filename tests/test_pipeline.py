@@ -137,7 +137,7 @@ def test_scores_route_to_push_digest_low(env):
     poll(runner, board)
     fake.jobs = [make_job(i, title=f"Network Engineer {c}") for i, c in enumerate("ABCD")]
     poll(runner, board)
-    rows = {r["title"]: r for r in store.db.execute("SELECT title, status, score FROM jobs")}
+    rows = {r["title"]: r for r in store.db.execute("SELECT title, status, score FROM owner_jobs")}
     assert rows["Network Engineer A"]["status"] == "alerted" and rows["Network Engineer A"]["score"] == 80
     assert rows["Network Engineer B"]["status"] == "digest"
     assert rows["Network Engineer C"]["status"] == "low"
@@ -153,7 +153,7 @@ def test_clear_step_up_is_pushed_even_with_a_lower_fit(env):
     poll(runner, board)
     fake.jobs = [make_job(i, title=f"Network Engineer {c}") for i, c in enumerate("ABC")]
     poll(runner, board)
-    rows = {r["title"]: r for r in store.db.execute("SELECT title, status, step_up, step_up_note FROM jobs")}
+    rows = {r["title"]: r for r in store.db.execute("SELECT title, status, step_up, step_up_note FROM owner_jobs")}
     assert rows["Network Engineer A"]["status"] == "alerted" and rows["Network Engineer A"]["step_up"] == 82
     assert rows["Network Engineer B"]["status"] == "digest"   # a real step up, but under the threshold
     assert rows["Network Engineer C"]["status"] == "alerted"  # step-up threshold applies whatever the fit
@@ -254,7 +254,7 @@ def test_best_resume_reaches_alert_db_and_digest(env):
     fake.jobs = [make_job(1, title="Network Engineer A"), make_job(2, title="Network Engineer B")]
     poll(runner, board)
     assert "Apply with: hpc.pdf" in notifier.sent[-1]["message"]
-    assert {r[0] for r in store.db.execute("SELECT best_resume FROM jobs")} == {"hpc.pdf"}
+    assert {r[0] for r in store.db.execute("SELECT best_resume FROM owner_jobs")} == {"hpc.pdf"}
     assert "apply with: hpc.pdf" in run(runner.send_digest(mark=False))
 
 
@@ -263,7 +263,7 @@ def test_old_database_gains_best_resume_column(tmp_path):
     from jobalerts.store import SCHEMA
     path = tmp_path / "old.db"
     db = sqlite3.connect(path)
-    db.executescript(SCHEMA.replace("    best_resume   TEXT,\n", ""))  # the schema before resume matching
+    db.executescript(SCHEMA.replace("    best_resume   TEXT,\n", "", 1))  # the schema before resume matching
     assert "best_resume" not in {r[1] for r in db.execute("PRAGMA table_info(jobs)")}
     db.close()
     store = Store(path)
@@ -320,7 +320,7 @@ def test_backfill_scores_recent_baseline_matches_once(env):
         "Network Engineer C": "low",
     }
     assert notifier.sent == []
-    rows = {r["title"]: r for r in store.db.execute("SELECT title, status, score FROM jobs")}
+    rows = {r["title"]: r for r in store.db.execute("SELECT title, status, score FROM owner_jobs")}
     assert rows["Network Engineer A"]["score"] == 80
     assert rows["Sales Engineer"]["status"] == "baseline"   # filtered out: left alone
     assert rows["Network Engineer"]["status"] == "baseline"  # too old: left alone
@@ -354,7 +354,7 @@ def test_capped_ai_sends_matches_to_the_digest_with_one_notice(env):
     runner.scorer = FakeScorer({}, left=0)                   # today's AI calls are used up
     fake.jobs.extend([make_job(50), make_job(51)])
     run(runner.poll_board(board))
-    rows = dict(store.db.execute("SELECT job_id, status FROM jobs WHERE job_id IN ('50','51')").fetchall())
+    rows = dict(store.db.execute("SELECT job_id, status FROM owner_jobs WHERE job_id IN ('50','51')").fetchall())
     assert rows == {"50": "digest", "51": "digest"}
     titles = [m["title"] for m in notifier.sent]
     assert titles.count("AI daily cap reached") == 1 and not any("Network Engineer" in t for t in titles)

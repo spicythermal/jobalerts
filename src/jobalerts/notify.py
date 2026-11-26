@@ -14,19 +14,21 @@ log = logging.getLogger(__name__)
 
 
 class Notifier:
-    def __init__(self, cfg: Notify, dry_run: bool = False, transport: httpx.AsyncBaseTransport | None = None):
+    def __init__(self, cfg: Notify, dry_run: bool = False, transport: httpx.AsyncBaseTransport | None = None,
+                 secrets=None):
         self.cfg = cfg
         self._dry_run = dry_run
+        self._secret = secrets or secret     # name -> value: whose topic and token (a user's own, or the install's)
         self._client = httpx.AsyncClient(timeout=15.0, transport=transport)
         self.sent: list[dict] = []  # payloads, kept for dry runs and tests
 
     @property
     def topic(self) -> str:
-        return self.cfg.topic or secret("NTFY_TOPIC")
+        return self.cfg.topic or self._secret("NTFY_TOPIC")
 
     @property
     def token(self) -> str:
-        return self.cfg.token or secret("NTFY_TOKEN")
+        return self.cfg.token or self._secret("NTFY_TOKEN")
 
     @property
     def dry_run(self) -> bool:

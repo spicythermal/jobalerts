@@ -136,7 +136,7 @@ class Prescreener:
         return out
 
     async def _ask(self, prompt: str, schema: dict) -> dict | None:
-        if self.store.ai_calls_today() >= self.scoring.daily_max_calls:
+        if self.store.ai_calls_left(self.scoring.daily_max_calls) <= 0:
             log.warning("AI daily cap (%d) reached; pre-screen waits", self.scoring.daily_max_calls)
             return None
         try:

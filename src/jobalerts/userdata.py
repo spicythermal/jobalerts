@@ -194,11 +194,13 @@ def migrate_old_config(config_path: Path, local_path: Path) -> bool:
     return True
 
 
-def seed_user_files(cfg) -> list[str]:
-    """Copy the shipped examples for whatever is missing. Returns what was created."""
+def seed_user_files(cfg, watch_list: bool = True) -> list[str]:
+    """Copy the shipped examples for whatever is missing (a new account: not the watch list, which is
+    the install's). Returns what was created."""
     made = []
-    targets = [(cfg.resolve(cfg.scoring.profile_path), EXAMPLES / "profile.md"),
-               (cfg.resolve(cfg.companies_file), EXAMPLES / "companies.yaml")]
+    targets = [(cfg.resolve(cfg.scoring.profile_path), EXAMPLES / "profile.md")]
+    if watch_list:
+        targets.append((cfg.resolve(cfg.companies_file), EXAMPLES / "companies.yaml"))
     for target, example in targets:
         if not target.exists():
             target.parent.mkdir(parents=True, exist_ok=True)
