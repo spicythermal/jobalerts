@@ -4,7 +4,9 @@ services:
     image: jobalerts:latest
     container_name: jobalerts
     restart: unless-stopped
-    env_file: .env
+    env_file:
+      - path: .env               # optional: keys can be saved on the Settings page instead
+        required: false
     ports:
       - "8765:8765"            # web UI (jobs, boards, map, stories, settings) and the Home Assistant map card
     user: "1000:1000"          # must be able to write ./data

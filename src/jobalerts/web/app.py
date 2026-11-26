@@ -6,7 +6,9 @@ the event loop thread that owns the SQLite connection.
 """
 from __future__ import annotations
 
+import asyncio
 import base64
+import contextlib
 import hashlib
 import logging
 import re
@@ -294,8 +296,21 @@ async def serve(runner) -> None:
     import uvicorn
     cfg = runner.cfg.web
     app = create_app(runner, secret_key(runner.cfg))
-    server = uvicorn.Server(uvicorn.Config(app, host=cfg.bind, port=cfg.port, log_level="warning",
-                                           access_log=False, lifespan="off"))
+    class Server(uvicorn.Server):
+        """jobalerts handles SIGTERM/SIGINT itself (cli.stop_on_signals) and stops everything, the web
+        UI included; uvicorn's own handlers would stop only the web UI and leave the polling running."""
+        def capture_signals(self):
+            return contextlib.nullcontext()
+
+        def install_signal_handlers(self) -> None:   # older uvicorn
+            return None
+
+    server = Server(uvicorn.Config(app, host=cfg.bind, port=cfg.port, log_level="warning",
+                                   access_log=False, lifespan="off"))
     log.info("Web UI on http://%s:%d/%s", cfg.bind, cfg.port,
              f" (phone links: {cfg.public_url})" if cfg.public_url else "")
-    await server.serve()
+    try:
+        await server.serve()
+    except asyncio.CancelledError:   # stopping: close the listening socket before going
+        server.should_exit = True
+        raise

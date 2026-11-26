@@ -159,19 +159,41 @@ async def cmd_run(cfg: Config, args) -> int:
         print(f"jobalerts is already running on {cfg.database} (process {lock.holder()}). "
               "One `run` per database; `jobalerts web` can run alongside it.")
         return 1
+    stop_on_signals()
     try:
         async with open_runner(cfg) as runner:
-            await runner.run_forever()
+            try:
+                await runner.run_forever()
+            except asyncio.CancelledError:
+                log.info("Stopped")
     finally:
         lock.release()
     return 0
 
 
+def stop_on_signals() -> None:
+    """SIGTERM (docker stop, systemd) and SIGINT end the current command cleanly: the running task is
+    cancelled, so every loop and the web UI stop and the database and lock are closed. Needed in a
+    container, where the process is PID 1 and would otherwise ignore SIGTERM. (Windows has no such
+    handlers; Ctrl-C still stops it.)"""
+    import signal
+    loop, task = asyncio.get_running_loop(), asyncio.current_task()
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        try:
+            loop.add_signal_handler(sig, task.cancel)
+        except (NotImplementedError, RuntimeError, ValueError):
+            pass
+
+
 async def cmd_web(cfg: Config, args) -> int:
     """The web UI alone, over the same database: no polling, no pushes (for a PC that only browses)."""
     from .web.app import serve
+    stop_on_signals()
     async with open_runner(cfg, memory_store=False) as runner:
-        await serve(runner)
+        try:
+            await serve(runner)
+        except asyncio.CancelledError:
+            log.info("Stopped")
     return 0
 
 
