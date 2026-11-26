@@ -152,8 +152,8 @@ database path.
 ## Updating
 
 - Windows or Mac app: Settings → Updates.
-- Python install: checks the repository daily; Settings → Updates sets whether it notifies or
-  installs. `jobalerts update` installs now.
+- Python install: checks the repository daily and tells you; Settings → Updates or
+  `jobalerts update` installs.
 - Docker: `tools/update-docker.sh` on the host; `contrib/jobalerts-update.timer` runs it daily.
 - By hand: `git pull`, then `docker compose up -d --build` or `pip install -e .` and restart.
 

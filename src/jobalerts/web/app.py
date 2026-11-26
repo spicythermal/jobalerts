@@ -25,6 +25,7 @@ from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+from ..models import web_url
 from ..users import UserError, Users, check_username
 from ..vault import secret_key
 from . import auth
@@ -60,11 +61,6 @@ _INLINE_SCRIPT = re.compile(r"<script>(.*?)</script>", re.S)
 def script_hashes(html: str) -> str:
     return " ".join("'sha256-" + base64.b64encode(hashlib.sha256(s.encode()).digest()).decode() + "'"
                     for s in _INLINE_SCRIPT.findall(html))
-
-
-def web_url(url: str | None) -> str:
-    """A link from a job board, only if it's http(s): never `javascript:` or `data:` from a posting."""
-    return url if isinstance(url, str) and url.lower().startswith(("https://", "http://")) else "#"
 
 
 def safe_next(target: str | None) -> str:
@@ -139,12 +135,15 @@ def create_app(runner, key: bytes) -> FastAPI:
             return auth.Session.new(), None
         try:
             session = auth.Session(csrf=data["csrf"], uid=int(data.get("uid") or 0), ver=int(data.get("ver") or 0),
-                                   exp=int(data.get("exp") or 0))
+                                   exp=int(data.get("exp") or 0), sid=str(data.get("sid") or ""))
         except (TypeError, ValueError):
             return auth.Session.new(), None
         user = state.users.get(session.uid) if session.uid else None
-        if session.uid and (user is None or user.disabled or session.exp < time.time() or session.ver != user.ver):
-            session.uid, session.changed, user = 0, True, None  # expired, removed, or the password or role changed
+        if session.uid and (user is None or user.disabled or session.exp < time.time() or session.ver != user.ver
+                            or (session.sid and state.users.session_ended(session.sid))):
+            session.uid, session.changed, user = 0, True, None  # expired, removed, logged out, or the password or role changed
+        elif session.uid and not session.sid:   # a login from before session ids: give it one
+            session.sid, session.changed = secrets.token_urlsafe(16), True
         return session, user
 
     @app.middleware("http")
@@ -199,6 +198,7 @@ def create_app(runner, key: bytes) -> FastAPI:
         session.uid, session.ver = user.id, user.ver
         session.exp = int(time.time()) + cfg.web.session_days * 86400
         session.csrf = secrets.token_urlsafe(24)  # a new token after login (no fixation)
+        session.sid = secrets.token_urlsafe(16)
         session.changed = True
         request.state.user = user
 
@@ -237,7 +237,9 @@ def create_app(runner, key: bytes) -> FastAPI:
     @app.post("/logout", dependencies=[Depends(require_csrf)])
     async def logout(request: Request):
         session = request.state.session
-        session.uid, session.changed = 0, True
+        if session.uid and session.sid:
+            state.users.end_session(session.sid, session.exp)   # a copy of this cookie stops working too
+        session.uid, session.sid, session.changed = 0, "", True
         return RedirectResponse("/login", 303)
 
     @app.get("/setup")

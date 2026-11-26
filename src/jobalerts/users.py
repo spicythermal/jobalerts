@@ -95,6 +95,15 @@ class Users:
     def any(self) -> bool:
         return self.db.execute("SELECT 1 FROM users LIMIT 1").fetchone() is not None
 
+    # ---- sessions ended by logging out
+    def end_session(self, sid: str, expires_at: int) -> None:
+        now = int(utcnow().timestamp())
+        self.db.execute("DELETE FROM ended_sessions WHERE expires_at<?", (now,))
+        self.db.execute("INSERT OR IGNORE INTO ended_sessions (sid, expires_at) VALUES (?, ?)", (sid, expires_at))
+
+    def session_ended(self, sid: str) -> bool:
+        return self.db.execute("SELECT 1 FROM ended_sessions WHERE sid=?", (sid,)).fetchone() is not None
+
     def enabled_admins(self) -> int:
         return self.db.execute("SELECT COUNT(*) FROM users WHERE role='admin' AND disabled=0").fetchone()[0]
 

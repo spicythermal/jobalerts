@@ -14,7 +14,7 @@ from typing import Literal
 from urllib.parse import urlparse
 
 import yaml
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 ATS = Literal["greenhouse", "lever", "ashby", "smartrecruiters", "workday", "ultipro",
               "personio", "workable", "bamboohr", "rippling", "breezy", "successfactors"]
@@ -134,12 +134,19 @@ class Intent(BaseModel):
 
 
 class Notify(BaseModel):
-    server: str = "https://ntfy.sh"
+    server: str = "https://ntfy.sh"      # the install's (Settings → Connections); topic and token are each user's
     topic: str = ""
     token: str = ""
     timezone: str = "America/New_York"
     digest_time: str = "18:00"
     digest_max_items: int = 20
+
+    @field_validator("server")
+    @classmethod
+    def _http_server(cls, value: str) -> str:
+        if urlparse(value).scheme not in ("http", "https") or not urlparse(value).netloc:
+            raise ValueError("an http:// or https:// address, e.g. https://ntfy.sh")
+        return value
 
 
 class HomeAssistant(BaseModel):
@@ -173,10 +180,19 @@ class RunConfig(BaseModel):
 
 
 class UpdateConfig(BaseModel):
-    """Updates from the git repository (updater.py). notify: a push once per new version and a line in
-    the digest; install: also install it and restart (when nothing of yours is in the way)."""
-    mode: Literal["off", "notify", "install"] = "notify"
+    """Update checks (updater.py). notify: a push once per new version and a line in the digest. A new
+    version is installed only when an admin asks (Settings → Updates, `jobalerts update`)."""
+    mode: Literal["off", "notify"] = "notify"
     interval_hours: int = 24             # once a day
+
+    @field_validator("mode", mode="before")
+    @classmethod
+    def _no_auto_install(cls, value):
+        if value == "install":   # removed: updates aren't installed without an admin
+            log.warning("update.mode \"install\" was removed; using \"notify\". Install updates on "
+                        "Settings → Updates or with `jobalerts update`.")
+            return "notify"
+        return value
 
 
 class WebConfig(BaseModel):

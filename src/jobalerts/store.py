@@ -136,6 +136,12 @@ CREATE TABLE IF NOT EXISTS users (
     last_login_at TEXT
 );
 
+-- Sessions ended by logging out: their cookies stop working before they expire.
+CREATE TABLE IF NOT EXISTS ended_sessions (
+    sid        TEXT PRIMARY KEY,
+    expires_at INTEGER NOT NULL                       -- unix time; the row goes once the cookie has expired
+);
+
 -- AI calls per day and user (ai_usage above is the single-user table of versions before accounts,
 -- kept as it was so an older version still runs on this database)
 CREATE TABLE IF NOT EXISTS ai_calls (

@@ -11,6 +11,7 @@ install's (connections, updates, users: stored under user id 0, set by admins).
 from __future__ import annotations
 
 import json
+import logging
 import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -36,6 +37,9 @@ CREATE TABLE IF NOT EXISTS settings_by_user (
 );
 """
 INSTALL = 0
+# Settings that were each user's and are now the install's (UiSettings._move_to_install).
+MOVED_TO_INSTALL = ("notify.server",)
+log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -139,11 +143,12 @@ FIELDS: list[Field] = [
           "Checked against the top of the stated range, renting and buying (either passes); 0 = off."),
     Field("notify.timezone", "Time zone", "timezone", "alerts", "For the digest time, e.g. America/Chicago."),
     Field("notify.digest_time", "Evening digest at", "time", "alerts", "HH:MM, your time zone."),
-    Field("notify.server", "ntfy server", "text", "alerts",
-          "https://ntfy.sh or your own. The topic and token are under API keys."),
     # -- connections (the install's)
     Field("contact_email", "Contact email", "email", "connections",
           "Sent in the User-Agent so job-board operators can reach the person running this install.", True),
+    Field("notify.server", "ntfy server", "text", "connections",
+          "https://ntfy.sh or your own, for every user's phone notifications. Each user's topic and token are "
+          "under API keys."),
     Field("web.public_url", "Address of this web UI from your phone", "text", "connections",
           "e.g. http://192.168.1.20:8765. Alerts then open the job here; empty = the employer's posting."),
     Field("homeassistant.enabled", "Publish to Home Assistant (MQTT)", "bool", "connections"),
@@ -156,9 +161,10 @@ FIELDS: list[Field] = [
           "(Settings → Users shows it), port 8765. Takes effect when the app starts again. Servers use web.bind."),
     # -- updates
     Field("update.mode", "When a new version is out", "choice", "updates",
-          "Checked once a day against the git repository this copy came from. Installing never overwrites "
-          "anything of yours, backs up the database first, and goes back if the new version fails its check.",
-          choices=(("notify", "Tell me (push and digest)"), ("install", "Install it and restart"), ("off", "Don't check"))),
+          "Checked once a day. A new version is installed only when an admin clicks Update now. Installing "
+          "never overwrites anything of yours, backs up the database first, and goes back if the new version "
+          "fails its check.",
+          choices=(("notify", "Tell me (push and digest)"), ("off", "Don't check"))),
     Field("update.interval_hours", "Check every (hours)", "int", "updates"),
     # -- users (the install's)
     Field("users.share_keys", "Other users may use this install's Anthropic key", "bool", "users",
@@ -275,6 +281,7 @@ class UiSettings:
         self.store, self.vault, self.uid = store, vault, uid
         store.db.executescript(SCHEMA)
         self._copy_old_table()
+        self._move_to_install()
         for old, new in RENAMED.items():   # settings a later version renamed keep their saved value
             store.db.execute("UPDATE OR IGNORE settings_by_user SET key=? WHERE key=?", (new, old))
 
@@ -290,6 +297,24 @@ class UiSettings:
             uid = INSTALL if field is not None and field.scope == "install" else 1
             db.execute("INSERT OR IGNORE INTO settings_by_user (user_id, key, value, encrypted, updated_at) "
                        "VALUES (?, ?, ?, ?, ?)", (uid, key, r["value"], r["encrypted"], r["updated_at"]))
+
+    def _move_to_install(self) -> None:
+        """Once: settings that became the install's take user 1's saved value. Other users' values stay
+        in the database, unused."""
+        store, db = self.store, self.store.db
+        for key in MOVED_TO_INSTALL:
+            if store.get_meta(f"settings.moved.{key}"):
+                continue
+            rows = db.execute("SELECT user_id, value, encrypted, updated_at FROM settings_by_user "
+                              "WHERE key=? AND user_id<>?", (key, INSTALL)).fetchall()
+            for r in rows:
+                if r["user_id"] == 1:
+                    db.execute("INSERT OR IGNORE INTO settings_by_user (user_id, key, value, encrypted, updated_at) "
+                               "VALUES (?, ?, ?, ?, ?)", (INSTALL, key, r["value"], r["encrypted"], r["updated_at"]))
+                else:
+                    log.warning("Settings: %s is now set by admins for everyone (Settings → Connections); "
+                                "user %d's own value is no longer used", key, r["user_id"])
+            store.set_meta(f"settings.moved.{key}", "1")
 
     def _owner(self, key: str) -> int:
         field = BY_KEY.get(key)

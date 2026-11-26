@@ -903,11 +903,11 @@ class Runner:
         folder = user_folder(self.data_dir, uid)
         data["scoring"].update(profile_path=str(folder / "profile.md"), resume_dir=str(folder / "resumes"),
                                stories_dir=str(folder / "stories"))
-        data["notify"].update(topic="", token="")
+        data["notify"].update(topic="", token="", server=base.notify.server)   # the server is the install's
         cfg = Config.model_validate(data)
         cfg.config_dir, cfg.companies = base.config_dir, base.companies
         cfg.value_sources = {k: v for k, v in base.value_sources.items() if k.split(".")[0] not in PERSONAL_SECTIONS
-                             or (k.startswith("pay.") and k.split(".")[1] not in PERSONAL_PAY)}
+                             or (k.startswith("pay.") and k.split(".")[1] not in PERSONAL_PAY) or k == "notify.server"}
         return cfg
 
     def config_for(self, uid: int) -> Config:
@@ -1196,15 +1196,13 @@ class Runner:
             await asyncio.sleep(max(1, self.cfg.update.interval_hours) * 3600)
 
     async def check_updates(self, act: bool = True) -> updater.UpdateStatus:
-        """Look for a new version; with update.mode "notify", push once per new version; with "install",
-        install it and restart (when nothing of yours is in the way; otherwise just notify)."""
+        """Look for a new version and, with update.mode "notify", push once per new version. Installing
+        is only ever started by an admin (Settings → Updates, `jobalerts update`)."""
         status = await asyncio.to_thread(updater.check)
         self.store.set_meta(updater.STATUS_META, status.to_json())
         if not act or not status.available or self.cfg.update.mode == "off":
             return status
-        if self.cfg.update.mode == "install" and status.can_install:
-            await self.install_update()
-        elif self.store.get_meta("update.notified") != status.latest:
+        if self.store.get_meta("update.notified") != status.latest:
             if status.commits:
                 changes = "\n".join(f"• {c.split(' ', 1)[-1]}" for c in status.commits[:5])
                 more = f"\n…and {status.behind - 5} more" if status.behind > 5 else ""

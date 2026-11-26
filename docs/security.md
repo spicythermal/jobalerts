@@ -14,7 +14,8 @@ housing cost, household, email, profile, stories, resumes).
   logins are delayed 30 seconds, doubling up to 15 minutes. An unknown username and a wrong password
   get the same answer. `jobalerts set-password [NAME]` resets a password (default: the first admin).
 - Sessions: HMAC-signed, HttpOnly, SameSite=Lax cookies, valid 30 days. A user's other sessions end
-  when their password, role or access changes. Set `web.secure_cookies: true` when serving over HTTPS.
+  when their password, role or access changes. Logging out ends the session on the server too: a copy
+  of the cookie stops working. Set `web.secure_cookies: true` when serving over HTTPS.
 - Every form and htmx request requires a CSRF token.
 - Headers: Content-Security-Policy (scripts from the app only; the map page also loads Leaflet and
   state outlines from public CDNs), `nosniff`, `no-store`. Job board text is escaped; only http(s)
@@ -33,7 +34,7 @@ are polled once for everyone; the postings themselves are shared.
 |---|---|---|
 | Own jobs, filter, stories, profile, resumes, situation, alerts, own keys, account | yes | yes |
 | Boards page | view | view and edit |
-| Users, Connections, Updates, the install's API keys | no (403) | yes |
+| Users, Connections (including the ntfy server), Updates, the install's API keys | no (403) | yes |
 
 - Pages take the user from the session, never from the request. `tests/test_isolation.py` gives two
   users planted values in every personal field and checks every page, form, job page, story, resume,
@@ -75,7 +76,8 @@ address, so the login delay applies to everyone.
 - The browser never receives a key. The page shows only whether each key is set, its source (`.env`
   or Settings) and when it was saved. Key fields are always empty, including after a failed save.
 - The service reads keys to use them. In the web code, only the Test buttons (Anthropic, USAJobs)
-  read a key, to call that provider; the result shown is redacted.
+  read a key, to call that provider. A failed test shows only the error type; the details go to the
+  log.
 - A key in the environment or `.env` overrides a saved key and can only be changed there.
 - Logs replace known key values and key-like URL parameters (`app_key=`, `token=`) with `[redacted]`,
   including in tracebacks.

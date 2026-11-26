@@ -350,6 +350,82 @@ def test_old_sessions_are_logged_out(web):
     assert old.get("/").status_code == 303
 
 
+def test_logging_out_ends_the_session_for_every_copy_of_the_cookie(web):
+    runner, app, admin = web
+    copy = TestClient(app, follow_redirects=False, cookies={auth.COOKIE: admin.cookies.get(auth.COOKIE)})
+    assert copy.get("/").status_code == 200
+    admin.post("/logout", data={"csrf": csrf_of(admin, "/settings/account")})
+    assert admin.get("/").status_code == 303 and copy.get("/").status_code == 303
+    # a login from before session ids gets one, and logging out ends it too
+    owner = runner.users.get(OWNER)
+    cookie = auth.Signer(b"w" * 32).dumps({"csrf": "x", "uid": OWNER, "ver": owner.ver, "exp": 4_000_000_000})
+    r = TestClient(app, follow_redirects=False, cookies={auth.COOKIE: cookie}).get("/")
+    assert r.status_code == 200 and auth.Signer(b"w" * 32).loads(r.cookies[auth.COOKIE])["sid"]
+    older = TestClient(app, follow_redirects=False, cookies={auth.COOKIE: r.cookies[auth.COOKIE]})
+    copy = TestClient(app, follow_redirects=False, cookies={auth.COOKIE: r.cookies[auth.COOKIE]})
+    older.post("/logout", data={"csrf": "x"})
+    assert copy.get("/").status_code == 303
+
+
+def form_fields(html: str) -> dict:
+    """A settings form's current values, as the browser would send them."""
+    data = {}
+    for m in re.finditer(r"<input([^>]*)>", html):
+        attrs = m.group(1)
+        name, value = re.search(r'name="([^"]+)"', attrs), re.search(r'value="([^"]*)"', attrs)
+        if name and not ('type="checkbox"' in attrs and "checked" not in attrs):
+            data[name.group(1)] = value.group(1) if value else ""
+    for m in re.finditer(r'<select name="([^"]+)".*?</select>', html, re.S):
+        chosen = re.search(r'<option value="([^"]*)"[^>]*selected', m.group(0))
+        data[m.group(1)] = chosen.group(1) if chosen else ""
+    return data
+
+
+def test_only_admins_choose_the_ntfy_server(web):
+    runner, app, admin = web
+    alex = add_user(app, admin, "alex")
+    uid = runner.users.by_name("alex").id
+    form = form_fields(alex.get("/settings/alerts").text)
+    assert "notify.server" not in form
+    alex.post("/settings/alerts", data={**form, "notify.server": "http://127.0.0.1:9/x"})
+    assert runner.person(uid).notifier.cfg.server == "https://ntfy.sh"
+    assert alex.post("/settings/connections", data={**form, "notify.server": "http://127.0.0.1:9/x"}).status_code == 403
+    form = form_fields(admin.get("/settings/connections").text)
+    r = admin.post("/settings/connections", data={**form, "notify.server": "file:///etc/passwd"})
+    assert r.status_code == 200 and runner.person(uid).notifier.cfg.server == "https://ntfy.sh"
+    r = admin.post("/settings/connections", data={**form, "notify.server": "https://ntfy.example.org"})
+    assert r.status_code == 303
+    assert {p.notifier.cfg.server for p in runner.everyone()} == {"https://ntfy.example.org"}
+
+
+def test_a_users_own_ntfy_server_becomes_the_installs(tmp_path, caplog):
+    store = Store(tmp_path / "jobs.db")
+    v = vault.Vault(store, b"n" * 32)
+    UiSettings(store, v)   # the table
+    for uid, server in ((1, "https://ntfy.example.org"), (2, "http://10.0.0.5")):
+        store.db.execute("INSERT INTO settings_by_user (user_id, key, value, encrypted, updated_at) "
+                         "VALUES (?, 'notify.server', ?, 0, '2026-01-01')", (uid, f'"{server}"'))
+    store.delete_meta("settings.moved.notify.server")
+    UiSettings(store, v)
+    assert "user 2's own value is no longer used" in caplog.text
+    for uid in (1, 2, 3):
+        assert UiSettings(store, v, uid).values() == {"notify.server": "https://ntfy.example.org"}
+
+
+def test_a_failed_key_test_shows_no_details(web):
+    import httpx
+    runner, app, admin = web
+    alex = add_user(app, admin, "alex")
+
+    def refuse(request):
+        raise httpx.ConnectError("connecting to 10.1.2.3:8080 refused")
+    app.state.web.test_transport = httpx.MockTransport(refuse)
+    alex.post("/settings/keys/mine/ANTHROPIC_API_KEY", data={"csrf": csrf_of(alex, "/settings/keys"),
+                                                             "value": "sk-test-key-123"})
+    html = alex.post("/settings/keys/mine/ANTHROPIC_API_KEY/test", data={"csrf": csrf_of(alex, "/settings/keys")}).text
+    assert "The log has the details" in html and "10.1.2.3" not in html
+
+
 def test_the_desktop_app_listens_on_the_network_when_asked(tmp_path, monkeypatch):
     monkeypatch.delenv("JOBALERTS_DB", raising=False)
     home = tmp_path / "home"

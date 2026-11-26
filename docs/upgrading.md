@@ -39,8 +39,9 @@ previous version still runs on the database if you go back (without what changed
 ## Python install (git checkout)
 
 The service checks the repository daily. Settings → Updates (`update.mode`): *Tell me* (default:
-one push per new version, and a line in the digest), *Install it*, or *Don't check*.
-`jobalerts update` installs now; `jobalerts update --check` shows what's new.
+one push per new version, and a line in the digest) or *Don't check*. A new version is installed only
+when an admin clicks **Update now** or runs `jobalerts update`; `jobalerts update --check` shows
+what's new. An older `update.mode: install` is read as *Tell me*.
 
 Installing:
 

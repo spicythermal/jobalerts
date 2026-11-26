@@ -3,10 +3,11 @@ the first-run setup code and the read-only share token for the Home Assistant ma
 
 Standard library only:
 - Password: scrypt (n=2**14, r=8, p=1) with a random salt, stored in the `users` table.
-- Session: a cookie holding JSON {csrf, uid, ver, exp}, signed with HMAC-SHA256 under a key kept in
-  the data folder (`secret.key`, 0600). A user's `ver` goes up when their password, role or access
-  changes, which logs out their other sessions. HttpOnly, SameSite=Lax, and Secure when
-  `web.secure_cookies` is set.
+- Session: a cookie holding JSON {csrf, uid, ver, exp, sid}, signed with HMAC-SHA256 under a key kept
+  in the data folder (`secret.key`, 0600). A user's `ver` goes up when their password, role or access
+  changes, which logs out their other sessions. Logging out records the session's random `sid`
+  (table ended_sessions), so a copy of the cookie stops working too. HttpOnly, SameSite=Lax, and
+  Secure when `web.secure_cookies` is set.
 - CSRF: every visitor's session carries a random token; every POST must send it back as the `csrf`
   form field or the `X-CSRF-Token` header (htmx sends the header, see base.html).
 - First run: with no account yet, a one-time setup code is printed to the log; /setup asks for it,
@@ -94,6 +95,7 @@ class Session:
     uid: int = 0          # the logged-in user's id; 0 = nobody
     ver: int = 0          # the user's version it was issued under
     exp: int = 0          # unix time
+    sid: str = ""         # this login's id, recorded when it logs out
     changed: bool = False  # needs a new cookie on the response
 
     @classmethod
@@ -105,7 +107,7 @@ class Session:
         return self.uid > 0
 
     def payload(self) -> dict:
-        return {"csrf": self.csrf, "uid": self.uid, "ver": self.ver, "exp": self.exp}
+        return {"csrf": self.csrf, "uid": self.uid, "ver": self.ver, "exp": self.exp, "sid": self.sid}
 
 
 @dataclass

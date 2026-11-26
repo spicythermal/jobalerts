@@ -8,8 +8,8 @@ each overriding the one before:
 3. The Settings page: stored in the database; personal values encrypted.
 
 With several users: Your situation, the Filter page, Scoring and alerts, profile, stories, resumes and
-the ntfy topic and token are each user's own. Connections, Updates, Users, the watch list and the
-other keys are the install's; admins change them. `data/config.local.yaml` and `.env` are the first
+the ntfy topic and token are each user's own. Connections (including the ntfy server), Updates, Users,
+the watch list and the other keys are the install's; admins change them. `data/config.local.yaml` and `.env` are the first
 admin's: other users start from `config/config.yaml` for their own sections.
 
 | File | Contents |
@@ -107,7 +107,8 @@ Assistant, and the four aggregators. To turn one off with its key set, use the S
 ## Phone pushes
 
 Install the ntfy app and subscribe to your `NTFY_TOPIC` on `ntfy.sh`. Anyone who knows the topic
-name can read it; use a long random name. Self-hosted: set `notify.server` and `NTFY_TOKEN`.
+name can read it; use a long random name. Self-hosted: set the ntfy server on Settings → Connections
+(`notify.server`, one for all users) and each user's token under API keys (`NTFY_TOKEN`).
 
 ## Pay index (`pay`)
 

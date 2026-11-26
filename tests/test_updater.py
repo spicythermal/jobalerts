@@ -1,5 +1,5 @@
 """Updates from the repository: what's new, refusing when something of yours is in the way, installing
-with a backup and a rollback, and the service's notify / install modes."""
+with a backup and a rollback, and update checks that notify but never install."""
 import re
 import subprocess
 
@@ -145,9 +145,25 @@ def test_notify_mode_pushes_once_per_version(env, monkeypatch):
     assert len([m for m in notifier.sent if m["title"].startswith("Job alerts update")]) == 1
 
 
-def test_install_mode_installs_and_restarts(env, monkeypatch):
+def test_checks_never_install(env, monkeypatch):
+    """A new version is only installed when an admin asks; an old `update.mode: install` means notify."""
+    from jobalerts.config import UpdateConfig
     fake, runner, board, store, notifier = env
-    runner.cfg.update.mode = "install"
+    assert UpdateConfig(mode="install").mode == "notify"
+    monkeypatch.setattr(updater, "check", lambda *a, **k: status())
+    installs = []
+    monkeypatch.setattr(updater, "install", lambda *a, **k: installs.append(1) or (True, "updated"))
+    run(runner.check_updates())
+    assert not installs and not runner.restart_requested
+    assert notifier.sent[-1]["title"].startswith("Job alerts update")
+    store.delete_meta("update.notified")
+    monkeypatch.setattr(updater, "check", lambda *a, **k: status(problem="shipped files were changed here (x)"))
+    run(runner.check_updates())
+    assert not installs and "Can't install it on its own" in notifier.sent[-1]["message"]
+
+
+def test_an_admins_install_restarts(env, monkeypatch):
+    fake, runner, board, store, notifier = env
     monkeypatch.setattr(updater, "check", lambda *a, **k: status())
     monkeypatch.setattr(updater, "install", lambda *a, **k: (True, "updated aaa1111 → bbb2222 (2 changes)"))
 
@@ -155,18 +171,13 @@ def test_install_mode_installs_and_restarts(env, monkeypatch):
         runner.running = True
         runner._main_task = asyncio.current_task()
         try:
-            await runner.check_updates()
+            await runner.install_update()
             await asyncio.sleep(2)
         except asyncio.CancelledError:
             return "restarted"
     import asyncio
     assert run(go()) == "restarted" and runner.restart_requested
     assert notifier.sent[-1]["title"] == "Job alerts updated"
-    runner.restart_requested = False
-    monkeypatch.setattr(updater, "check", lambda *a, **k: status(problem="shipped files were changed here (x)"))
-    store.delete_meta("update.notified")
-    run(runner.check_updates())
-    assert not runner.restart_requested and "Can't install it on its own" in notifier.sent[-1]["message"]
 
 
 def test_updates_page(env, monkeypatch):
@@ -194,7 +205,9 @@ def test_updates_page(env, monkeypatch):
     assert client.post("/settings/updates/install").status_code == 403 and not installs
     assert "Restart jobalerts" in client.post("/settings/updates/install", data={"csrf": token}).text and installs
     r = client.post("/settings/updates", data={"csrf": token, "update.mode": "install", "update.interval_hours": "24"})
-    assert r.status_code == 303 and runner.cfg.update.mode == "install"
+    assert r.status_code == 200 and "Pick one of the options" in r.text and runner.cfg.update.mode == "notify"
+    r = client.post("/settings/updates", data={"csrf": token, "update.mode": "off", "update.interval_hours": "24"})
+    assert r.status_code == 303 and runner.cfg.update.mode == "off"
 
 
 def test_restart_runs_the_same_command_with_the_new_code(monkeypatch):

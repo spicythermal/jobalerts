@@ -155,8 +155,9 @@ def add_settings_routes(app: FastAPI, state, page, require_csrf) -> None:
             raise HTTPException(404)
         try:
             ok, message = await TESTS[name](state.me(request), runner, state.test_transport, uid)
-        except Exception as e:  # report, never echo a value
-            ok, message = False, f"{type(e).__name__}: {e}"
+        except Exception as e:  # the details (addresses, server answers) go to the log, not the page
+            log.warning("Test of %s failed: %s: %s", name, type(e).__name__, e)
+            ok, message = False, f"The test failed ({type(e).__name__}). The log has the details."
         message = _redactor.redact(message)
         return page(request, "key_test.html", ok=ok, message=message)
 

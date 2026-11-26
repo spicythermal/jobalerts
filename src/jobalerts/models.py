@@ -13,6 +13,12 @@ _COMPANY_SUFFIXES = {
 }
 
 
+
+def web_url(url: str | None) -> str:
+    """A link from a job board, only if it's http(s): never `javascript:` or `data:` from a posting."""
+    return url if isinstance(url, str) and url.lower().startswith(("https://", "http://")) else "#"
+
+
 @dataclass
 class Job:
     source: str          # adapter name: greenhouse, lever, usajobs, ...

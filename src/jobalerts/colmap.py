@@ -12,7 +12,7 @@ import re
 from importlib.resources import files
 
 from . import col
-from .models import utcnow
+from .models import utcnow, web_url
 
 SALARIES = list(range(100_000, 400_001, 5_000))   # the slider's steps, $5K apart
 BREAK_EVEN_RANGE = (10_000, 5_000_000)
@@ -46,7 +46,7 @@ def _jobs(pi: col.PayIndex, coords: dict, rows: list[dict], kind: str, taken: di
         loc = j.get("location") or ""
         place = pi.resolve(loc, remote="remote" in loc.lower())
         job = {"kind": kind, "title": j.get("title", ""), "company": j.get("company", ""), "location": loc,
-               "salary": j.get("salary", ""), "url": j.get("url", ""), "fit": j.get("score"),
+               "salary": j.get("salary", ""), "url": web_url(j.get("url")), "fit": j.get("score"),
                "step_up": j.get("step_up"), "step_up_note": j.get("step_up_note", ""), "age": j.get("age", ""),
                "rent": j.get("pay_index"), "rent_low": j.get("pay_low"), "rent_high": j.get("pay_high"),
                "buy": j.get("buy_index"), "buy_low": j.get("buy_low"), "buy_high": j.get("buy_high"),

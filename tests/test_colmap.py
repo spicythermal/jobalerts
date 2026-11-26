@@ -74,6 +74,13 @@ def test_render_inlines_the_data_safely(pay):
     assert "leaflet/1.9.4" in html and "us-atlas@3.0.1" in html
 
 
+def test_only_web_links_reach_the_map(pay):
+    data = colmap.build_map_data(pay, [job(1, "Austin, TX", url="javascript:alert(1)"),
+                                       job(2, "Nowhere", url="data:text/html,x"), job(3, "Boston, MA")])
+    urls = {j["title"]: j["url"] for j in data["jobs"] + data["unplaced"]}
+    assert urls == {"Job 1": "#", "Job 2": "#", "Job 3": "https://x/3"}
+
+
 def test_cli_writes_the_page(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)                                     # no database here: map without jobs
     out = tmp_path / "out" / "map.html"
